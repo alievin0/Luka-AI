@@ -66,6 +66,20 @@ back, and continues until the model is done.
 | `lib/anthropic.ts` | Shared `structuredCall` helper (forced tool → guaranteed JSON) |
 | `lib/speech.ts` | Browser TTS (interviewer voice) + speech recognition wrappers |
 
+## 📱 Deploy online (try it on your phone)
+
+The fastest way to get Luka on your phone is Vercel (free, ~3 minutes):
+
+1. Go to [vercel.com/new](https://vercel.com/new) and sign in **with your GitHub account**.
+2. Import the `Luka-AI` repository and pick the branch you want to deploy.
+3. When asked for Environment Variables, add:
+   - `ANTHROPIC_API_KEY` — required ([get one here](https://console.anthropic.com/))
+   - `ELEVENLABS_API_KEY` — optional, for the realistic interviewer voice
+4. Press **Deploy** — you'll get a `https://….vercel.app` link that works on your phone.
+
+> 📵 Camera + mic features (interview, monitoring) require HTTPS — the Vercel
+> link satisfies this automatically. On iPhone use Safari; on Android use Chrome.
+
 ## 🚀 Getting started
 
 ### 1. Install dependencies
