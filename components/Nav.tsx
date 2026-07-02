@@ -7,6 +7,7 @@ const LINKS = [
   { href: "/", label: "التسوّق", emoji: "🛍️" },
   { href: "/interview", label: "محاكي المقابلات", emoji: "🎤" },
   { href: "/coach", label: "مرافقي اليومي", emoji: "🌱" },
+  { href: "/monitor", label: "المراقبة اليومية", emoji: "🧘" },
   { href: "/events", label: "مناسبات العائلة", emoji: "📅" },
 ];
 
