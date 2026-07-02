@@ -7,6 +7,9 @@ and reviews, and brings back the best options as cards with working store links.
 
 ![stack](https://img.shields.io/badge/Next.js-14-black) ![stack](https://img.shields.io/badge/TypeScript-5-blue) ![model](https://img.shields.io/badge/Claude-Opus%204.8-7c3aed)
 
+> 🤖 **جديد:** نواة عقل وجسم لروبوت فيزيائي حقيقي مستقل — انظر [`robot/`](robot/README.md)
+> (حلقة إحساس→تفكير→تنفيذ بالعربي، محاكاة على اللابتوب + جسم Raspberry Pi حقيقي، وخارطة طريق كاملة لبناء الجسم).
+
 ## ✨ Features
 
 - **Shops the real web autonomously** — uses Claude's server-side `web_search` and
