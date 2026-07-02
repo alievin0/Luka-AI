@@ -1,26 +1,44 @@
-import { getProductById, Product, CURRENCY } from "./products";
+// The cart holds products the agent discovered on the real web — a shortlist
+// with links back to the store. No real purchase happens here.
+
+export type ExternalProduct = {
+  title: string;
+  url?: string;
+  store?: string;
+  price?: number;
+  currency?: string;
+  rating?: number;
+  note?: string;
+  emoji?: string;
+};
 
 export type CartItem = {
-  product: Product;
+  id: string;
+  product: ExternalProduct;
   quantity: number;
-  lineTotal: number;
 };
 
 export type CartView = {
   items: CartItem[];
   itemCount: number;
-  subtotal: number;
-  currency: string;
+  /** Per-currency totals, since finds can come from stores in different currencies. */
+  totals: Array<{ currency: string; amount: number }>;
 };
 
-// In-memory cart store keyed by an opaque session id supplied by the client.
-// This is intentionally simple — for a real app you'd back this with a DB.
-const carts = new Map<string, Map<string, number>>();
+// In-memory store keyed by an opaque session id supplied by the client.
+// For a real app you'd back this with a database.
+const carts = new Map<string, CartItem[]>();
 
-function getStore(sessionId: string): Map<string, number> {
+let idCounter = 0;
+function nextId(): string {
+  idCounter += 1;
+  return `f-${Date.now().toString(36)}-${idCounter}`;
+}
+
+function getStore(sessionId: string): CartItem[] {
   let store = carts.get(sessionId);
   if (!store) {
-    store = new Map();
+    store = [];
     carts.set(sessionId, store);
   }
   return store;
@@ -28,43 +46,51 @@ function getStore(sessionId: string): Map<string, number> {
 
 export function addToCart(
   sessionId: string,
-  productId: string,
+  product: ExternalProduct,
   quantity = 1,
 ): { ok: boolean; message: string } {
-  const product = getProductById(productId);
-  if (!product) {
-    return { ok: false, message: `No product found with id "${productId}".` };
-  }
-  if (!product.inStock) {
-    return { ok: false, message: `${product.name} is out of stock.` };
+  if (!product.title?.trim()) {
+    return { ok: false, message: "Cannot add an item without a title." };
   }
   const qty = Math.max(1, Math.floor(quantity || 1));
   const store = getStore(sessionId);
-  store.set(productId, (store.get(productId) || 0) + qty);
-  return {
-    ok: true,
-    message: `Added ${qty} × ${product.name} to the cart.`,
-  };
+
+  // If the same product (by URL, or by title when no URL) is already saved,
+  // just bump the quantity instead of duplicating.
+  const existing = store.find((item) =>
+    product.url
+      ? item.product.url === product.url
+      : item.product.title.toLowerCase() === product.title.toLowerCase(),
+  );
+  if (existing) {
+    existing.quantity += qty;
+    return {
+      ok: true,
+      message: `Increased quantity of "${product.title}" to ${existing.quantity}.`,
+    };
+  }
+
+  store.push({ id: nextId(), product, quantity: qty });
+  return { ok: true, message: `Added "${product.title}" to the cart.` };
 }
 
 export function removeFromCart(
   sessionId: string,
-  productId: string,
-  quantity?: number,
+  ref: string,
 ): { ok: boolean; message: string } {
   const store = getStore(sessionId);
-  const current = store.get(productId);
-  const product = getProductById(productId);
-  const label = product ? product.name : productId;
-  if (!current) {
-    return { ok: false, message: `${label} is not in the cart.` };
+  const needle = ref.trim().toLowerCase();
+  const idx = store.findIndex(
+    (item) =>
+      item.id === ref ||
+      item.product.title.toLowerCase().includes(needle) ||
+      (item.product.url && item.product.url.toLowerCase() === needle),
+  );
+  if (idx === -1) {
+    return { ok: false, message: `No cart item matches "${ref}".` };
   }
-  if (quantity === undefined || quantity >= current) {
-    store.delete(productId);
-    return { ok: true, message: `Removed ${label} from the cart.` };
-  }
-  store.set(productId, current - Math.max(1, Math.floor(quantity)));
-  return { ok: true, message: `Updated quantity for ${label}.` };
+  const [removed] = store.splice(idx, 1);
+  return { ok: true, message: `Removed "${removed.product.title}" from the cart.` };
 }
 
 export function clearCart(sessionId: string): void {
@@ -72,30 +98,25 @@ export function clearCart(sessionId: string): void {
 }
 
 export function getCart(sessionId: string): CartView {
-  const store = carts.get(sessionId);
-  const items: CartItem[] = [];
-  let subtotal = 0;
+  const store = carts.get(sessionId) ?? [];
+  const totalsMap = new Map<string, number>();
   let itemCount = 0;
 
-  if (store) {
-    for (const [productId, quantity] of Array.from(store.entries())) {
-      const product = getProductById(productId);
-      if (!product) continue;
-      const lineTotal = round2(product.price * quantity);
-      subtotal += lineTotal;
-      itemCount += quantity;
-      items.push({ product, quantity, lineTotal });
+  for (const item of store) {
+    itemCount += item.quantity;
+    if (typeof item.product.price === "number") {
+      const currency = item.product.currency?.trim() || "USD";
+      totalsMap.set(
+        currency,
+        (totalsMap.get(currency) || 0) + item.product.price * item.quantity,
+      );
     }
   }
 
-  return {
-    items,
-    itemCount,
-    subtotal: round2(subtotal),
-    currency: CURRENCY,
-  };
-}
+  const totals = Array.from(totalsMap.entries()).map(([currency, amount]) => ({
+    currency,
+    amount: Math.round(amount * 100) / 100,
+  }));
 
-function round2(n: number): number {
-  return Math.round(n * 100) / 100;
+  return { items: [...store], itemCount, totals };
 }

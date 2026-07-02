@@ -1,130 +1,129 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import {
-  searchProducts,
-  getProductById,
-  CATEGORIES,
-  type SearchParams,
-} from "./products";
-import { addToCart, removeFromCart, getCart, clearCart } from "./cart";
+  addToCart,
+  removeFromCart,
+  getCart,
+  clearCart,
+  type ExternalProduct,
+  type CartView,
+} from "./cart";
 
+// Custom (client-executed) tools. Web search / web fetch are server tools and
+// are appended in the API route.
 export const TOOLS: Anthropic.Tool[] = [
   {
-    name: "search_products",
+    name: "present_products",
     description:
-      "Search the Luka product catalog. Use this whenever the shopper is looking " +
-      "for something, asking for recommendations, comparing options, or filtering " +
-      "by budget. Returns matching products with id, name, brand, price, and rating. " +
-      "Only products returned here exist — never invent products.",
+      "Display a curated list of products you found on the web as rich cards in the " +
+      "shopping UI. Call this with your top picks (up to 8) after researching, so the " +
+      "shopper sees name, price, store, and a working link for each. Only include " +
+      "products you actually found via web search/fetch — never invent items, prices, " +
+      "or URLs.",
     input_schema: {
       type: "object",
       properties: {
-        query: {
-          type: "string",
-          description:
-            "Free-text search terms in English or Arabic (e.g. 'laptop for work', 'سماعات').",
-        },
-        category: {
-          type: "string",
-          enum: CATEGORIES,
-          description: "Optional category filter.",
-        },
-        minPrice: { type: "number", description: "Minimum price filter." },
-        maxPrice: {
-          type: "number",
-          description: "Maximum price / budget filter.",
-        },
-        minRating: {
-          type: "number",
-          description: "Minimum average rating (0-5).",
-        },
-        brand: { type: "string", description: "Optional brand filter." },
-        sortBy: {
-          type: "string",
-          enum: ["price_asc", "price_desc", "rating_desc"],
-          description: "How to sort the results.",
-        },
-        limit: {
-          type: "number",
-          description: "Max number of results to return (default 6).",
+        items: {
+          type: "array",
+          description: "The products to display, best recommendation first.",
+          items: {
+            type: "object",
+            properties: {
+              title: { type: "string", description: "Product name/title." },
+              url: {
+                type: "string",
+                description: "Direct link to the product page you found.",
+              },
+              store: {
+                type: "string",
+                description: "Store or marketplace name (e.g. Amazon, Noon).",
+              },
+              price: {
+                type: "number",
+                description: "Price as a number, if known.",
+              },
+              currency: {
+                type: "string",
+                description: "ISO currency code or symbol (e.g. USD, SAR, €).",
+              },
+              rating: {
+                type: "number",
+                description: "Average rating out of 5, if shown on the page.",
+              },
+              note: {
+                type: "string",
+                description:
+                  "One short line on why this pick fits the shopper (in their language).",
+              },
+              emoji: {
+                type: "string",
+                description: "A single emoji representing the product.",
+              },
+            },
+            required: ["title"],
+          },
         },
       },
-      required: [],
-    },
-  },
-  {
-    name: "get_product_details",
-    description:
-      "Get full details for a single product by its id (e.g. 'p-1003'). Use after " +
-      "search when the shopper wants more information about a specific item.",
-    input_schema: {
-      type: "object",
-      properties: {
-        productId: { type: "string", description: "The product id, e.g. 'p-1003'." },
-      },
-      required: ["productId"],
+      required: ["items"],
     },
   },
   {
     name: "add_to_cart",
     description:
-      "Add a product to the shopper's cart by id. Only call this after the shopper " +
-      "has expressed clear intent to buy or add the item.",
+      "Save a product you found on the web to the shopper's cart (a shortlist with " +
+      "links — no real purchase happens). Include as many details as you know. Call " +
+      "this when the shopper asks to add an item, or when they asked you to pick for " +
+      "them and you're adding your top choice.",
     input_schema: {
       type: "object",
       properties: {
-        productId: { type: "string", description: "The product id to add." },
-        quantity: {
-          type: "number",
-          description: "Quantity to add (default 1).",
-        },
+        title: { type: "string", description: "Product name/title." },
+        url: { type: "string", description: "Direct product page link." },
+        store: { type: "string", description: "Store or marketplace name." },
+        price: { type: "number", description: "Price as a number, if known." },
+        currency: { type: "string", description: "Currency code or symbol." },
+        rating: { type: "number", description: "Rating out of 5, if known." },
+        note: { type: "string", description: "Short note on why it was picked." },
+        emoji: { type: "string", description: "A single emoji for the product." },
+        quantity: { type: "number", description: "Quantity to add (default 1)." },
       },
-      required: ["productId"],
+      required: ["title"],
     },
   },
   {
     name: "remove_from_cart",
-    description: "Remove a product from the cart by id (or reduce its quantity).",
+    description:
+      "Remove an item from the cart. Pass the item id from view_cart, or the product " +
+      "title (partial match works).",
     input_schema: {
       type: "object",
       properties: {
-        productId: { type: "string", description: "The product id to remove." },
-        quantity: {
-          type: "number",
-          description:
-            "Quantity to remove. Omit to remove the item entirely.",
+        ref: {
+          type: "string",
+          description: "Cart item id, product title, or product URL.",
         },
       },
-      required: ["productId"],
+      required: ["ref"],
     },
   },
   {
     name: "view_cart",
     description:
-      "View the current contents and subtotal of the shopper's cart. Use when the " +
-      "shopper asks what's in their cart or how much it costs.",
-    input_schema: {
-      type: "object",
-      properties: {},
-      required: [],
-    },
+      "View the current cart contents and per-currency totals. Use when the shopper " +
+      "asks what's saved or how much everything costs.",
+    input_schema: { type: "object", properties: {}, required: [] },
   },
   {
     name: "clear_cart",
     description: "Empty the shopper's cart completely.",
-    input_schema: {
-      type: "object",
-      properties: {},
-      required: [],
-    },
+    input_schema: { type: "object", properties: {}, required: [] },
   },
 ];
 
 // A UI payload streamed alongside the model's text so the frontend can render
 // rich product / cart cards.
 export type ToolUi =
-  | { kind: "products"; products: ReturnType<typeof searchProducts> }
-  | { kind: "product"; product: NonNullable<ReturnType<typeof getProductById>> }
-  | { kind: "cart"; cart: ReturnType<typeof getCart> }
+  | { kind: "products"; products: ExternalProduct[] }
+  | { kind: "cart"; cart: CartView }
   | { kind: "notice"; message: string };
 
 export type ToolExecResult = {
@@ -141,59 +140,31 @@ export function executeTool(
 ): ToolExecResult {
   try {
     switch (name) {
-      case "search_products": {
-        const params: SearchParams = {
-          query: asString(input.query),
-          category: input.category as SearchParams["category"],
-          minPrice: asNumber(input.minPrice),
-          maxPrice: asNumber(input.maxPrice),
-          minRating: asNumber(input.minRating),
-          brand: asString(input.brand),
-          sortBy: input.sortBy as SearchParams["sortBy"],
-          limit: asNumber(input.limit),
-        };
-        const products = searchProducts(params);
+      case "present_products": {
+        const raw = Array.isArray(input.items) ? input.items : [];
+        const products = raw
+          .map(coerceProduct)
+          .filter((p): p is ExternalProduct => p !== null)
+          .slice(0, 8);
         if (products.length === 0) {
           return {
             resultText:
-              "No products matched those filters. Suggest loosening the budget or trying a different category.",
-            ui: { kind: "notice", message: "No matching products found." },
+              "No valid items were provided; nothing was displayed. Each item needs at least a title.",
           };
         }
         return {
-          resultText: JSON.stringify(
-            products.map((p) => ({
-              id: p.id,
-              name: p.name,
-              brand: p.brand,
-              category: p.category,
-              price: p.price,
-              rating: p.rating,
-            })),
-          ),
+          resultText: `Displayed ${products.length} product card(s) to the shopper. Don't repeat every spec in prose — summarize your recommendation briefly.`,
           ui: { kind: "products", products },
         };
       }
 
-      case "get_product_details": {
-        const id = asString(input.productId);
-        const product = id ? getProductById(id) : undefined;
-        if (!product) {
-          return {
-            resultText: `No product found with id "${id}".`,
-            ui: { kind: "notice", message: `Unknown product: ${id}` },
-          };
-        }
-        return {
-          resultText: JSON.stringify(product),
-          ui: { kind: "product", product },
-        };
-      }
-
       case "add_to_cart": {
-        const id = asString(input.productId) ?? "";
+        const product = coerceProduct(input);
+        if (!product) {
+          return { resultText: "add_to_cart requires at least a title." };
+        }
         const qty = asNumber(input.quantity) ?? 1;
-        const res = addToCart(sessionId, id, qty);
+        const res = addToCart(sessionId, product, qty);
         return {
           resultText: res.message,
           ui: { kind: "cart", cart: getCart(sessionId) },
@@ -201,9 +172,8 @@ export function executeTool(
       }
 
       case "remove_from_cart": {
-        const id = asString(input.productId) ?? "";
-        const qty = asNumber(input.quantity);
-        const res = removeFromCart(sessionId, id, qty);
+        const ref = asString(input.ref) ?? "";
+        const res = removeFromCart(sessionId, ref);
         return {
           resultText: res.message,
           ui: { kind: "cart", cart: getCart(sessionId) },
@@ -235,8 +205,25 @@ export function executeTool(
   }
 }
 
+function coerceProduct(v: unknown): ExternalProduct | null {
+  if (!v || typeof v !== "object") return null;
+  const o = v as Record<string, unknown>;
+  const title = asString(o.title);
+  if (!title) return null;
+  return {
+    title,
+    url: asString(o.url),
+    store: asString(o.store),
+    price: asNumber(o.price),
+    currency: asString(o.currency),
+    rating: asNumber(o.rating),
+    note: asString(o.note),
+    emoji: asString(o.emoji),
+  };
+}
+
 function asString(v: unknown): string | undefined {
-  return typeof v === "string" && v.length > 0 ? v : undefined;
+  return typeof v === "string" && v.trim().length > 0 ? v.trim() : undefined;
 }
 
 function asNumber(v: unknown): number | undefined {

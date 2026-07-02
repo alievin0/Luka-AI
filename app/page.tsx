@@ -1,18 +1,15 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { Product } from "@/lib/products";
-import type { CartView } from "@/lib/cart";
+import type { ExternalProduct, CartView } from "@/lib/cart";
 
 type ToolUi =
-  | { kind: "products"; products: Product[] }
-  | { kind: "product"; product: Product }
+  | { kind: "products"; products: ExternalProduct[] }
   | { kind: "cart"; cart: CartView }
   | { kind: "notice"; message: string };
 
 type Card =
-  | { kind: "products"; products: Product[] }
-  | { kind: "product"; product: Product }
+  | { kind: "products"; products: ExternalProduct[] }
   | { kind: "notice"; message: string };
 
 type ChatMessage = {
@@ -23,11 +20,16 @@ type ChatMessage = {
 };
 
 const SUGGESTIONS = [
-  "بدي سماعات لاسلكية تحت ١٠٠ دولار",
-  "لابتوب للشغل والدراسة",
-  "Compare your two laptops",
-  "شو في عندك هدايا رياضية؟",
+  "بدي سماعات سوني WH-1000XM5 بأرخص سعر — قارن المتاجر",
+  "اختارلي أفضل لابتوب للدراسة بحدود ١٠٠٠ دولار",
+  "بدي هدية لصديقي يحب الرياضة، ميزانيتي ٥٠ دولار",
+  "Find me the best-rated air fryer under $120",
 ];
+
+const STATUS_LABELS: Record<string, string> = {
+  web_search: "🔎 عم بدوّر بالمتاجر…",
+  web_fetch: "📄 عم بفتح صفحة منتج…",
+};
 
 function newId() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -37,11 +39,11 @@ export default function Home() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [status, setStatus] = useState<string | null>(null);
   const [cart, setCart] = useState<CartView>({
     items: [],
     itemCount: 0,
-    subtotal: 0,
-    currency: "$",
+    totals: [],
   });
   const [sessionId, setSessionId] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
@@ -62,12 +64,13 @@ export default function Home() {
       top: scrollRef.current.scrollHeight,
       behavior: "smooth",
     });
-  }, [messages, loading]);
+  }, [messages, loading, status]);
 
   async function sendMessage(text: string) {
     const trimmed = text.trim();
     if (!trimmed || loading) return;
     setError(null);
+    setStatus(null);
 
     const userMsg: ChatMessage = {
       id: newId(),
@@ -140,6 +143,7 @@ export default function Home() {
       setError(message);
     } finally {
       setLoading(false);
+      setStatus(null);
     }
   }
 
@@ -149,11 +153,17 @@ export default function Home() {
   ) {
     switch (event.type) {
       case "text":
+        setStatus(null);
         updateAssistant((m) => ({
           ...m,
           text: m.text + String(event.delta ?? ""),
         }));
         break;
+      case "status": {
+        const tool = String(event.tool ?? "");
+        setStatus(STATUS_LABELS[tool] ?? "⚙️ عم بشتغل…");
+        break;
+      }
       case "tool": {
         const ui = event.ui as ToolUi | undefined;
         if (!ui) break;
@@ -198,7 +208,15 @@ export default function Home() {
               <MessageBubble key={m.id} message={m} onAsk={sendMessage} />
             ))}
 
+            {loading && status && (
+              <div className="flex items-center gap-2 pr-11 text-sm text-slate-500">
+                <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-brand-500" />
+                {status}
+              </div>
+            )}
+
             {loading &&
+              !status &&
               messages[messages.length - 1]?.role === "assistant" &&
               messages[messages.length - 1]?.text === "" &&
               messages[messages.length - 1]?.cards.length === 0 && (
@@ -219,7 +237,7 @@ export default function Home() {
             <input
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="اكتب رسالتك… مثلاً: بدي سماعات تحت ١٠٠ دولار"
+              placeholder="اكتب شو بدك… مثلاً: بدي سماعات لاسلكية بأفضل سعر"
               className="flex-1 rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-100"
               disabled={loading}
             />
@@ -252,7 +270,9 @@ function Header({ itemCount }: { itemCount: number }) {
           </div>
           <div>
             <h1 className="text-lg font-bold leading-tight">Luka</h1>
-            <p className="text-xs text-slate-500">AI Shopping Agent</p>
+            <p className="text-xs text-slate-500">
+              متسوّقك الذكي — يبحث بمتاجر الويب الحقيقية
+            </p>
           </div>
         </div>
         <div className="flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-700">
@@ -267,9 +287,10 @@ function EmptyState({ onPick }: { onPick: (t: string) => void }) {
   return (
     <div className="mx-auto max-w-xl py-10 text-center">
       <div className="mb-3 text-5xl">🛍️</div>
-      <h2 className="text-xl font-bold">أهلاً! أنا Luka، مساعدك للتسوّق</h2>
+      <h2 className="text-xl font-bold">أهلاً! أنا Luka، متسوّقك الشخصي</h2>
       <p className="mt-2 text-sm text-slate-500">
-        خبّرني شو بتدوّر عليه وميزانيتك، ورح ساعدك تلاقي أفضل خيار وتجهّز سلتك.
+        خبّرني شو بدك وميزانيتك — بدوّر بالمتاجر عبر الإنترنت، بقارن الأسعار،
+        وبرجعلك أفضل الخيارات مع روابط الشراء.
       </p>
       <div className="mt-6 grid gap-2 sm:grid-cols-2">
         {SUGGESTIONS.map((s) => (
@@ -294,9 +315,10 @@ function MessageBubble({
   onAsk: (t: string) => void;
 }) {
   const isUser = message.role === "user";
+  if (!message.text && message.cards.length === 0) return null;
   return (
-    <div className={`flex ${isUser ? "justify-start" : "justify-start"}`}>
-      <div className={`flex w-full gap-3 ${isUser ? "flex-row" : "flex-row"}`}>
+    <div className="flex justify-start">
+      <div className="flex w-full gap-3">
         <div
           className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm ${
             isUser ? "bg-slate-200" : "bg-brand-600 text-white"
@@ -340,68 +362,74 @@ function CardRenderer({
       </div>
     );
   }
-  if (card.kind === "product") {
-    return (
-      <div className="grid grid-cols-1">
-        <ProductCard product={card.product} onAsk={onAsk} detailed />
-      </div>
-    );
-  }
   return (
     <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-      {card.products.map((p) => (
-        <ProductCard key={p.id} product={p} onAsk={onAsk} />
+      {card.products.map((p, i) => (
+        <ProductCard key={i} product={p} onAsk={onAsk} highlight={i === 0} />
       ))}
     </div>
   );
 }
 
+function formatPrice(p: ExternalProduct): string | null {
+  if (typeof p.price !== "number") return null;
+  const currency = p.currency ?? "USD";
+  return `~${p.price.toLocaleString()} ${currency}`;
+}
+
 function ProductCard({
   product,
   onAsk,
-  detailed = false,
+  highlight = false,
 }: {
-  product: Product;
+  product: ExternalProduct;
   onAsk: (t: string) => void;
-  detailed?: boolean;
+  highlight?: boolean;
 }) {
+  const price = formatPrice(product);
   return (
-    <div className="flex gap-3 rounded-xl border border-slate-200 bg-white p-3 transition hover:border-brand-300">
+    <div
+      className={`flex gap-3 rounded-xl border bg-white p-3 transition hover:border-brand-300 ${
+        highlight ? "border-brand-300 ring-1 ring-brand-100" : "border-slate-200"
+      }`}
+    >
       <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-3xl">
-        {product.emoji}
+        {product.emoji ?? "🛒"}
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0">
-            <p className="truncate text-sm font-semibold">{product.nameAr}</p>
-            <p className="truncate text-xs text-slate-400">{product.name}</p>
-          </div>
-          <p className="shrink-0 text-sm font-bold text-brand-700">
-            ${product.price.toFixed(2)}
-          </p>
+          <p className="text-sm font-semibold leading-snug">{product.title}</p>
+          {price && (
+            <p className="shrink-0 text-sm font-bold text-brand-700">{price}</p>
+          )}
         </div>
-        <div className="mt-1 flex items-center gap-2 text-xs text-slate-500">
-          <span>⭐ {product.rating.toFixed(1)}</span>
-          <span>•</span>
-          <span>{product.brand}</span>
+        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-slate-500">
+          {product.store && <span>🏬 {product.store}</span>}
+          {typeof product.rating === "number" && (
+            <span>⭐ {product.rating.toFixed(1)}</span>
+          )}
         </div>
-        {detailed && (
-          <p className="mt-2 text-xs leading-relaxed text-slate-600">
-            {product.descriptionAr}
+        {product.note && (
+          <p className="mt-1.5 text-xs leading-relaxed text-slate-600">
+            {product.note}
           </p>
         )}
-        <div className="mt-2 flex gap-2">
+        <div className="mt-2 flex flex-wrap gap-2">
+          {product.url && (
+            <a
+              href={product.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded-lg border border-brand-200 bg-brand-50 px-3 py-1.5 text-xs font-semibold text-brand-700 transition hover:bg-brand-100"
+            >
+              افتح بالمتجر ↗
+            </a>
+          )}
           <button
-            onClick={() => onAsk(`أضف ${product.nameAr} إلى السلة`)}
+            onClick={() => onAsk(`أضف "${product.title}" إلى السلة`)}
             className="rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-brand-700"
           >
             أضف للسلة
-          </button>
-          <button
-            onClick={() => onAsk(`خبّرني أكثر عن ${product.nameAr}`)}
-            className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-50"
-          >
-            تفاصيل
           </button>
         </div>
       </div>
@@ -413,7 +441,10 @@ function CartPanel({ cart }: { cart: CartView }) {
   return (
     <div className="flex h-full flex-col">
       <div className="border-b border-slate-200 px-4 py-3">
-        <h2 className="text-sm font-bold">🛒 سلة التسوّق</h2>
+        <h2 className="text-sm font-bold">🛒 مختاراتك</h2>
+        <p className="mt-0.5 text-[11px] text-slate-400">
+          قائمة بروابط الشراء — الدفع بيتم على موقع المتجر نفسه
+        </p>
       </div>
       <div className="scroll-area flex-1 space-y-2 overflow-y-auto p-3">
         {cart.items.length === 0 ? (
@@ -421,43 +452,58 @@ function CartPanel({ cart }: { cart: CartView }) {
             السلة فارغة بعد
           </p>
         ) : (
-          cart.items.map((item) => (
-            <div
-              key={item.product.id}
-              className="flex items-center gap-2 rounded-lg border border-slate-100 bg-slate-50 p-2"
-            >
-              <div className="flex h-9 w-9 items-center justify-center rounded bg-white text-xl">
-                {item.product.emoji}
+          cart.items.map((item) => {
+            const price = formatPrice(item.product);
+            return (
+              <div
+                key={item.id}
+                className="rounded-lg border border-slate-100 bg-slate-50 p-2"
+              >
+                <div className="flex items-center gap-2">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded bg-white text-xl">
+                    {item.product.emoji ?? "🛒"}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-xs font-semibold">
+                      {item.product.title}
+                    </p>
+                    <p className="text-[11px] text-slate-400">
+                      {item.quantity > 1 && `${item.quantity} × `}
+                      {price ?? "السعر غير مؤكد"}
+                      {item.product.store && ` • ${item.product.store}`}
+                    </p>
+                  </div>
+                </div>
+                {item.product.url && (
+                  <a
+                    href={item.product.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-1.5 block truncate text-[11px] font-medium text-brand-600 hover:underline"
+                  >
+                    افتح بالمتجر ↗
+                  </a>
+                )}
               </div>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-xs font-semibold">
-                  {item.product.nameAr}
-                </p>
-                <p className="text-[11px] text-slate-400">
-                  {item.quantity} × ${item.product.price.toFixed(2)}
-                </p>
-              </div>
-              <p className="text-xs font-bold text-slate-700">
-                ${item.lineTotal.toFixed(2)}
-              </p>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
       <div className="border-t border-slate-200 p-4">
-        <div className="flex items-center justify-between text-sm">
-          <span className="text-slate-500">المجموع</span>
-          <span className="text-lg font-bold">
-            ${cart.subtotal.toFixed(2)}
-          </span>
+        <div className="flex items-start justify-between text-sm">
+          <span className="text-slate-500">المجموع التقريبي</span>
+          <div className="text-left">
+            {cart.totals.length === 0 ? (
+              <span className="text-lg font-bold">—</span>
+            ) : (
+              cart.totals.map((t) => (
+                <div key={t.currency} className="text-base font-bold">
+                  ~{t.amount.toLocaleString()} {t.currency}
+                </div>
+              ))
+            )}
+          </div>
         </div>
-        <button
-          disabled={cart.items.length === 0}
-          className="mt-3 w-full rounded-xl bg-slate-900 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
-          onClick={() => alert("Checkout is a demo — no real payment is taken.")}
-        >
-          إتمام الشراء
-        </button>
       </div>
     </div>
   );
