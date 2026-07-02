@@ -1,13 +1,27 @@
-# 🛍️ Luka — AI Shopping Agent
+# 🛍️ Luka — AI Agent
 
-Luka is an AI shopping assistant powered by [Claude](https://www.anthropic.com/claude).
-Chat with it in **Arabic or English**, and it will search a product catalog,
-recommend and compare options, respect your budget, and build a cart for you — all
-through natural conversation backed by **tool use**.
+Luka is an AI agent powered by [Claude](https://www.anthropic.com/claude), with four
+bilingual (Arabic/English, RTL) experiences in one Next.js app:
 
 ![stack](https://img.shields.io/badge/Next.js-14-black) ![stack](https://img.shields.io/badge/TypeScript-5-blue) ![model](https://img.shields.io/badge/Claude-Opus%204.8-7c3aed)
 
-## ✨ Features
+| Page | What it does |
+| --- | --- |
+| `/` | **Shopping agent** — conversational shopping with tool use and a live cart. |
+| `/interview` | **Interview simulator** — a virtual interviewer with a professional voice asks real interview questions in Arabic *and* English, transcribes your spoken answers, scores each one, and coaches your **body language live from your camera** (Claude vision analyzes frames while you answer — nothing is recorded or stored). Ends with a full hiring-panel report. |
+| `/coach` | **Daily companion** — a daily mood/anxiety check-in with warm, trend-aware feedback, tiny actionable steps, streaks, and a 14-day chart. Entries live only in your browser's localStorage. Supportive companion, not a substitute for professional care. |
+| `/events` | **Family events extractor** — upload your exported WhatsApp family-group chat (with consent) and Luka extracts every occasion mentioned in conversation (عزيمة، عرس، عزاء، عيد ميلاد…), resolves relative dates, and generates `.ics` files for your calendar — because in Gulf culture, invitations happen in the group chat, not on paper. |
+
+### Voice notes (interview simulator)
+
+- The interviewer speaks via the browser's SpeechSynthesis with a calm, senior tone.
+  `lib/speech.ts` keeps a single `speak()` contract so a real voice-cloning provider
+  (e.g. ElevenLabs) can be plugged in to give the interviewer a cloned professional
+  voice in your field.
+- Your answers are transcribed live with the Web Speech API (Chrome recommended);
+  a text fallback is shown where speech recognition is unsupported.
+
+## ✨ Shopping features
 
 - **Conversational shopping** — describe what you want ("a laptop for work under $1200")
   and Luka finds it.
@@ -40,6 +54,13 @@ back, and continues until the model is done.
 | `lib/tools.ts` | Tool definitions + executor |
 | `lib/products.ts` | Mock product catalog + search/filter |
 | `lib/cart.ts` | In-memory per-session cart |
+| `app/interview/page.tsx` | Interview UI: TTS interviewer, speech-to-text answers, live camera coaching, report |
+| `app/api/interview/route.ts` | Question generation, per-answer scoring, final report (structured tool output) |
+| `app/api/interview/vision/route.ts` | Live body-language tips from camera frames (Claude vision) |
+| `app/coach/page.tsx` + `app/api/coach/route.ts` | Daily check-in UI + companion replies |
+| `app/events/page.tsx` + `app/api/events/route.ts` | WhatsApp export → occasions → `.ics` calendar files |
+| `lib/anthropic.ts` | Shared `structuredCall` helper (forced tool → guaranteed JSON) |
+| `lib/speech.ts` | Browser TTS (interviewer voice) + speech recognition wrappers |
 
 ## 🚀 Getting started
 

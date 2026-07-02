@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Nav from "@/components/Nav";
 import type { Product } from "@/lib/products";
 import type { CartView } from "@/lib/cart";
 
@@ -245,7 +246,7 @@ export default function Home() {
 function Header({ itemCount }: { itemCount: number }) {
   return (
     <header className="border-b border-slate-200 bg-white">
-      <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-3">
+      <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-600 text-xl">
             🛍️
@@ -255,8 +256,11 @@ function Header({ itemCount }: { itemCount: number }) {
             <p className="text-xs text-slate-500">AI Shopping Agent</p>
           </div>
         </div>
-        <div className="flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-700">
-          🛒 <span>{itemCount}</span>
+        <div className="flex items-center gap-3">
+          <Nav />
+          <div className="flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-700">
+            🛒 <span>{itemCount}</span>
+          </div>
         </div>
       </div>
     </header>
