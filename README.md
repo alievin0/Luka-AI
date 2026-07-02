@@ -14,10 +14,13 @@ bilingual (Arabic/English, RTL) experiences in one Next.js app:
 
 ### Voice notes (interview simulator)
 
-- The interviewer speaks via the browser's SpeechSynthesis with a calm, senior tone.
-  `lib/speech.ts` keeps a single `speak()` contract so a real voice-cloning provider
-  (e.g. ElevenLabs) can be plugged in to give the interviewer a cloned professional
-  voice in your field.
+- **ElevenLabs voice** — set `ELEVENLABS_API_KEY` and the interviewer speaks with a
+  realistic multilingual voice (the same voice speaks Arabic *and* English) via
+  `app/api/tts/route.ts`. To give the interviewer a **cloned professional voice in
+  your field**, clone the voice at [elevenlabs.io](https://elevenlabs.io/) and set
+  `ELEVENLABS_VOICE_ID` to it (defaults to the premade "Daniel" voice).
+- Without an ElevenLabs key, `lib/speech.ts` automatically falls back to the
+  browser's SpeechSynthesis with a calm, senior tone — no extra setup needed.
 - Your answers are transcribed live with the Web Speech API (Chrome recommended);
   a text fallback is shown where speech recognition is unsupported.
 
