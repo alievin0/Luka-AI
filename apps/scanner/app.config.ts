@@ -40,6 +40,7 @@ const config: ExpoConfig = {
   orientation: "portrait",
   scheme: v.slug,
   userInterfaceStyle: "dark",
+  newArchEnabled: true,
   ios: {
     supportsTablet: false,
     bundleIdentifier: v.bundleId,
@@ -50,6 +51,7 @@ const config: ExpoConfig = {
   },
   android: {
     package: v.bundleId,
+    edgeToEdgeEnabled: true,
     permissions: ["CAMERA", "READ_MEDIA_IMAGES"],
   },
   web: { output: "server" },

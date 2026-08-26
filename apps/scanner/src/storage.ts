@@ -46,11 +46,11 @@ export async function isOnboarded() {
 }
 
 export async function completeOnboarding(profile: Profile) {
-  await AsyncStorage.setMany({
-    [KEYS.onboarded]: "1",
-    [KEYS.aiConsent]: "1",
-    [KEYS.profile]: JSON.stringify(profile),
-  });
+  await AsyncStorage.multiSet([
+    [KEYS.onboarded, "1"],
+    [KEYS.aiConsent, "1"],
+    [KEYS.profile, JSON.stringify(profile)],
+  ]);
 }
 
 export async function getProfile(): Promise<Profile> {
@@ -94,5 +94,5 @@ export async function clearHistory() {
 
 /** Dev helper: wipe everything so you can replay onboarding + paywall. */
 export async function resetAll() {
-  await AsyncStorage.removeMany(Object.values(KEYS));
+  await AsyncStorage.multiRemove(Object.values(KEYS));
 }

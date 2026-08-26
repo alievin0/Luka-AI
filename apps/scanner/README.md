@@ -11,6 +11,17 @@
 إعداد واحد تحت `src/scanners/`، فيه الـ prompt وعناوين الأقسام والأسئلة
 والألوان. **إضافة تطبيق ثالث = ملف واحد جديد.**
 
+## نسخة الـ SDK
+
+المشروع مثبّت على **Expo SDK 54** عن قصد، لأنه النسخة اللي بيدعمها تطبيق
+Expo Go على جهاز المطوّر. Expo Go بيدعم SDK واحد بس، فترقية المشروع بتكسر
+التشغيل على الجهاز فوراً.
+
+لو رقّيت لاحقاً: `expo-image-manipulator` و `@react-native-async-storage`
+غيّروا الـ API بين 54 و 57 (`multiSet`/`multiRemove` صاروا
+`setMany`/`removeMany`)، و `newArchEnabled` و `edgeToEdgeEnabled` انشالوا من
+إعدادات app.config.
+
 ## شغّله
 
 ```bash
