@@ -46,6 +46,7 @@ import {
   SP,
   RADIUS,
   TAP,
+  READ,
 } from "../scanner-ui";
 import { Button } from "./scanner-kit";
 
@@ -80,6 +81,19 @@ async function prepare(uri: string) {
 /** The stages of a scan, in the order they actually happen. */
 type Stage = "preparing" | "reading" | null;
 
+/**
+ * A lens's own name, as the platform gives it, turned into the number a driver
+ * reads on every phone camera. Anything unrecognised is dropped rather than
+ * guessed at — a wrong magnification is worse than no button.
+ */
+const LENS_ORDER = ["0.5\u00d7", "1\u00d7", "2\u00d7"];
+
+const labelForLens = (id: string): string | null =>
+  /ultra\s*wide/i.test(id) ? "0.5\u00d7"
+  : /telephoto/i.test(id) ? "2\u00d7"
+  : /wide|back|dual|triple/i.test(id) ? "1\u00d7"
+  : null;
+
 /** How far apart two fingers are, in points. */
 const spreadOf = (touches: readonly { pageX: number; pageY: number }[]) =>
   Math.hypot(touches[0].pageX - touches[1].pageX, touches[0].pageY - touches[1].pageY);
@@ -92,6 +106,39 @@ export function ScannerHome({ pack }: { pack: ScannerPack }) {
   const { pick } = useLocalSearchParams<{ pick?: string }>();
   const openedPicker = useRef(false);
   const cameraRef = useRef<CameraView>(null);
+
+  /**
+   * The lens buttons.
+   *
+   * expo-camera's `zoom` is a percentage of whatever range the current lens
+   * has, so 0.5 there is not 2x magnification and no honest button can be
+   * labelled from it. Real optical lenses can: the device reports which ones
+   * it has, and 0.5x on an ultra-wide is 0.5x. So the row is built from what
+   * the hardware actually offers, and on a phone that offers only one it does
+   * not appear at all — the pinch still works either way.
+   */
+  const [lenses, setLenses] = useState<{ id: string; label: string }[]>([]);
+  const [lens, setLens] = useState<string | undefined>(undefined);
+
+  const readLenses = async () => {
+    try {
+      const available = await cameraRef.current?.getAvailableLensesAsync();
+      if (!available?.length) return;
+      const seen = new Set<string>();
+      const named = available
+        .map((id) => ({ id, label: labelForLens(id) }))
+        .filter((l): l is { id: string; label: string } => {
+          if (!l.label || seen.has(l.label)) return false;
+          seen.add(l.label);
+          return true;
+        })
+        .sort((x, y) => LENS_ORDER.indexOf(x.label) - LENS_ORDER.indexOf(y.label));
+      if (named.length > 1) setLenses(named);
+    } catch {
+      /* Android reports nothing here, which is a row that does not render
+         rather than a failure worth telling anyone about. */
+    }
+  };
   const [permission, requestPermission] = useCameraPermissions();
   const [stage, setStage] = useState<Stage>(null);
   const [shot, setShot] = useState<string | null>(null);
@@ -256,6 +303,8 @@ export function ScannerHome({ pack }: { pack: ScannerPack }) {
         facing="back"
         enableTorch={torch}
         zoom={zoom}
+        selectedLens={lens}
+        onCameraReady={readLenses}
       />
 
       {/* The pinch surface sits under the chrome, so the shutter, the torch
@@ -306,8 +355,36 @@ export function ScannerHome({ pack }: { pack: ScannerPack }) {
             <View style={[styles.corner, styles.cornerBL]} />
             <View style={[styles.corner, styles.cornerBR]} />
           </View>
-          <Text style={styles.hint}>{t(pack.captureHint)}</Text>
+          <View style={styles.hintCard}>
+            <Feather name="zap" size={16} color={ACCENT} />
+            <Text style={styles.hint}>{t(pack.captureHint)}</Text>
+          </View>
         </View>
+
+        {lenses.length > 1 ? (
+          <View style={styles.lensRow}>
+            {lenses.map((l) => {
+              const on = lens ? lens === l.id : l.label === "1\u00d7";
+              return (
+                <Pressable
+                  key={l.id}
+                  onPress={() => {
+                    /* Switching lens resets the digital zoom, so the number on
+                       the button stays true to what the camera is doing. */
+                    setLens(l.id);
+                    zoomRef.current = 0;
+                    setZoom(0);
+                  }}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: on }}
+                  style={[styles.lens, on && styles.lensOn]}
+                >
+                  <Text style={[styles.lensText, on && styles.lensTextOn]}>{l.label}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        ) : null}
 
         <View style={styles.controls} pointerEvents="box-none">
           <Pressable
@@ -433,15 +510,48 @@ const styles = StyleSheet.create({
   cornerTR: { top: 0, right: 0, borderTopWidth: 3, borderRightWidth: 3, borderTopRightRadius: 6 },
   cornerBL: { bottom: 0, left: 0, borderBottomWidth: 3, borderLeftWidth: 3, borderBottomLeftRadius: 6 },
   cornerBR: { bottom: 0, right: 0, borderBottomWidth: 3, borderRightWidth: 3, borderBottomRightRadius: 6 },
-  hint: {
-    color: TEXT,
-    ...TYPE.body,
-    fontFamily: FONT.medium,
-    textAlign: "center",
-    maxWidth: 280,
-    textShadowColor: "rgba(0,0,0,0.85)",
-    textShadowRadius: 8,
+  /* The hint sits on a surface now rather than floating as shadowed text.
+     Over a viewfinder the background is whatever the driver is pointing at,
+     and a text shadow is not a contrast guarantee against all of it. */
+  hintCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: SP.sm,
+    maxWidth: 300,
+    paddingVertical: SP.sm + 2,
+    paddingHorizontal: SP.lg,
+    borderRadius: RADIUS.lg,
+    backgroundColor: "rgba(20,24,30,0.82)",
   },
+  hint: {
+    flexShrink: 1,
+    color: TEXT,
+    ...TYPE.caption,
+    fontFamily: FONT.medium,
+    textAlign: READ,
+  },
+
+  /* Only ever real lenses, so the numbers on them are the truth. */
+  lensRow: {
+    flexDirection: "row",
+    alignSelf: "center",
+    gap: SP.xs,
+    padding: SP.xs,
+    borderRadius: RADIUS.pill,
+    backgroundColor: "rgba(20,24,30,0.82)",
+    marginBottom: SP.md,
+  },
+  lens: {
+    minWidth: 48,
+    paddingVertical: SP.sm,
+    paddingHorizontal: SP.md,
+    borderRadius: RADIUS.pill,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  lensOn: { backgroundColor: ACCENT },
+  lensText: { color: TEXT, ...TYPE.caption, fontFamily: FONT.medium },
+  lensTextOn: { color: BG, fontFamily: FONT.bold },
 
   controls: {
     flexDirection: "row",
