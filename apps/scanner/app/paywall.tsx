@@ -13,7 +13,7 @@ import {
 import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Feather from "@expo/vector-icons/Feather";
-import { symbolFor } from "../src/symbols";
+import { DESIGN, designAsset } from "../src/design-assets";
 import { pack, bulletText, bulletDetail, bulletIcon, bulletGlyph, bulletSymbol } from "../src/packs";
 import { t, fill } from "../src/i18n";
 import { ui } from "../src/i18n/ui";
@@ -95,6 +95,15 @@ export default function Paywall() {
 
   return (
     <View style={styles.root}>
+      {/* The night road, from the design. It is already faint in the file
+          itself, so it needs no opacity here — it sits behind the header and
+          fades out before the first card, which is what keeps it a texture
+          rather than a photograph. */}
+      <Image
+        source={DESIGN.scene.source}
+        style={styles.scene}
+        resizeMode="cover"
+      />
       <SafeAreaView style={styles.safe} edges={["top", "bottom"]}>
         <Pressable
           style={styles.close}
@@ -113,9 +122,9 @@ export default function Paywall() {
           {/* The severity language, met here first rather than at the
               roadside. Three equal cards, line-art, no effects. */}
           <View style={styles.grades}>
-            <GradeCard tone="critical" symbol="grade-stop" word="STOP" title={t(ui.cardStopTitle)} line={t(ui.cardStopLine)} />
-            <GradeCard tone="warning" symbol="grade-caution" title={t(ui.cardCautionTitle)} line={t(ui.cardCautionLine)} />
-            <GradeCard tone="info" symbol="grade-ok" word="OK" wordOffset={4} title={t(ui.cardOkTitle)} line={t(ui.cardOkLine)} />
+            <GradeCard tone="critical" mark={DESIGN.gradeStop} title={t(ui.cardStopTitle)} line={t(ui.cardStopLine)} />
+            <GradeCard tone="warning" mark={DESIGN.gradeCaution} title={t(ui.cardCautionTitle)} line={t(ui.cardCautionLine)} />
+            <GradeCard tone="info" mark={DESIGN.gradeOk} title={t(ui.cardOkTitle)} line={t(ui.cardOkLine)} />
           </View>
 
           {/* One card, one grid. Hairlines rather than boxes inside boxes. */}
@@ -123,7 +132,7 @@ export default function Paywall() {
             <Text style={styles.cardTitle}>{t(ui.youGet)}</Text>
             <View style={styles.grid}>
               {benefits.map((bullet, index) => {
-                const symbol = bulletSymbol(bullet);
+                const mark = designAsset(bulletSymbol(bullet));
                 const icon = bulletIcon(bullet);
                 const detail = bulletDetail(bullet);
                 return (
@@ -139,10 +148,10 @@ export default function Paywall() {
                       index === benefits.length - 1 && index % 2 === 0 && styles.cellWide,
                     ]}
                   >
-                    {symbol ? (
+                    {mark ? (
                       <Image
-                        source={symbolFor(symbol)}
-                        style={styles.cellMark}
+                        source={mark.source}
+                        style={{ width: mark.width, height: mark.height }}
                         resizeMode="contain"
                       />
                     ) : icon ? (
@@ -268,28 +277,18 @@ export default function Paywall() {
  * One grade, as the design draws it: the word, then the mark, then the
  * instruction.
  *
- * The mark is the design's own artwork, redrawn as a vector in the same
- * generator that produces the 48 dashboard pictograms. Its own files are
- * raster PNGs on a host this environment cannot reach; a vector is the better
- * asset regardless, because it takes the grade colour at display time and so
- * can never be shown in a colour that disagrees with its severity.
- *
- * STOP and OK sit on top as live text rather than being drawn into the glyph,
- * which keeps them crisp at any density.
+ * The mark is the design's own file, used as it comes. It is not tinted —
+ * each arrives already red, amber or green — and it carries its own STOP or
+ * OK inside the shape, so nothing is drawn on top of it here.
  */
 function GradeCard({
   tone,
-  symbol,
-  word,
-  wordOffset = 0,
+  mark,
   title,
   line,
 }: {
   tone: keyof typeof GRADE;
-  symbol: string;
-  word?: string;
-  /** The gauge opens downward, so its word sits below the arch, not over it. */
-  wordOffset?: number;
+  mark: { source: number; width: number; height: number };
   title: string;
   line: string;
 }) {
@@ -299,21 +298,11 @@ function GradeCard({
       <Text style={[styles.gradeTitle, { color: grade.fg }]} numberOfLines={2}>
         {title}
       </Text>
-      <View style={styles.gradeMark}>
-        <Image
-          source={symbolFor(symbol)}
-          style={[styles.gradeGlyph, { tintColor: grade.fg }]}
-          resizeMode="contain"
-        />
-        {word ? (
-          <Text
-            style={[styles.gradeWord, { color: grade.fg, top: 26 + wordOffset }]}
-            numberOfLines={1}
-          >
-            {word}
-          </Text>
-        ) : null}
-      </View>
+      <Image
+        source={mark.source}
+        style={{ width: mark.width, height: mark.height }}
+        resizeMode="contain"
+      />
       <Text style={styles.gradeLine} numberOfLines={3}>
         {line}
       </Text>
@@ -348,6 +337,14 @@ function Legal({ label, url }: { label: string; url: string }) {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: BG },
+  scene: {
+    position: "absolute",
+    top: DESIGN.scene.top,
+    left: 0,
+    right: 0,
+    height: DESIGN.scene.height,
+    width: undefined,
+  },
   safe: { flex: 1 },
   close: { alignSelf: "flex-start", padding: 20 },
   content: { paddingHorizontal: GUTTER, paddingBottom: 40, gap: 26 },
@@ -380,16 +377,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
   },
   gradeTitle: { fontSize: 13, lineHeight: 19, fontFamily: UI_FONT.bold, textAlign: "center" },
-  gradeMark: { alignItems: "center", justifyContent: "center" },
-  gradeGlyph: { width: 54, height: 54 },
-  /* Centred over the mark, not drawn into it. */
-  gradeWord: {
-    position: "absolute",
-    fontSize: 8,
-    lineHeight: 10,
-    fontFamily: "Inter_700Bold",
-    letterSpacing: 0.2,
-  },
   gradeLine: { color: TEXT, fontSize: 12.5, lineHeight: 19, fontFamily: UI_FONT.regular, textAlign: "center" },
 
   card: {
@@ -410,8 +397,6 @@ const styles = StyleSheet.create({
   cellWide: { width: "100%" },
   cellDivided: { borderRightWidth: 1, borderRightColor: BORDER },
   cellRow: { borderTopWidth: 1, borderTopColor: BORDER },
-  /* The design runs these at 27-36pt; 28 sits in that band. */
-  cellMark: { width: 28, height: 28, tintColor: TEXT_SOFT },
   cellGlyph: { color: TEXT_SOFT, fontSize: 17 },
   cellTitle: { color: TEXT, fontSize: 14, fontFamily: UI_FONT.bold, textAlign: "center" },
   cellDetail: {
