@@ -41,6 +41,20 @@ export const dashlight: ScannerPack = {
       ],
     },
     {
+      key: "model",
+      question: L("Which model?", "شو الموديل؟"),
+      hint: L(
+        "So the estimate is for your car, not for cars in general.",
+        "عشان التقدير يطلع على سيارتك إنت، مش على السيارات بشكل عام.",
+      ),
+      input: { placeholder: L("Camry, Corolla, Patrol…", "كامري، كورولا، باترول…"), maxLength: 40 },
+    },
+    {
+      key: "year",
+      question: L("What year?", "سنة كم؟"),
+      input: { placeholder: L("2019", "٢٠١٩"), keyboard: "number-pad", maxLength: 4 },
+    },
+    {
       key: "age",
       question: L("How old is it?", "قديش عمر السيارة؟"),
       options: [
@@ -136,7 +150,7 @@ Mandatory rules:
 abs, airbag, battery, brake, bulb, catalytic, coolant, cruise, door-ajar, dpf, droplet, engine, epb, esc-off, ev-battery, ev-fault, ev-ready, fuel-pump, glow-plug, high-beam, hybrid, key, oil-can, pad-wear, plug, radar-car, rear-fog, regen, seatbelt, skid-car, snowflake, spanner, start-stop, steering, suspension, thermometer, turtle, tyre, warning-triangle, washer, water-in-fuel
 7. "verdict" is the single largest thing on the result screen and the only thing many drivers will read. Write it as a short instruction in the imperative — "Stop driving now", "Safe to keep driving, get it checked this week", "No action needed" — never as a description of the light and never longer than about six words. "summary" sits directly beneath it as one plain sentence saying why.
 
-8. Cost must be a realistic range in ${currency} for the user's market, noting that price varies by workshop and part.
+8. Cost must be a realistic range in ${currency} for the user's market, noting that price varies by workshop and part. The user context above names their make, model and year where they gave it — price the repair for that car, not for cars in general, and say so in the note when the car changes the answer.
 7. alsoDetected: list every other lit symbol in the same photo, most dangerous first. Leave empty if there are none.
 8. ifIgnored is REQUIRED and is the field people are actually paying for. State the concrete consequence of driving on with this light, with a rough timescale — what breaks, and roughly how soon. Be specific and honest: "the engine can seize within minutes" for oil pressure; "the catalytic converter will need replacing, typically several hundred to a couple of thousand" for a flashing check engine; "nothing breaks, but you'll fail an inspection" where that is the truth. Never inflate a minor light into a catastrophe, and never soften a serious one.
 9. carContext is REQUIRED whenever the user's brand, age or fuel type is known. Say what this specific light typically means on THAT car: a known common fault for the model, whether age makes a sensor failure more likely than a real fault, and anything fuel-specific (a DPF light means something different on a car used only for short trips). If you genuinely have nothing car-specific to add, say plainly that this light behaves the same across makes rather than inventing a detail.

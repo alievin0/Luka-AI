@@ -8,6 +8,8 @@ import {
   ScrollView,
   ActivityIndicator,
   Image,
+  TextInput,
+  type ImageSourcePropType,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -18,6 +20,7 @@ import { t, isRTL } from "../src/i18n";
 import { ui } from "../src/i18n/ui";
 import { UI_FONT } from "../src/ui-font";
 import { theme, withAlpha } from "../src/theme";
+import { READ } from "../src/scanner-ui";
 import { completeOnboarding, type Profile } from "../src/storage";
 import { CountryField } from "../src/components/CountryField";
 import { privacyUrl } from "../src/legal";
@@ -26,7 +29,7 @@ import type { Country } from "../src/countries";
 /** Every pack that has a generated mark shows it on the intro. A pack absent
  *  from this map opens on a wordless screen, which reads as an unfinished
  *  app on the one screen that has to earn the next tap. */
-const MARKS: Record<string, ReturnType<typeof require>> = {
+const MARKS: Record<string, ImageSourcePropType> = {
   dashlight: require("../assets/dashlight/splash-icon.png"),
   bugscan: require("../assets/bugscan/splash-icon.png"),
   goldscan: require("../assets/goldscan/splash-icon.png"),
@@ -74,6 +77,16 @@ export default function Onboarding() {
   };
 
   const isQuestion = step > INTRO && step < COUNTRY;
+  const current = questions[step - 1];
+
+  /** The typed answer for the step showing a field, cleared on the way out. */
+  const [typed, setTyped] = useState("");
+  const submitTyped = () => {
+    const value = typed.trim();
+    if (value) setProfile((p) => ({ ...p, [current.key]: value }));
+    setTyped("");
+    next();
+  };
 
   return (
     <View style={styles.root}>
@@ -106,21 +119,50 @@ export default function Onboarding() {
             <Text style={styles.stepLabel}>
               {t(ui.questionOf)} {step} {t(ui.of)} {questions.length + 1}
             </Text>
-            <Text style={styles.question}>{t(questions[step - 1].question)}</Text>
-            <View style={styles.options}>
-              {questions[step - 1].options.map((option) => (
+            <Text style={styles.question}>{t(current.question)}</Text>
+            {current.hint ? <Text style={styles.subQuestion}>{t(current.hint)}</Text> : null}
+
+            {current.input ? (
+              /* Some answers cannot be listed — there is no useful menu of
+                 every car model — so those are typed. Continue stays enabled
+                 on an empty field: this is worth asking, not worth blocking
+                 someone on. */
+              <View style={styles.typed}>
+                <TextInput
+                  style={styles.typedInput}
+                  value={typed}
+                  onChangeText={setTyped}
+                  placeholder={t(current.input.placeholder)}
+                  placeholderTextColor={theme.textFaint}
+                  keyboardType={current.input.keyboard ?? "default"}
+                  maxLength={current.input.maxLength}
+                  textAlign={READ}
+                  autoCorrect={false}
+                  returnKeyType="next"
+                  onSubmitEditing={submitTyped}
+                />
                 <Pressable
-                  key={t(optionLabel(option))}
-                  style={({ pressed }) => [styles.option, pressed && styles.optionPressed]}
-                  onPress={() =>
-                    answer(questions[step - 1].key, optionValue(option, t))
-                  }
+                  style={({ pressed }) => [styles.cta, pressed && styles.ctaPressed]}
+                  onPress={submitTyped}
+                  accessibilityRole="button"
                 >
-                  <Text style={styles.optionText}>{t(optionLabel(option))}</Text>
-                  <Text style={styles.chevron}>{isRTL ? "‹" : "›"}</Text>
+                  <Text style={styles.ctaText}>{t(ui.continueLabel)}</Text>
                 </Pressable>
-              ))}
-            </View>
+              </View>
+            ) : (
+              <View style={styles.options}>
+                {(current.options ?? []).map((option) => (
+                  <Pressable
+                    key={t(optionLabel(option))}
+                    style={({ pressed }) => [styles.option, pressed && styles.optionPressed]}
+                    onPress={() => answer(current.key, optionValue(option, t))}
+                  >
+                    <Text style={styles.optionText}>{t(optionLabel(option))}</Text>
+                    <Text style={styles.chevron}>{isRTL ? "‹" : "›"}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            )}
 
             {/* Every answer improves the reading, none of them is required.
                 Forcing a choice from someone who genuinely does not know
@@ -221,6 +263,18 @@ const styles = StyleSheet.create({
   },
   subQuestion: { color: theme.textSoft, fontSize: 15, fontFamily: UI_FONT.regular, marginTop: 6, lineHeight: 26 },
   options: { marginTop: 26, gap: 10 },
+  typed: { marginTop: 26, gap: 14 },
+  typedInput: {
+    minHeight: 56,
+    backgroundColor: theme.surface,
+    borderWidth: 1,
+    borderColor: theme.border,
+    borderRadius: theme.radius,
+    paddingHorizontal: 18,
+    color: theme.text,
+    fontSize: 17,
+    fontFamily: UI_FONT.regular,
+  },
   option: {
     flexDirection: "row",
     alignItems: "center",

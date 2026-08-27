@@ -4,6 +4,7 @@ import { L } from "./index";
 export const ui = {
   // onboarding
   letsStart: L("Get started", "يلا نبدأ"),
+  continueLabel: L("Continue", "متابعة"),
   agreeAndStart: L("Agree and continue", "موافق، ابدأ"),
   quickQuestions: L(
     "A few quick questions, then you're in.",
@@ -67,7 +68,12 @@ export const ui = {
   scanAgain: L("Scan again", "افحص كمان مرة"),
   share: L("Share", "مشاركة"),
   alsoDetected: L("Also lit in this photo", "كمان طالع بالصورة"),
-  estimatedCost: L("Estimated cost", "الكلفة التقديرية"),
+  estimatedCost: L("Estimated repair", "تقدير التصليح"),
+  // The three things a range does not say on its own. Which of the first two
+  // shows is decided by the light's own severity, so neither is ever a guess.
+  costLikelySmall: L("Often a small job", "غالباً تصليح بسيط"),
+  costDontDelay: L("Don't put the check off", "لا تأجّل الفحص"),
+  costVaries: L("Varies by country, workshop and car", "بيختلف حسب البلد والورشة والسيارة"),
   confidenceHigh: L("High confidence", "ثقة عالية"),
   confidenceMedium: L("Medium confidence", "ثقة متوسطة"),
   confidenceLow: L(
@@ -78,6 +84,8 @@ export const ui = {
 
   ifIgnored: L("If you ignore it", "إذا تجاهلتها"),
   onYourCar: L("On your car", "على سيارتك إنت"),
+  forYourCar: L("For your {car}", "لسيارتك {car}"),
+  forYourCarYear: L("For your {year} {car}", "لسيارتك {car} {year}"),
 
   // history
   pastScans: L("Past scans", "الفحوصات السابقة"),

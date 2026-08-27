@@ -3,8 +3,10 @@ import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator, Share
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { pack, isScanner } from "../src/packs";
+import Feather from "@expo/vector-icons/Feather";
 import { SymbolBadge } from "../src/components/SymbolBadge";
-import { getHistory, type HistoryEntry } from "../src/storage";
+import { getHistory, getProfile, type HistoryEntry, type Profile } from "../src/storage";
+import { carLabel } from "../src/car";
 import { t, fill } from "../src/i18n";
 import { ui } from "../src/i18n/ui";
 import {
@@ -72,13 +74,15 @@ export default function Result() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [entry, setEntry] = useState<HistoryEntry | null>(null);
+  const [profile, setProfile] = useState<Profile>({});
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<View4>("summary");
 
   useEffect(() => {
     (async () => {
-      const history = await getHistory();
+      const [history, saved] = await Promise.all([getHistory(), getProfile()]);
       setEntry(history.find((h) => h.id === id) ?? null);
+      setProfile(saved);
       setLoading(false);
     })();
   }, [id]);
@@ -203,6 +207,11 @@ export default function Result() {
               <View style={styles.headText}>
                 <Title>{result.title}</Title>
                 {result.subtitle ? <Subtitle>{result.subtitle}</Subtitle> : null}
+                {/* Their own car, from what they typed — never from a guess.
+                    It qualifies the estimate below it, so it has to be true. */}
+                {carLabel(profile) ? (
+                  <Text style={styles.forCar}>{carLabel(profile)}</Text>
+                ) : null}
               </View>
               <SeverityBadge severity={result.severity} label={t(severityWord(result.severity))} />
             </View>
@@ -244,7 +253,22 @@ export default function Result() {
                   <Text style={styles.cost}>
                     {result.cost.min} – {result.cost.max} {result.cost.currency}
                   </Text>
-                  <Caption>{result.cost.note}</Caption>
+
+                  {/* A range on its own tells a driver almost nothing: they
+                      cannot tell a cheap fix from a deferred disaster. These
+                      three lines are what turns a number into a decision, and
+                      the urgency one is read off the light's own grade rather
+                      than invented. */}
+                  <View style={styles.costNotes}>
+                    <CostNote
+                      icon={result.severity === "critical" ? "clock" : "tool"}
+                      tone={result.severity === "critical" ? "critical" : undefined}
+                      text={t(result.severity === "critical" ? ui.costDontDelay : ui.costLikelySmall)}
+                    />
+                    <CostNote icon="map-pin" text={t(ui.costVaries)} />
+                  </View>
+
+                  {result.cost.note ? <Caption>{result.cost.note}</Caption> : null}
                 </Card>
               ) : null}
 
@@ -308,6 +332,26 @@ export default function Result() {
       <SafeAreaView edges={["bottom"]} style={styles.footer}>
         <Button label={t(ui.scanAgain)} variant="primary" block onPress={() => router.replace("/")} />
       </SafeAreaView>
+    </View>
+  );
+}
+
+/** One qualifier beside the estimate. Icon from the same family as the rest
+ *  of the app, and coloured only when it is carrying urgency. */
+function CostNote({
+  icon,
+  text,
+  tone,
+}: {
+  icon: React.ComponentProps<typeof Feather>["name"];
+  text: string;
+  tone?: "critical";
+}) {
+  const colour = tone ? gradeOf(tone).fg : TEXT_FAINT;
+  return (
+    <View style={styles.costNote}>
+      <Feather name={icon} size={14} color={colour} />
+      <Text style={[styles.costNoteText, tone && { color: colour }]}>{text}</Text>
     </View>
   );
 }
@@ -384,6 +428,10 @@ const styles = StyleSheet.create({
 
   facts: { flexDirection: "row", flexWrap: "wrap", gap: SP.lg },
 
+  costNotes: { gap: SP.sm, marginTop: SP.xs },
+  costNote: { flexDirection: "row", alignItems: "center", gap: SP.sm },
+  costNoteText: { flex: 1, color: TEXT_FAINT, ...TYPE.caption, fontFamily: FONT.regular, textAlign: READ },
+  forCar: { color: TEXT_FAINT, ...TYPE.small, fontFamily: FONT.medium, textAlign: READ, marginTop: 2 },
   cost: { color: TEXT, ...TYPE.title, fontFamily: FONT.bold, textAlign: READ, fontVariant: ["tabular-nums"] },
 
   alsoRow: { flexDirection: "row", alignItems: "center", gap: SP.md, minHeight: 32 },

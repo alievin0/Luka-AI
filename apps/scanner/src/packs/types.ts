@@ -29,7 +29,15 @@ export type OnboardingOption = Text | { label: Text; value: string };
 export type OnboardingStep = {
   key: string;
   question: Text;
-  options: OnboardingOption[];
+  /** A short line under the question, when the reason for asking is not
+   *  obvious from the question itself. */
+  hint?: Text;
+  /** Fixed choices. Omitted when the answer cannot be enumerated — there is
+   *  no useful list of every car model, so those steps take typed input. */
+  options?: OnboardingOption[];
+  /** Free text. Optional by definition: an answer nobody can be made to give
+   *  is worse as a blocked screen than as a blank. */
+  input?: { placeholder: Text; keyboard?: "default" | "number-pad"; maxLength?: number };
 };
 
 const hasLabel = (option: OnboardingOption): option is { label: Text; value: string } =>
