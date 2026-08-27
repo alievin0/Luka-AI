@@ -309,12 +309,7 @@ export const ui = {
     "The subscription didn't activate. Try again.",
     "لم يُفعَّل الاشتراك. حاول مرة أخرى.",
   ),
-  purchaseCancelled: L(
-    "The purchase was cancelled, or something went wrong.",
-    "أُلغيت عملية الشراء أو حدث خطأ.",
-  ),
   devMode: L("Test mode", "وضع تجريبي"),
-  purchaseOffBody: L("Purchases aren't enabled in this build.", "الشراء غير مفعّل في هذه النسخة."),
 
   reminderBody: L(
     "Time for today's session — keep the streak alive",
@@ -657,7 +652,6 @@ export const ui = {
   clearDo: L("Delete", "امسح"),
   clearDone: L("Deleted", "تم المسح"),
   clearDoneBody: L("No saved scans are left.", "لم يبقَ أي فحص محفوظ."),
-  purchasesOffBody: L("Subscriptions are not enabled in this build.", "الاشتراكات غير مفعّلة في هذه النسخة."),
   noPriorPurchase: L("No subscription found", "لم نجد اشتراكاً"),
   noPriorPurchaseBody: L(
     "There's no earlier subscription on this account.",

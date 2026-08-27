@@ -1,4 +1,7 @@
-import { Platform } from "react-native";
+import { Alert, Platform } from "react-native";
+import { t } from "./i18n";
+import { ui } from "./i18n/ui";
+import { pack } from "./packs";
 
 /**
  * Thin RevenueCat wrapper.
@@ -11,7 +14,29 @@ import { Platform } from "react-native";
 
 const IOS_KEY = process.env.EXPO_PUBLIC_RC_IOS_KEY;
 const ANDROID_KEY = process.env.EXPO_PUBLIC_RC_ANDROID_KEY;
-const ENTITLEMENT = "pro";
+/** The pack declares the entitlement its paywall sells; there is no second
+ *  source of truth for it. */
+const ENTITLEMENT = pack.pricing.entitlement;
+
+/**
+ * RevenueCat's predefined packages carry reserved identifiers, not the ids a
+ * pack declares. An offering built from the standard durations comes back as
+ * `$rc_annual`, so matching it against the pack's `annual` fails — silently,
+ * because a missing match only means the trial, badge and note stop rendering.
+ * Custom packages keep whatever identifier they were given, so both spellings
+ * have to work.
+ */
+const RC_ALIASES: Record<string, string> = {
+  $rc_weekly: "weekly",
+  $rc_monthly: "monthly",
+  $rc_two_month: "two_month",
+  $rc_three_month: "three_month",
+  $rc_six_month: "six_month",
+  $rc_annual: "annual",
+  $rc_lifetime: "lifetime",
+};
+
+const productIdFor = (identifier: string) => RC_ALIASES[identifier] ?? identifier;
 
 const apiKey = Platform.OS === "ios" ? IOS_KEY : ANDROID_KEY;
 
@@ -47,7 +72,15 @@ export async function isPro(): Promise<boolean> {
   }
 }
 
-export type Offer = { id: string; title: string; price: string; period: string };
+/**
+ * A live price for one of the pack's products.
+ *
+ * Only the price comes from the store. The title and period are the pack's
+ * own `Text` pairs — RevenueCat returns `product.title` as whatever was typed
+ * into App Store Connect and `packageType` as a bare enum (`ANNUAL`), and
+ * printing either puts untranslated English on an Arabic paywall.
+ */
+export type Offer = { id: string; price: string };
 
 export async function getOffers(): Promise<Offer[]> {
   if (!purchasesAvailable() || !Purchases) return [];
@@ -55,30 +88,75 @@ export async function getOffers(): Promise<Offer[]> {
     const offerings = await Purchases.getOfferings();
     const packages = offerings.current?.availablePackages ?? [];
     return packages.map((p) => ({
-      id: p.identifier,
-      title: p.product.title,
+      id: productIdFor(p.identifier),
       price: p.product.priceString,
-      period: p.packageType,
     }));
   } catch {
     return [];
   }
 }
 
-/** Returns true when the purchase completed and the entitlement is active. */
-export async function purchase(packageId: string): Promise<boolean> {
-  if (!purchasesAvailable() || !Purchases) return false;
-  const offerings = await Purchases.getOfferings();
-  const target = offerings.current?.availablePackages.find(
-    (p) => p.identifier === packageId,
-  );
-  if (!target) return false;
-  const { customerInfo } = await Purchases.purchasePackage(target);
-  return typeof customerInfo.entitlements.active[ENTITLEMENT] !== "undefined";
+/**
+ * What came of a purchase or a restore.
+ *
+ * Four outcomes rather than a boolean, because two of them must not look the
+ * same on screen: backing out of Apple's sheet is a decision the user made and
+ * deserves silence, while a failure deserves an explanation. RevenueCat
+ * signals both by throwing.
+ */
+export type Outcome = "active" | "inactive" | "cancelled" | "failed";
+
+const userCancelled = (error: unknown) =>
+  typeof error === "object" &&
+  error !== null &&
+  (error as { userCancelled?: boolean }).userCancelled === true;
+
+export async function purchase(productId: string): Promise<Outcome> {
+  if (!purchasesAvailable() || !Purchases) return "failed";
+  try {
+    const offerings = await Purchases.getOfferings();
+    const target = offerings.current?.availablePackages.find(
+      (p) => productIdFor(p.identifier) === productId,
+    );
+    if (!target) return "failed";
+    const { customerInfo } = await Purchases.purchasePackage(target);
+    return customerInfo.entitlements.active[ENTITLEMENT] ? "active" : "inactive";
+  } catch (error) {
+    return userCancelled(error) ? "cancelled" : "failed";
+  }
 }
 
-export async function restore(): Promise<boolean> {
-  if (!purchasesAvailable() || !Purchases) return false;
-  const info = await Purchases.restorePurchases();
-  return typeof info.entitlements.active[ENTITLEMENT] !== "undefined";
+export async function restore(): Promise<Outcome> {
+  if (!purchasesAvailable() || !Purchases) return "failed";
+  try {
+    const info = await Purchases.restorePurchases();
+    return info.entitlements.active[ENTITLEMENT] ? "active" : "inactive";
+  } catch {
+    return "failed";
+  }
+}
+
+/**
+ * Restore, and say what happened.
+ *
+ * Both the paywall and Settings offer this, and App Review checks it: a
+ * Restore button that reports nothing reads as a broken button whether or not
+ * there was anything to restore. Keeping the alerts here is what stops the two
+ * screens drifting into answering the same tap differently.
+ */
+export async function restoreAndReport(): Promise<boolean> {
+  if (!purchasesAvailable()) {
+    Alert.alert(t(ui.unavailable), t(ui.purchasesOff));
+    return false;
+  }
+  const outcome = await restore();
+  if (outcome === "active") {
+    Alert.alert(t(ui.restored), t(ui.restoredBody));
+    return true;
+  }
+  Alert.alert(
+    outcome === "failed" ? t(ui.purchaseFailed) : t(ui.noPriorPurchase),
+    outcome === "failed" ? t(ui.purchaseFailedBody) : t(ui.noPriorPurchaseBody),
+  );
+  return false;
 }

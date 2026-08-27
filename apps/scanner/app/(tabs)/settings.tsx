@@ -12,7 +12,7 @@ import { theme } from "../../src/theme";
 import { clearHistory, getProfile, updateProfile, type Profile } from "../../src/storage";
 import { resetProgress } from "../../src/progress";
 import { DEFAULT_HOUR, cancelReminder, getReminderHour, scheduleReminder } from "../../src/reminders";
-import { purchasesAvailable, restore } from "../../src/purchases";
+import { restoreAndReport } from "../../src/purchases";
 import { CountryField } from "../../src/components/CountryField";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { NAV_CLEARANCE } from "../../src/components/ScannerNav";
@@ -104,17 +104,9 @@ export default function Settings() {
       },
     ]);
 
-  const doRestore = async () => {
-    if (!purchasesAvailable()) {
-      Alert.alert(t(ui.unavailable), t(ui.purchasesOffBody));
-      return;
-    }
-    const restored = await restore();
-    Alert.alert(
-      restored ? t(ui.restored) : t(ui.noPriorPurchase),
-      restored ? t(ui.restoredBody) : t(ui.noPriorPurchaseBody),
-    );
-  };
+  // The alerts live with the purchase code so this screen and the paywall
+  // cannot answer the same tap differently.
+  const doRestore = () => void restoreAndReport();
 
 
   return (

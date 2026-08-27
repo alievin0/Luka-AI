@@ -20,7 +20,12 @@ import { ui } from "../src/i18n/ui";
 import { UI_FONT } from "../src/ui-font";
 import { BG, SURFACE, BORDER, TEXT, TEXT_SOFT, TEXT_FAINT, GRADE, READ } from "../src/scanner-ui";
 import { privacyUrl, supportUrl, termsUrl } from "../src/legal";
-import { getOffers, purchase, purchasesAvailable, restore, type Offer } from "../src/purchases";
+import {
+  getOffers,
+  purchase,
+  purchasesAvailable,
+  restoreAndReport,
+} from "../src/purchases";
 
 /**
  * The purchase screen.
@@ -50,25 +55,28 @@ import { getOffers, purchase, purchasesAvailable, restore, type Offer } from "..
 const GUTTER = 18;
 const HEAD_INSET = 26;
 
+/** One plan as the screen shows it: the pack's copy, the store's price. */
+type Row = { id: string; title: string; price: string; period: string };
+
 export default function Paywall() {
   const router = useRouter();
-  const [offers, setOffers] = useState<Offer[]>([]);
+  const [offers, setOffers] = useState<Row[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
 
   useEffect(() => {
     (async () => {
-      const live = await getOffers();
-      // Fall back to the pack's configured pricing so the paywall is always a
-      // real screen — in dev, and if offerings fail to load on a bad network.
-      const shown: Offer[] = live.length
-        ? live
-        : pack.pricing.products.map((product) => ({
-            id: product.id,
-            title: t(product.label),
-            price: product.fallbackPrice,
-            period: t(product.period),
-          }));
+      // The pack decides which plans exist, in what order, and what they are
+      // called; the store only says what they cost today. Where it has not
+      // answered — dev, a bad network, an offering that does not match — the
+      // pack's own price stands in, so the paywall is always a real screen.
+      const live = new Map((await getOffers()).map((offer) => [offer.id, offer.price]));
+      const shown: Row[] = pack.pricing.products.map((product) => ({
+        id: product.id,
+        title: t(product.label),
+        price: live.get(product.id) ?? product.fallbackPrice,
+        period: t(product.period),
+      }));
       setOffers(shown);
       setSelected(
         shown.find((o) => o.id === pack.pricing.defaultProductId)?.id ?? shown[0]?.id ?? null,
@@ -86,9 +94,22 @@ export default function Paywall() {
       return;
     }
     setWorking(true);
-    const done = await purchase(selected);
-    setWorking(false);
-    if (done) router.back();
+    try {
+      const outcome = await purchase(selected);
+      if (outcome === "active") {
+        router.back();
+        return;
+      }
+      // Backing out of Apple's sheet is a decision, not an error. Saying
+      // "purchase didn't complete" to someone who chose not to buy reads as
+      // the app arguing with them.
+      if (outcome === "cancelled") return;
+      Alert.alert(t(ui.purchaseFailed), t(ui.purchaseFailedBody));
+    } finally {
+      // Without this, a cancelled purchase left the button spinning forever:
+      // RevenueCat throws on cancel, and the old code never got to reset it.
+      setWorking(false);
+    }
   };
 
   const benefits = pack.paywall.bullets;
@@ -249,7 +270,7 @@ export default function Paywall() {
             <Trust icon="lock" label={t(ui.trustPrivate)} />
           </View>
 
-          <Pressable onPress={() => restore()} accessibilityRole="button">
+          <Pressable onPress={() => void restoreAndReport()} accessibilityRole="button">
             <Text style={styles.restore}>{t(ui.restorePrior)}</Text>
           </Pressable>
 
