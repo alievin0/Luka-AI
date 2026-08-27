@@ -279,6 +279,30 @@ export const ui = {
 
   // paywall
   startNowCta: L("Start now", "ابدأ الآن"),
+  // ---- paywall ----------------------------------------------------------
+  paywallSub: L(
+    "Know at once whether to stop, what to do, and what the repair will cost.",
+    "اعرف فوراً إذا لازم توقف، شو تعمل، وقديش رح يكلفك الإصلاح.",
+  ),
+  youGet: L("What you get", "شو بتحصل عليه"),
+
+  // The severity language, taught here before it is met in anger.
+  cardStopTitle: L("DANGER", "خطر"),
+  cardStopLine: L("Stop the car now", "أوقف السيارة الآن"),
+  cardCautionTitle: L("WARNING", "تحذير"),
+  cardCautionLine: L("Keep going, carefully", "تقدر تكمل بحذر"),
+  cardOkTitle: L("All clear", "ما في داعي"),
+  cardOkLine: L("Safe to keep driving", "تقدر تكمل بأمان"),
+
+  trialSafeTitle: L("Try {n} days free — no risk", "جرّب {n} أيام مجاناً — بدون أي مخاطرة"),
+  trialSafeBody: L(
+    "Cancel any time before the trial ends and you are charged nothing.",
+    "بتقدر تلغي بأي وقت قبل ما تنتهي التجربة وما ينخصم منك إشي.",
+  ),
+
+  trustCancel: L("Cancel any time", "إلغاء بسهولة بأي وقت"),
+  trustArabic: L("Arabic throughout", "بالعربي بالكامل"),
+  trustPrivate: L("Private and secure", "آمن وخاص"),
   restorePrior: L("Restore a previous purchase", "استعادة عملية شراء سابقة"),
   purchaseFailed: L("Purchase didn't complete", "ما تمت العملية"),
   purchaseFailedBody: L(

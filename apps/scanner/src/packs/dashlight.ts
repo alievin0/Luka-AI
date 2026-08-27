@@ -93,28 +93,33 @@ export const dashlight: ScannerPack = {
       "Am I in trouble, and can I keep driving?",
       "أنا بورطة؟ وبقدر أكمل سواقة؟",
     ),
-    // Each glyph matches what its own line promises: the verdict, the
-    // consequence, the car, the estimate, the guide.
+    // Each line is a title and the promise under it, with an icon from the
+    // one family the rest of the app uses.
     bullets: [
       {
-        glyph: "✓",
-        text: L("A straight answer on whether it's safe to drive", "جواب واضح: تقدر تكمل سواقة ولا لأ"),
+        icon: "clock",
+        text: L("In seconds", "خلال ثوانٍ"),
+        detail: L("Photograph the light, get the answer", "صوّر اللمبة ونعطيك الجواب"),
       },
       {
-        glyph: "!",
-        text: L("What actually happens if you ignore it", "شو بيصير فعلياً إذا تجاهلتها"),
+        icon: "truck",
+        text: L("Read on your car", "مخصّص لسيارتك"),
+        detail: L("Sharper answers for your make and year", "نتائج أدق حسب نوع سيارتك"),
       },
       {
-        glyph: "⚙",
-        text: L("Read against your own car, not a generic manual", "مقروءة على سيارتك إنت مش على دليل عام"),
+        icon: "book-open",
+        text: L("The whole guide", "دليل كامل"),
+        detail: L("48 warning lights, offline", "دليل واضح لـ٤٨ لمبة"),
       },
       {
-        glyph: "≈",
-        text: L("Repair cost estimated in your currency", "تقدير كلفة التصليح بعملة بلدك"),
+        icon: "credit-card",
+        text: L("What it costs", "تكلفة تقريبية"),
+        detail: L("Know the repair before the workshop does", "اعرف كم ممكن يكلّف إصلاحها"),
       },
       {
-        glyph: "▤",
-        text: L("A guide to 48 warning lights, offline", "دليل ٤٨ لمبة تحذيرية بدون إنترنت"),
+        icon: "check-square",
+        text: L("Clear steps", "خطوات واضحة"),
+        detail: L("What to do now, in order", "شو تعمل الآن خطوة بخطوة"),
       },
     ],
   },
@@ -130,6 +135,7 @@ export const dashlight: ScannerPack = {
         period: L("year", "سنة"),
         note: L("Under $0.77 a week", "أقل من $0.77 بالأسبوع"),
         badge: L("Best value", "الأوفر"),
+        trialDays: 3,
       },
     ],
   },

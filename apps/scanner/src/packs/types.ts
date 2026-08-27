@@ -94,13 +94,29 @@ export type Pricing = {
  * The object form carries a glyph chosen to match what that particular line
  * promises — five identical ticks make five different promises look like one.
  */
-export type PaywallBullet = Text | { text: Text; glyph: string };
+export type PaywallBullet =
+  | Text
+  | {
+      text: Text;
+      /** A character, for packs that have not been given real icons. */
+      glyph?: string;
+      /** A Feather icon name — one family, one stroke weight. */
+      icon?: string;
+      /** The supporting line under the benefit. */
+      detail?: Text;
+    };
 
 export const bulletText = (bullet: PaywallBullet): Text =>
   "text" in bullet ? bullet.text : bullet;
 
 export const bulletGlyph = (bullet: PaywallBullet): string =>
-  "text" in bullet ? bullet.glyph : "✓";
+  "text" in bullet ? (bullet.glyph ?? "✓") : "✓";
+
+export const bulletIcon = (bullet: PaywallBullet): string | undefined =>
+  "text" in bullet ? bullet.icon : undefined;
+
+export const bulletDetail = (bullet: PaywallBullet): Text | undefined =>
+  "text" in bullet ? bullet.detail : undefined;
 
 /* ------------------------------------------------------------------ scanner */
 
