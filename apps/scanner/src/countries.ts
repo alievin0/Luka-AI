@@ -38,7 +38,9 @@ export const COUNTRIES: Country[] = [
   { code: "CA", name: "كندا", currency: "C$", aliases: ["canada", "ca", "كندا"] },
   { code: "DE", name: "ألمانيا", currency: "€", aliases: ["germany", "de", "المانيا", "ألمانيا"] },
   { code: "FR", name: "فرنسا", currency: "€", aliases: ["france", "fr", "فرنسا"] },
-  { code: "OTHER", name: "مكان تاني", currency: "$", aliases: ["other", "غير", "تاني", "اخرى"] },
+  // "تاني" stays in the aliases although the label no longer says it: someone
+  // typing the dialect word should still land here.
+  { code: "OTHER", name: "مكان آخر", currency: "$", aliases: ["other", "غير", "تاني", "اخرى", "اخر"] },
 ];
 
 /** Strips Arabic diacritics and normalises alef/ya/ta-marbuta so that

@@ -158,7 +158,7 @@ Rules, in order of importance:
 2. Every claim in the answer must be traceable. Fill "citations" with the passages you used: the lectureId exactly as given, the timestamp in seconds, and the quotation copied word for word from the passage. Never write a quotation from memory or tidy up its wording — it is checked against the transcript, and an altered one is discarded.
 3. Do not present your own inference as something the lecturer said. If you are reasoning across passages, say so in the answer.
 4. Be brief. Two or three sentences answers most questions. The student came for the answer and the place to hear it, not an essay.
-5. Answer in ${arabic ? "Arabic, in the same everyday register the student is writing in" : "English"}.`,
+5. Answer in ${arabic ? "Modern Standard Arabic (فصحى) — clear and direct, the register of a well-written textbook. Never colloquial or dialect, whatever register the student wrote the question in. Keep technical terms in English where a student would. This governs your own words only: a quotation is copied exactly as it was spoken, dialect and all, because rule 2 checks it against the transcript" : "English"}.`,
       output_config: {
         format: {
           type: "json_schema",

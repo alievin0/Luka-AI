@@ -8,6 +8,14 @@ import type { ExpoConfig } from "expo/config";
  * Each pack gets its own name, slug and bundle id so they're separate
  * listings on the stores while sharing every screen and the scan API.
  */
+/**
+ * The permission strings are the one place in these apps where a string is
+ * baked into the build in a single language: iOS reads them from Info.plist
+ * before any JavaScript runs, so there is no locale to resolve against. Each
+ * variant is written in the language its users are expected to read — which
+ * is why Dash Light's camera line is Arabic and its photos line is English,
+ * a mismatch that a real localised Info.plist would settle.
+ */
 const VARIANTS = {
   dashlight: {
     name: "Dash Light Scanner",
@@ -16,7 +24,7 @@ const VARIANTS = {
     accent: "#F2A33C",
     splashBg: "#14171F",
     cameraPermission:
-      "نحتاج الكاميرا لتصوير لوحة القيادة والتعرّف على اللمبة التحذيرية.",
+      "نحتاج الكاميرا لتصوير لوحة القيادة والتعرّف على المصباح التحذيري.",
     photosPermission: "We need photo access so you can pick a dashboard photo.",
   },
   goldscan: {
@@ -55,9 +63,9 @@ const VARIANTS = {
     cameraPermission: "Not used by this app.",
     photosPermission: "Not used by this app.",
     micPermission:
-      "مَحضَر بيحتاج المايك عشان يسجّل المحاضرة ويحوّلها لنص وملخص.",
+      "يحتاج مَحضَر إلى الميكروفون لتسجيل المحاضرة وتحويلها إلى نص وملخّص.",
     speechPermission:
-      "مَحضَر بيحوّل كلام الدكتور لنص على جهازك لحظة بلحظة.",
+      "يحوّل مَحضَر كلام المحاضر إلى نص على جهازك لحظة بلحظة.",
   },
   bugscan: {
     name: "Insect Identifier",
