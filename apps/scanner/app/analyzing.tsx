@@ -15,6 +15,7 @@ import {
   updateLecture,
 } from "../src/lectures";
 import { analyseLecture, transcribeLecture, LectureError } from "../src/lecture-api";
+import { useReducedMotion } from "../src/motion";
 import {
   GOLD,
   GOLD_DEEP,
@@ -50,8 +51,13 @@ export default function Analyzing() {
   const [phase, setPhase] = useState<Phase>("saved");
   const [error, setError] = useState<string | null>(null);
   const spin = useRef(new Animated.Value(0)).current;
+  const stillness = useReducedMotion();
 
   useEffect(() => {
+    // The rings are the only continuous movement left in the app, and a
+    // spinner someone cannot look at is worse than no spinner: the stage list
+    // below already says what is happening.
+    if (stillness) return;
     const animation = Animated.loop(
       Animated.timing(spin, {
         toValue: 1,
@@ -62,7 +68,7 @@ export default function Analyzing() {
     );
     animation.start();
     return () => animation.stop();
-  }, [spin]);
+  }, [spin, stillness]);
 
   useEffect(() => {
     let cancelled = false;
