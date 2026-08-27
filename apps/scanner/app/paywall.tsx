@@ -127,33 +127,27 @@ export default function Paywall() {
             <GradeCard tone="info" mark={DESIGN.gradeOk} title={t(ui.cardOkTitle)} line={t(ui.cardOkLine)} />
           </View>
 
-          {/* One card, one grid. Hairlines rather than boxes inside boxes. */}
+          {/* One card, one row. The design sets the five side by side. */}
           <View style={styles.card}>
             <Text style={styles.cardTitle}>{t(ui.youGet)}</Text>
             <View style={styles.grid}>
-              {benefits.map((bullet, index) => {
+              {benefits.map((bullet) => {
                 const mark = designAsset(bulletSymbol(bullet));
                 const icon = bulletIcon(bullet);
                 const detail = bulletDetail(bullet);
                 return (
-                  <View
-                    key={t(bulletText(bullet))}
-                    style={[
-                      styles.cell,
-                      index % 2 === 0 && index < benefits.length - 1 && styles.cellDivided,
-                      index >= 2 && styles.cellRow,
-                      // An odd count leaves one cell alone on the last row.
-                      // Half a hairline hanging in space reads as a mistake,
-                      // so it takes the whole row and the rule runs full width.
-                      index === benefits.length - 1 && index % 2 === 0 && styles.cellWide,
-                    ]}
-                  >
+                  <View key={t(bulletText(bullet))} style={styles.cell}>
                     {mark ? (
-                      <Image
-                        source={mark.source}
-                        style={{ width: mark.width, height: mark.height }}
-                        resizeMode="contain"
-                      />
+                      /* The marks are not all the same height, and the design
+                         sits them on a shared bottom edge so the five titles
+                         below them start on one line. */
+                      <View style={styles.cellMark}>
+                        <Image
+                          source={mark.source}
+                          style={{ width: mark.width, height: mark.height }}
+                          resizeMode="contain"
+                        />
+                      </View>
                     ) : icon ? (
                       <Feather
                         name={icon as React.ComponentProps<typeof Feather>["name"]}
@@ -384,25 +378,28 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: BORDER,
     borderRadius: 26,
-    paddingVertical: 24,
-    paddingHorizontal: 20,
-    gap: 20,
+    paddingVertical: 22,
+    paddingHorizontal: 8,
+    gap: 18,
   },
-  cardTitle: { color: TEXT, fontSize: 16, fontFamily: UI_FONT.bold, textAlign: READ },
+  cardTitle: { color: TEXT, fontSize: 16, fontFamily: UI_FONT.bold, textAlign: READ, paddingHorizontal: 12 },
 
-  /* Two columns rather than five: five across a phone gives each about sixty
-     points, and a benefit nobody can read is not one. */
-  grid: { flexDirection: "row", flexWrap: "wrap" },
-  cell: { width: "50%", gap: 7, paddingVertical: 14, paddingHorizontal: 10, alignItems: "center" },
-  cellWide: { width: "100%" },
-  cellDivided: { borderRightWidth: 1, borderRightColor: BORDER },
-  cellRow: { borderTopWidth: 1, borderTopColor: BORDER },
-  cellGlyph: { color: TEXT_SOFT, fontSize: 17 },
-  cellTitle: { color: TEXT, fontSize: 14, fontFamily: UI_FONT.bold, textAlign: "center" },
+  /* One row of five, at the design's own column pitch: its five marks sit on
+     centres 70pt apart across a 355pt card, which is five equal columns edge
+     to edge. No dividers — the design separates them with space alone. */
+  grid: { flexDirection: "row", alignItems: "flex-start" },
+  cell: { flex: 1, gap: 5, paddingHorizontal: 2, alignItems: "center" },
+  /* 68 design units is the tallest of the five; 37pt is that on this phone. */
+  cellMark: { height: 37, justifyContent: "flex-end" },
+  cellGlyph: { color: TEXT_SOFT, fontSize: 15 },
+  /* Five across a 390pt phone leaves each column about 68pt, so the type has
+     to come down with it. These are the design's own sizes, lifted a little
+     to clear a legible floor. */
+  cellTitle: { color: TEXT, fontSize: 11, lineHeight: 15, fontFamily: UI_FONT.bold, textAlign: "center" },
   cellDetail: {
     color: TEXT_FAINT,
-    fontSize: 13,
-    lineHeight: 20,
+    fontSize: 9.5,
+    lineHeight: 13,
     fontFamily: UI_FONT.regular,
     textAlign: "center",
   },
