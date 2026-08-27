@@ -189,10 +189,36 @@ def build_dashlight(size, scale=1.0, background=(20, 23, 31)):
     return shapes
 
 
+def scan_brackets(size, colour, scale=1.0, inset=0.10, arm=0.16, weight=0.030):
+    """Four corner brackets. They read as a camera frame at the periphery
+    without stealing area from the subject in the middle."""
+    s = size * scale
+    t = size * weight * scale
+    a = size * arm * scale
+    lo = size / 2 - s / 2 + size * inset * scale
+    hi = size / 2 + s / 2 - size * inset * scale
+    shapes = []
+    for (cx, cy, dx, dy) in (
+        (lo, lo, 1, 1),
+        (hi, lo, -1, 1),
+        (lo, hi, 1, -1),
+        (hi, hi, -1, -1),
+    ):
+        shapes.append(
+            (lambda px, py, c=(cx, cy), d=(dx, dy): sd_capsule(
+                px, py, c[0], c[1], c[0] + d[0] * a, c[1], t / 2), colour)
+        )
+        shapes.append(
+            (lambda px, py, c=(cx, cy), d=(dx, dy): sd_capsule(
+                px, py, c[0], c[1], c[0], c[1] + d[1] * a, t / 2), colour)
+        )
+    return shapes
+
+
 def build_bugscan(size, scale=1.0, background=(15, 23, 20)):
     green = (91, 192, 138)
     c = size / 2
-    s = size * scale
+    s = size * scale * 0.86
 
     body_cx, body_cy = c, c + s * 0.06
     body_r = s * 0.20
@@ -228,7 +254,8 @@ def build_bugscan(size, scale=1.0, background=(15, 23, 20)):
             ), green)
         )
 
-    return legs + antennae + [(abdomen, green), (thorax, green), (head, green)]
+    frame = scan_brackets(size, (233, 240, 236), scale=scale * 1.05)
+    return frame + legs + antennae + [(abdomen, green), (thorax, green), (head, green)]
 
 
 # --------------------------------------------------------------------- packs
