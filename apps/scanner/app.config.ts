@@ -19,6 +19,15 @@ const VARIANTS = {
       "نحتاج الكاميرا لتصوير لوحة القيادة والتعرّف على اللمبة التحذيرية.",
     photosPermission: "نحتاج الوصول للصور لاختيار صورة لوحة القيادة.",
   },
+  goldscan: {
+    name: "فاحص الذهب",
+    slug: "goldscan",
+    bundleId: "com.goldscan.hallmark",
+    accent: "#D9A441",
+    splashBg: "#1A1509",
+    cameraPermission: "نحتاج الكاميرا لتصوير الدمغة المحفورة على قطعة الذهب.",
+    photosPermission: "نحتاج الوصول للصور لاختيار صورة قطعة الذهب.",
+  },
   bugscan: {
     name: "ماسح الحشرات",
     slug: "bugscan",

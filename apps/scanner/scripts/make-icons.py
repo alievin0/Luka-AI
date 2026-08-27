@@ -64,7 +64,7 @@ def sd_capsule(px, py, ax, ay, bx, by, r):
     return math.hypot(wx - vx * t, wy - vy * t) - r
 
 
-def make_triangle(verts, radius):
+def make_polygon(verts, radius):
     """Rounded convex polygon as a distance function.
 
     Uses the exact distance to the boundary — taking `max` of the edge
@@ -72,14 +72,15 @@ def make_triangle(verts, radius):
     instead of rounding them, which visibly inflates a sharp shape like a
     triangle well past its nominal size.
     """
-    gx = sum(v[0] for v in verts) / 3
-    gy = sum(v[1] for v in verts) / 3
+    n = len(verts)
+    gx = sum(v[0] for v in verts) / n
+    gy = sum(v[1] for v in verts) / n
 
     segs = []
     planes = []
-    for i in range(3):
+    for i in range(n):
         ax, ay = verts[i]
-        bx, by = verts[(i + 1) % 3]
+        bx, by = verts[(i + 1) % n]
         ex, ey = bx - ax, by - ay
         length = math.hypot(ex, ey)
         nx, ny = ey / length, -ex / length
@@ -176,7 +177,7 @@ def build_dashlight(size, scale=1.0, background=(20, 23, 31)):
     amber = (242, 163, 60)
     dark = background if background else (20, 23, 31)
     verts, s = warning_mark(size, scale)
-    tri = make_triangle(verts, s * 0.07)
+    tri = make_polygon(verts, s * 0.07)
 
     c = size / 2
     bar_top = c - s * 0.13
@@ -260,9 +261,35 @@ def build_bugscan(size, scale=1.0, background=(15, 23, 20)):
 
 # --------------------------------------------------------------------- packs
 
+def build_goldscan(size, scale=1.0, background=(26, 21, 9)):
+    gold = (217, 164, 65)
+    c = size / 2
+    s = size * scale * 0.86
+
+    # Trapezoid ingot: narrower on top, as a poured bar actually is.
+    top_w, bottom_w, h = s * 0.44, s * 0.66, s * 0.30
+    top_y, bottom_y = c - h * 0.5, c + h * 0.5
+    bar = make_polygon(
+        [
+            (c - top_w / 2, top_y),
+            (c + top_w / 2, top_y),
+            (c + bottom_w / 2, bottom_y),
+            (c - bottom_w / 2, bottom_y),
+        ],
+        s * 0.045,
+    )
+    # A stamp line across the face reads as a hallmark, which is the subject.
+    stamp = lambda px, py: sd_capsule(
+        px, py, c - s * 0.085, c + s * 0.02, c + s * 0.085, c + s * 0.02, s * 0.026
+    )
+    frame = scan_brackets(size, (240, 234, 218), scale=scale * 1.05)
+    return frame + [(bar, gold), (stamp, background)]
+
+
 PACKS = {
     "dashlight": {"bg": (20, 23, 31), "build": build_dashlight},
     "bugscan": {"bg": (15, 23, 20), "build": build_bugscan},
+    "goldscan": {"bg": (26, 21, 9), "build": build_goldscan},
 }
 
 
