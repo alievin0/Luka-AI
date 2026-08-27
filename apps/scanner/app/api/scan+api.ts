@@ -13,8 +13,32 @@ const MODEL = process.env.DASHLIGHT_MODEL || "claude-opus-5";
 const RESULT_SCHEMA = {
   type: "object",
   additionalProperties: false,
+  /**
+   * What the result screen renders unconditionally has to be here, or the
+   * guarantee this file claims is only a claim.
+   *
+   * `ifIgnored`, `carContext` and `cost` were optional while the prompt called
+   * two of them REQUIRED in prose — and `ifIgnored` is described there as "the
+   * field people are actually paying for". A missing one does not error; the
+   * card just silently disappears. `notDetectedReason` is here for the
+   * opposite reason: it is the only field the not-detected screen reads, and
+   * without it the driver gets a generic capture hint instead of being told
+   * what was actually wrong with their photo.
+   *
+   * `cost` stays nullable rather than optional — some lights have no repair to
+   * price, and `null` says that where an absent key says nothing.
+   *
+   * The honest shape here is two shapes, chosen on `detected`: a photo the
+   * model could not read is still forced to invent a title, a verdict and
+   * three facts, which cost tokens and are thrown away. `clampForSafety` drops
+   * them below so nothing invented is stored or shown, but the model is still
+   * paying to write them. Splitting the schema on `detected` needs a live call
+   * to confirm the API's structured-output support for it, and there is no key
+   * in this environment to make one.
+   */
   required: [
     "detected",
+    "notDetectedReason",
     "title",
     "subtitle",
     "severity",
@@ -26,6 +50,9 @@ const RESULT_SCHEMA = {
     "causes",
     "actions",
     "seekHelpIf",
+    "ifIgnored",
+    "carContext",
+    "cost",
   ],
   properties: {
     detected: { type: "boolean" },
@@ -39,6 +66,7 @@ const RESULT_SCHEMA = {
     summary: { type: "string" },
     facts: {
       type: "array",
+      minItems: 3,
       items: {
         type: "object",
         additionalProperties: false,
@@ -46,9 +74,11 @@ const RESULT_SCHEMA = {
         properties: { label: { type: "string" }, value: { type: "string" } },
       },
     },
-    causes: { type: "array", items: { type: "string" } },
-    actions: { type: "array", items: { type: "string" } },
-    seekHelpIf: { type: "array", items: { type: "string" } },
+    // Without a minimum, `[]` satisfies "required" and the screen quietly
+    // drops a whole tab. The numbers are the ones the prompt asks for.
+    causes: { type: "array", minItems: 2, items: { type: "string" } },
+    actions: { type: "array", minItems: 2, items: { type: "string" } },
+    seekHelpIf: { type: "array", minItems: 2, items: { type: "string" } },
     ifIgnored: { type: "string" },
     glyph: {
       type: "string",
@@ -85,8 +115,18 @@ const RESULT_SCHEMA = {
  * Safety clamp. The prompt already forbids reassuring the user about a
  * critical finding, but a prompt is not a guarantee — this makes it one.
  * Never let a critical result read as "safe to continue".
+ *
+ * It also drops what the schema forces the model to write about a photo it
+ * said it could not read. One flat shape means a not-detected answer still
+ * carries a title, a verdict and three facts; they are guesses about a light
+ * nobody identified, they get saved to history with the scan, and none of them
+ * is ever shown. Keeping them would make an honest "I could not read this"
+ * look like a reading.
  */
 function clampForSafety(result: ScanResult): ScanResult {
+  if (!result.detected) {
+    return { detected: false, notDetectedReason: result.notDetectedReason };
+  }
   if (result.severity === "critical" && result.verdictLevel === "ok") {
     return { ...result, verdictLevel: "stop" };
   }

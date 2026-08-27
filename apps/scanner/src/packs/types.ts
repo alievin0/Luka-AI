@@ -128,9 +128,16 @@ export const bulletDetail = (bullet: PaywallBullet): Text | undefined =>
 
 /* ------------------------------------------------------------------ scanner */
 
-export type ScanResult = {
-  detected: boolean;
-  notDetectedReason?: string;
+/**
+ * A scan that produced a reading.
+ *
+ * Everything here is guaranteed by `RESULT_SCHEMA` in `app/api/scan+api.ts`,
+ * which is why none of it is optional. The two that still are — `glyph` and
+ * `alsoDetected` — are genuinely absent sometimes: not every light has a
+ * pictogram in the set, and most photos show only one lit symbol.
+ */
+export type ScanReading = {
+  detected: true;
   title: string;
   subtitle: string;
   severity: Severity;
@@ -154,6 +161,23 @@ export type ScanResult = {
   /** Anything else lit/visible in the same photo, most severe first. */
   alsoDetected?: { title: string; severity: Severity }[];
 };
+
+/**
+ * A photo the model could not read.
+ *
+ * A separate shape rather than a reading with empty fields: the server strips
+ * everything the schema made the model invent about a light nobody identified,
+ * so there is nothing here to accidentally render. `reason` is what the driver
+ * is told to change about the photo.
+ */
+export type ScanUnread = {
+  detected: false;
+  notDetectedReason?: string;
+};
+
+/** Discriminated on `detected`, so a screen cannot read a title off a photo
+ *  that was never read. */
+export type ScanResult = ScanReading | ScanUnread;
 
 export type ScannerPack = {
   kind: "scanner";

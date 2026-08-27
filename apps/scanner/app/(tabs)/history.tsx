@@ -61,8 +61,8 @@ export default function History() {
             ListHeaderComponent={<Caption>{t(ui.longPressDelete)}</Caption>}
             showsVerticalScrollIndicator={false}
             renderItem={({ item }) => {
-              const unread = !item.result.detected;
-              const name = unread ? t(ui.notDetectedTitle) : item.result.title;
+              const reading = item.result.detected ? item.result : null;
+              const name = reading ? reading.title : t(ui.notDetectedTitle);
               return (
                 <Pressable
                   style={({ pressed }) => [styles.row, pressed && { opacity: 0.85 }]}
@@ -82,7 +82,7 @@ export default function History() {
                 >
                   <Image source={{ uri: item.imageUri }} style={styles.thumb} />
                   <View style={styles.rowBody}>
-                    <Text style={[styles.rowTitle, unread && { color: TEXT_FAINT }]} numberOfLines={1}>
+                    <Text style={[styles.rowTitle, !reading && { color: TEXT_FAINT }]} numberOfLines={1}>
                       {name}
                     </Text>
                     <Text style={styles.rowMeta} numberOfLines={1}>
@@ -93,7 +93,7 @@ export default function History() {
                       })}
                     </Text>
                   </View>
-                  {unread ? null : <SeverityDot severity={item.result.severity} size={10} />}
+                  {reading ? <SeverityDot severity={reading.severity} size={10} /> : null}
                 </Pressable>
               );
             }}

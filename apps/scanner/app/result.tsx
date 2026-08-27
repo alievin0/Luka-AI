@@ -92,7 +92,9 @@ export default function Result() {
   /** Only the views that have something in them. A tab that opens on an empty
    *  panel teaches the driver the tabs are not worth pressing. */
   const views = useMemo(() => {
-    if (!result) return [];
+    // Also guards the shape: a photo that was never read has none of these
+    // fields, and the not-detected screen below has no tabs at all.
+    if (!result?.detected) return [];
     const out: { key: View4; label: string }[] = [{ key: "summary", label: t(ui.resTabSummary) }];
     if (result.causes?.length) out.push({ key: "causes", label: t(ui.resTabCauses) });
     if (result.actions?.length || result.seekHelpIf?.length)
