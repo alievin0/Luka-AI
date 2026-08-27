@@ -5,7 +5,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { pack, isScanner } from "../src/packs";
 import Feather from "@expo/vector-icons/Feather";
 import { SymbolBadge } from "../src/components/SymbolBadge";
-import { getHistory, getProfile, type HistoryEntry, type Profile } from "../src/storage";
+import { currencyFor, getHistory, getProfile, type HistoryEntry, type Profile } from "../src/storage";
+import { formatMoneyRange } from "../src/money";
 import { carLabel } from "../src/car";
 import { t, fill } from "../src/i18n";
 import { ui } from "../src/i18n/ui";
@@ -252,8 +253,11 @@ export default function Result() {
               {showCost && result.cost ? (
                 <Card>
                   <SectionTitle>{t(ui.estimatedCost)}</SectionTitle>
+                  {/* The user's own currency, not the model's echo of it. The
+                      two agree in practice, but only one of them is something
+                      the app knows to be true. */}
                   <Text style={styles.cost}>
-                    {result.cost.min} – {result.cost.max} {result.cost.currency}
+                    {formatMoneyRange(result.cost.min, result.cost.max, currencyFor(profile))}
                   </Text>
 
                   {/* A range on its own tells a driver almost nothing: they

@@ -66,7 +66,7 @@ export default function Onboarding() {
   };
 
   const pickCountry = (country: Country) => {
-    setProfile((p) => ({ ...p, region: country.name }));
+    setProfile((p) => ({ ...p, region: country.code }));
     next();
   };
 

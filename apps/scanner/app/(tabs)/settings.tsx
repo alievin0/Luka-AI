@@ -14,6 +14,7 @@ import { resetProgress } from "../../src/progress";
 import { DEFAULT_HOUR, cancelReminder, getReminderHour, scheduleReminder } from "../../src/reminders";
 import { restoreAndReport } from "../../src/purchases";
 import { CountryField } from "../../src/components/CountryField";
+import { countryLabel } from "../../src/countries";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { NAV_CLEARANCE } from "../../src/components/ScannerNav";
 import { READ } from "../../src/scanner-ui";
@@ -121,7 +122,7 @@ export default function Settings() {
       <View style={styles.group}>
         <Row
           label={t(ui.yourCountry)}
-          value={profile.region || t(ui.notSet)}
+          value={profile.region ? countryLabel(profile.region) : t(ui.notSet)}
           onPress={() => router.push("/change-country")}
         />
         {isScanner(pack) && pack.library ? (

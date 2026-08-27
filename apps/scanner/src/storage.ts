@@ -1,6 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { activePackId, type ScanResult } from "./packs";
-import { currencyForCountry } from "./countries";
+import { countryFor, currencyForCountry } from "./countries";
 
 /** Keys are namespaced per pack so the two apps never share state. */
 const k = (name: string) => `@${activePackId}:${name}`;
@@ -36,10 +36,19 @@ export type Profile = Record<string, string>;
 export const currencyFor = (profile: Profile) =>
   currencyForCountry(profile.region ?? "");
 
-/** Flattens the onboarding answers into one line for the vision prompt. */
+/**
+ * Flattens the onboarding answers into one line for the vision prompt.
+ *
+ * `region` is stored as a country code so a label can be edited without
+ * orphaning every profile, but "KW" is thinner context than "Kuwait" for a
+ * model asked which cars and which repair prices are plausible there — so it
+ * is expanded on the way out, in English, which is the prompt's language.
+ */
 export const profileSummary = (profile: Profile) =>
   Object.entries(profile)
-    .map(([key, value]) => `${key}: ${value}`)
+    .map(([key, value]) =>
+      key === "region" ? `region: ${countryFor(value)?.name.en ?? value}` : `${key}: ${value}`,
+    )
     .join("، ");
 
 export async function isOnboarded() {

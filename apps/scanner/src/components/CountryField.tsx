@@ -10,6 +10,7 @@ import {
 } from "react-native";
 import * as Haptics from "expo-haptics";
 import { t } from "../i18n";
+import { currencySymbol } from "../money";
 import { ui } from "../i18n/ui";
 import { theme } from "../theme";
 import { READ } from "../scanner-ui";
@@ -70,8 +71,8 @@ export function CountryField({
               style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
               onPress={() => choose(country)}
             >
-              <Text style={styles.rowName}>{country.name}</Text>
-              <Text style={styles.rowCurrency}>{country.currency}</Text>
+              <Text style={styles.rowName}>{t(country.name)}</Text>
+              <Text style={styles.rowCurrency}>{currencySymbol(country.currency)}</Text>
             </Pressable>
           ))}
         </ScrollView>

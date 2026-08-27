@@ -38,7 +38,8 @@ export default function ChangeCountry() {
       <View style={styles.body}>
         <CountryField
           onSelect={async (country) => {
-            await updateProfile({ region: country.name });
+            // The code, not the label: a stored name breaks the moment a label is edited.
+            await updateProfile({ region: country.code });
             router.back();
           }}
         />
