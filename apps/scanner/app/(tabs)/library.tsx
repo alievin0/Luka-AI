@@ -19,8 +19,10 @@ import {
   SP,
   RADIUS,
   READ,
+  gradeOf,
+  type Severity,
 } from "../../src/scanner-ui";
-import { SeverityDot, SearchField, EmptyState } from "../../src/components/scanner-kit";
+import { SeverityDot, SearchField, EmptyState, Segmented, type TabItem } from "../../src/components/scanner-kit";
 import { NAV_CLEARANCE } from "../../src/components/ScannerNav";
 
 /**
@@ -43,22 +45,41 @@ const GRADE_WORD = {
  *  that could strand them, not for alphabetical order. */
 const RANK = { critical: 0, warning: 1, info: 2 } as const;
 
+/** Forty-eight is a long way to scroll to reach the eight that matter. */
+type Filter = "all" | Severity;
+
+const FILTERS: TabItem<Filter>[] = [
+  { key: "all", label: "" },
+  { key: "critical", label: "" },
+  { key: "warning", label: "" },
+  { key: "info", label: "" },
+];
+
+const FILTER_WORD = {
+  all: ui.filterAll,
+  critical: ui.filterCritical,
+  warning: ui.filterWarning,
+  info: ui.filterInfo,
+} as const;
+
 export default function Library() {
   const router = useRouter();
   const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<Filter>("all");
 
   const scannerPack = isScanner(pack) ? pack : null;
   const entries = useMemo(() => scannerPack?.library ?? [], [scannerPack]);
 
   const matches = useMemo(() => {
     const q = normalise(query.trim());
+    const bySeverity = filter === "all" ? entries : entries.filter((e) => e.severity === filter);
     const found = q
-      ? entries.filter((e) =>
+      ? bySeverity.filter((e) =>
           [t(e.title), e.subtitle, t(e.summary)].some((field) => normalise(field).includes(q)),
         )
-      : entries;
+      : bySeverity;
     return [...found].sort((a, b) => RANK[a.severity] - RANK[b.severity]);
-  }, [query, entries]);
+  }, [query, filter, entries]);
 
   if (entries.length === 0) {
     return (
@@ -82,6 +103,11 @@ export default function Library() {
             onChange={setQuery}
             placeholder={fill(ui.searchLights, { n: entries.length })}
           />
+          <Segmented
+            items={FILTERS.map((f) => ({ ...f, label: t(FILTER_WORD[f.key]) }))}
+            value={filter}
+            onChange={setFilter}
+          />
         </View>
 
         <FlatList
@@ -98,7 +124,15 @@ export default function Library() {
               accessibilityRole="button"
               accessibilityLabel={`${t(item.title)} — ${t(GRADE_WORD[item.severity])}`}
             >
-              <SymbolBadge glyph={item.glyph} colour={TEXT_SOFT} background="transparent" size={34} />
+              {/* The symbol carries the grade too. A red dot next to a grey
+                  symbol is two different answers to the same question, and
+                  the symbol is the half the eye lands on first. */}
+              <SymbolBadge
+                glyph={item.glyph}
+                colour={gradeOf(item.severity).fg}
+                background="transparent"
+                size={40}
+              />
               <View style={styles.rowBody}>
                 <Text style={styles.rowTitle} numberOfLines={1}>
                   {t(item.title)}

@@ -626,7 +626,13 @@ export const ui = {
   chooseFromGallery: L("Choose from gallery", "اختر من المعرض"),
 
   // The light guide.
-  searchLights: L("Search {n} lights", "دوّر بـ{n} لمبة"),
+  searchLights: L("Search {n} lights", "ابحث في {n} لمبة"),
+  // Short enough to sit in a filter chip. The grade words above are the full
+  // labels used where there is room for them.
+  filterCritical: L("Danger", "خطر"),
+  filterWarning: L("Warning", "تحذير"),
+  filterInfo: L("Normal", "عادي"),
+  severityLevel: L("Severity", "مستوى الخطورة"),
   whatItMeans: L("What it means", "شو معناها"),
   commonCauses: L("Common causes", "الأسباب الشائعة"),
   whatToDoNow: L("What to do now", "شو تعمل هلق"),

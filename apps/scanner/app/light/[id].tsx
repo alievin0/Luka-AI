@@ -13,7 +13,7 @@ import {
   Subtitle,
   SectionTitle,
   Body,
-  SeverityBadge,
+  SeverityScale,
   Button,
   EmptyState,
 } from "../../src/components/scanner-kit";
@@ -73,10 +73,17 @@ export default function LightEntry() {
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         {/* Here the colour is earned: one light, and its grade is the point. */}
         <View style={styles.head}>
-          <SymbolBadge glyph={entry.glyph} colour={grade.fg} background={grade.bg} size={64} />
+          <SymbolBadge glyph={entry.glyph} colour={grade.fg} background={grade.bg} size={76} />
           <Title>{t(entry.title)}</Title>
           <Subtitle>{entry.subtitle}</Subtitle>
-          <SeverityBadge severity={entry.severity} label={t(GRADE_WORD[entry.severity])} />
+          {/* The grade said by quantity and by word as well as by colour, so
+              the one screen that explains a light does not rely on hue to do
+              it. The list stays a list; this is where the detail belongs. */}
+          <SeverityScale
+            severity={entry.severity}
+            label={t(GRADE_WORD[entry.severity])}
+            caption={t(ui.severityLevel)}
+          />
         </View>
 
         <Card>

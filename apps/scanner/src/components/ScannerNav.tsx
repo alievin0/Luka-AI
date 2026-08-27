@@ -88,7 +88,7 @@ export function ScannerNav(props: Partial<BottomTabBarProps>) {
 }
 
 /** What scrolling content must clear so the bar never covers the last row. */
-export const NAV_CLEARANCE = 88;
+export const NAV_CLEARANCE = 80;
 
 const styles = StyleSheet.create({
   bar: {
@@ -97,7 +97,10 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: BORDER,
   },
-  item: { flex: 1, minHeight: TAP + 8, alignItems: "center", justifyContent: "center", gap: 4 },
+  /* TAP is 44, the smallest a target may be, and the bar sits exactly on it:
+     with 48 entries in the guide every point above that is a row nobody
+     sees. */
+  item: { flex: 1, minHeight: TAP, alignItems: "center", justifyContent: "center", gap: 3 },
   mark: {
     position: "absolute",
     top: 0,

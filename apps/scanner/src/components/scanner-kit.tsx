@@ -197,6 +197,38 @@ export function ConfidenceMeter({
   );
 }
 
+/**
+ * How bad this one is, said three ways at once.
+ *
+ * A dot alone carries the grade in hue and nothing else, which is no signal
+ * at all to a driver who cannot separate red from amber. Here the count of
+ * filled bars says it by quantity, the word says it in language, and the
+ * colour says it to everyone else. Any one of the three is enough on its own.
+ */
+export function SeverityScale({
+  severity,
+  label,
+  caption,
+}: {
+  severity: Severity;
+  label: string;
+  caption: string;
+}) {
+  const filled = severity === "critical" ? 3 : severity === "warning" ? 2 : 1;
+  const colour = GRADE[severity].fg;
+  return (
+    <View style={k.scale} accessibilityLabel={`${caption}: ${label}`}>
+      <Text style={k.scaleCaption}>{caption}</Text>
+      <View style={k.scaleBars}>
+        {[0, 1, 2].map((i) => (
+          <View key={i} style={[k.scaleBar, { backgroundColor: i < filled ? colour : BORDER }]} />
+        ))}
+      </View>
+      <Text style={[k.scaleWord, { color: colour }]}>{label}</Text>
+    </View>
+  );
+}
+
 /* ---- actions ----------------------------------------------------------- */
 
 export function Button({
@@ -452,6 +484,11 @@ const k = StyleSheet.create({
   confidence: { flexDirection: "row", alignItems: "center", gap: SP.md },
   confidenceLabel: { color: TEXT_SOFT, ...TYPE.caption, fontFamily: FONT.medium },
   pips: { flexDirection: "row", gap: 3 },
+  scale: { flexDirection: "row", alignItems: "center", gap: SP.md },
+  scaleCaption: { color: TEXT_FAINT, ...TYPE.small, fontFamily: FONT.regular },
+  scaleBars: { flexDirection: "row", gap: 3 },
+  scaleBar: { width: 16, height: 4, borderRadius: 2 },
+  scaleWord: { ...TYPE.caption, fontFamily: FONT.bold, letterSpacing: 0.4 },
   pip: { width: 14, height: 5, borderRadius: 2.5 },
 
   btn: {
