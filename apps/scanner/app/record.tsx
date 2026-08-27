@@ -7,11 +7,13 @@ import {
   ScrollView,
   ActivityIndicator,
   Alert,
+  Linking,
 } from "react-native";
 import { useNavigation, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Haptics from "expo-haptics";
+import { ErrorState } from "../src/components/kit";
 import {
   useAudioRecorder,
   useAudioRecorderState,
@@ -588,16 +590,19 @@ export default function Record() {
         </View>
 
         {denied || failed ? (
+          /* Two different failures, said differently. A refused microphone is
+             something the student can fix in Settings; a failed save is not
+             their fault and the first thing they need to hear is what
+             survived. */
           <View style={styles.centered}>
-            <Text style={styles.deniedText}>
-              {failed ? t(ui.serverError) : t(ui.micDenied)}
-            </Text>
-            <Pressable
-              style={({ pressed }) => [styles.ghost, pressed && s.pressed]}
-              onPress={() => router.replace("/")}
-            >
-              <Text style={styles.ghostText}>{t(ui.home)}</Text>
-            </Pressable>
+            <ErrorState
+              title={failed ? t(ui.serverError) : t(ui.micDeniedTitle)}
+              body={failed ? t(ui.savedButAnalysisFailed) : t(ui.micDenied)}
+              action={denied ? t(ui.openSettings) : undefined}
+              onAction={denied ? () => void Linking.openSettings() : undefined}
+              secondary={t(ui.home)}
+              onSecondary={() => router.replace("/")}
+            />
           </View>
         ) : !ready ? (
           <View style={styles.centered}>
@@ -844,13 +849,6 @@ const styles = StyleSheet.create({
 
   centered: { flex: 1, alignItems: "center", justifyContent: "center", padding: SP.xxl, gap: SP.xl },
   preparing: { color: TEXT_FAINT, fontSize: SCALE.label, fontFamily: FONTS.body },
-  deniedText: {
-    color: TEXT_SOFT,
-    fontSize: SCALE.body,
-    lineHeight: SCALE.bodyLine,
-    textAlign: "center",
-    fontFamily: FONTS.body,
-  },
 
   /* The thumb zone. Marking is the repeated action and gets the weight. */
   actions: { paddingHorizontal: SP.xl, paddingTop: SP.lg, gap: SP.md },
@@ -883,13 +881,4 @@ const styles = StyleSheet.create({
   minorGlyph: { color: "#8E8471", fontSize: 12 },
   minorText: { color: TEXT_SOFT, fontSize: SCALE.label, fontFamily: FONTS.bodyMedium },
 
-  ghost: {
-    backgroundColor: "rgba(26,22,15,0.86)",
-    borderWidth: 1,
-    borderColor: PANEL_BORDER,
-    borderRadius: RADIUS.md,
-    paddingVertical: SP.lg,
-    paddingHorizontal: SP.xxl,
-  },
-  ghostText: { color: TEXT, fontSize: SCALE.body, fontFamily: FONTS.bodyMedium },
 });

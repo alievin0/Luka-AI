@@ -145,3 +145,27 @@ export function analyseLecture(input: {
     locale,
   });
 }
+
+export type StudyAnswer = {
+  /** False when the student's own lectures do not cover the question. */
+  answered: boolean;
+  answer: string;
+  /** Verified server-side against the excerpts that were sent. */
+  citations: { lectureId: string; atSeconds?: number; quote?: string }[];
+};
+
+/**
+ * Ask a question of the student's own lectures.
+ *
+ * The evidence is chosen on the device and travels with the question, so the
+ * answer can only be built from transcripts the student recorded — and the
+ * server can check every quotation against exactly what it was given.
+ */
+export function askLectures(input: {
+  packId: string;
+  question: string;
+  excerpts: { lectureId: string; lectureTitle: string; at: number; text: string }[];
+  overview: { id: string; title: string; at: number; summary: string; terms: string[] }[];
+}) {
+  return post<StudyAnswer>("/api/ask", { ...input, locale });
+}

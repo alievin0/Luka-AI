@@ -37,6 +37,7 @@ import {
   STATE,
   SP,
   READ,
+  BACK_GLYPH,
   HAIRLINE,
   audio as s,
 } from "./audio-theme";
@@ -166,6 +167,20 @@ export function AudioHome({ pack }: { pack: AudioPack }) {
             />
           ) : null}
         </View>
+
+        {/* The one way into Ask Mahdar on a phone — the bottom bar is full,
+            and burying it in a menu would be hiding the thing that makes the
+            recordings worth keeping. */}
+        {!empty ? (
+          <Card onPress={() => router.push("/study")} style={styles.ask}>
+            <Text style={styles.askGlyph}>✦</Text>
+            <View style={styles.askBody}>
+              <Text style={styles.askTitle}>{t(ui.aiStudy)}</Text>
+              <Meta>{t(ui.askAboutLectures)}</Meta>
+            </View>
+            <Text style={styles.askChevron}>{BACK_GLYPH === "‹" ? "›" : "‹"}</Text>
+          </Card>
+        ) : null}
 
         {empty ? (
           <EmptyState
@@ -648,6 +663,17 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.body,
     textAlign: READ,
   },
+
+  ask: { flexDirection: "row", alignItems: "center", gap: SP.md, padding: SP.lg },
+  askGlyph: { color: GOLD, fontSize: 18 },
+  askBody: { flex: 1, gap: 2 },
+  askTitle: {
+    color: TEXT,
+    fontSize: SCALE.section,
+    fontFamily: FONTS.bodyMedium,
+    textAlign: READ,
+  },
+  askChevron: { color: TEXT_FAINT, fontSize: 20 },
 
   row: { gap: SP.sm, padding: SP.lg },
   rowHead: { flexDirection: "row", alignItems: "center", gap: SP.md },

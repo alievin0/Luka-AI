@@ -210,6 +210,10 @@ export const ui = {
   viewAllMoments: L("See all moments", "شوف كل اللحظات"),
   mentionedAt: L("Mentioned at", "انذكرت بـ"),
   lectureMap: L("Lecture map", "خريطة المحاضرة"),
+  tabOverview: L("Overview", "نظرة عامة"),
+  showLess: L("Show less", "أقل"),
+  keyPointsTitle: L("The main points", "أهم النقاط"),
+  playFromMoment: L("Play from this moment", "شغّل من هون"),
 
   // tasks across lectures
   overdue: L("Overdue", "متأخر"),
@@ -355,6 +359,8 @@ export const ui = {
   pasteHere: L("Paste the lecture text here…", "الصق نص المحاضرة هون..."),
   study: L("Study it", "ذاكرها"),
   needMoreText: L("That's too short to study. Paste more of the lecture.", "النص قصير كتير. الصق مقطع أطول من المحاضرة."),
+  micDeniedTitle: L("Mahdar can't hear the lecture", "محضر ما بسمع المحاضرة"),
+  openSettings: L("Open Settings", "افتح الإعدادات"),
   micDenied: L(
     "Mahdar needs the microphone to record the lecture. Allow it in Settings and come back.",
     "مَحضَر محتاج المايك عشان يسجل المحاضرة. اسمح فيه من الإعدادات وارجع.",
@@ -474,6 +480,13 @@ export const ui = {
     "ما في إشي بمحاضراتك بيحكي عن هاد لهلق.",
   ),
   askFailed: L("Couldn't answer that right now. Try again.", "ما قدرنا نجاوب هلق. جرّب كمان مرة."),
+  askSuggestion: L("What did the lecturer say about {term}?", "شو حكى الدكتور عن {term}؟"),
+  askYou: L("You asked", "سألت"),
+  askAboutLine: L(
+    "What did the lecturer mean by: “{text}”?",
+    "شو قصد الدكتور بـ: «{text}»؟",
+  ),
+  askClear: L("Start over", "من جديد"),
 
   // Task candidates. Extracted, then confirmed — never silently committed.
   newTaskFound: L("New task found", "لقينا مهمة جديدة"),
@@ -495,6 +508,10 @@ export const ui = {
   playFromHere: L("Play from here", "شغّل من هون"),
   askAboutThis: L("Ask about this", "اسأل عن هاي"),
   nowPlaying: L("Playing", "عم يشتغل"),
+  transcriptHint: L(
+    "Tap a line to hear it. Hold it to ask about it.",
+    "دوس عالسطر تسمعه، واضغط مطوّل تسأل عنه.",
+  ),
 
   // Recording lifecycle, named stage by stage rather than as one spinner.
   mahdarIsListening: L("Mahdar is listening", "محضر عم يسمع"),

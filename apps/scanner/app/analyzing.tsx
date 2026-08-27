@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { View, Text, StyleSheet, Animated, Easing, Pressable } from "react-native";
+import { View, Text, StyleSheet, Animated, Easing } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { pack, isAudio, activePackId } from "../src/packs";
-import { t, locale } from "../src/i18n";
+import { t } from "../src/i18n";
 import { ui } from "../src/i18n/ui";
 import { getProfile, profileSummary } from "../src/storage";
 import {
@@ -19,18 +19,35 @@ import {
   GOLD,
   GOLD_DEEP,
   BLOOM,
-  TEXT_FAINT,
+  TEXT,
   audio as s,
 } from "../src/components/audio-theme";
+import { ErrorState, LoadingState, type Step } from "../src/components/kit";
 import { FONTS } from "../src/type";
 
-/** How long each line of "what we're doing right now" stays up. */
-const STEP_MS = 2600;
+/**
+ * The stages of turning an hour of speech into something studyable.
+ *
+ * These are the real phases of the work, not a carousel of encouraging
+ * sentences: the screen advances because a stage genuinely finished. A
+ * student who has just recorded a lecture they cannot afford to lose deserves
+ * to know which part is happening, not to watch a spinner and guess.
+ */
+type Phase = "saved" | "transcribing" | "understanding" | "extracting" | "ready";
+
+const PHASES: Phase[] = ["saved", "transcribing", "understanding", "extracting", "ready"];
+
+const PHASE_LABEL: Record<Exclude<Phase, "ready">, typeof ui.stepSaved> = {
+  saved: ui.stepSaved,
+  transcribing: ui.stepTranscribing,
+  understanding: ui.stepMoments,
+  extracting: ui.stepTasks,
+};
 
 export default function Analyzing() {
   const router = useRouter();
   const { id, retranscribe } = useLocalSearchParams<{ id: string; retranscribe?: string }>();
-  const [step, setStep] = useState(0);
+  const [phase, setPhase] = useState<Phase>("saved");
   const [error, setError] = useState<string | null>(null);
   const spin = useRef(new Animated.Value(0)).current;
 
@@ -46,24 +63,6 @@ export default function Analyzing() {
     animation.start();
     return () => animation.stop();
   }, [spin]);
-
-  /* The line changes on a fade rather than a cut, so the screen reads as
-   * working through something instead of flicking between labels. */
-  const fade = useRef(new Animated.Value(1)).current;
-  useEffect(() => {
-    fade.setValue(0);
-    Animated.timing(fade, {
-      toValue: 1,
-      duration: 520,
-      easing: Easing.out(Easing.quad),
-      useNativeDriver: true,
-    }).start();
-  }, [step, fade]);
-
-  useEffect(() => {
-    const timer = setInterval(() => setStep((n) => n + 1), STEP_MS);
-    return () => clearInterval(timer);
-  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -87,6 +86,7 @@ export default function Analyzing() {
           transcriptOfSegments(segments).length < 40;
 
         if (needsTranscription && lecture.audioChunks?.length) {
+          setPhase("transcribing");
           const result = await transcribeLecture({ chunks: lecture.audioChunks });
           // Persist before honouring the cancel flag. This transcript has
           // already been paid for; dropping it because the student navigated
@@ -100,6 +100,7 @@ export default function Analyzing() {
           throw new LectureError("empty");
         }
 
+        setPhase("understanding");
         const profile = await getProfile();
         const { title, analysis } = await analyseLecture({
           packId: activePackId,
@@ -114,6 +115,7 @@ export default function Analyzing() {
           recordedAt: lecture.at,
         });
         if (cancelled) return;
+        setPhase("extracting");
 
         await updateLecture(lecture.id, {
           segments,
@@ -155,42 +157,45 @@ export default function Analyzing() {
 
   if (!isAudio(pack)) return null;
 
-  const steps = pack.voice.analysingSteps;
   const rotate = spin.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "360deg"] });
   const counter = spin.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "-360deg"] });
+
+  const reached = PHASES.indexOf(phase);
+  const steps: Step[] = (Object.keys(PHASE_LABEL) as (keyof typeof PHASE_LABEL)[]).map(
+    (key, index) => ({
+      label: t(PHASE_LABEL[key]),
+      state: index < reached ? "done" : index === reached ? "active" : "waiting",
+    }),
+  );
+  // Named last because it is the outcome rather than a stage, and it is only
+  // ever shown as still to come — the screen navigates away when it lands.
+  steps.push({ label: t(ui.stepStudyView), state: "waiting" });
 
   return (
     <View style={s.root}>
       <LinearGradient colors={BLOOM} locations={[0, 0.42, 1]} style={StyleSheet.absoluteFill} />
       <SafeAreaView style={s.safe} edges={["top", "bottom"]}>
         <View style={s.wordmarkWrap}>
-          <View style={s.langPill}>
-            <Text style={s.langText}>{locale === "ar" ? "EN" : "ع"}</Text>
-          </View>
-          <Text style={s.wordmarkLatin}>{pack.wordmark}</Text>
-          <Text style={s.wordmarkDot}>•</Text>
           <Text style={s.wordmarkArabic}>{t(pack.appName)}</Text>
+          <Text style={s.wordmarkDot}>·</Text>
+          <Text style={s.wordmarkLatin}>{pack.wordmark}</Text>
         </View>
 
         <View style={styles.centre}>
           {error ? (
-            <>
-              <Text style={styles.errorTitle}>{error}</Text>
-              <View style={styles.errorActions}>
-                <Pressable
-                  style={({ pressed }) => [styles.retry, pressed && s.pressed]}
-                  onPress={() => router.replace({ pathname: "/lecture", params: { id: String(id) } })}
-                >
-                  <Text style={styles.retryText}>{t(ui.tabTranscript)}</Text>
-                </Pressable>
-                <Pressable
-                  style={({ pressed }) => [styles.ghost, pressed && s.pressed]}
-                  onPress={() => router.replace("/")}
-                >
-                  <Text style={styles.ghostText}>{t(ui.home)}</Text>
-                </Pressable>
-              </View>
-            </>
+            /* The recording is already on disk by the time this screen runs,
+               so the first thing the student is told is that it is safe. The
+               failure is the second thing, and it comes with a way out. */
+            <ErrorState
+              title={t(ui.savedButAnalysisFailed)}
+              body={error}
+              action={t(ui.retryAnalysis)}
+              onAction={() => router.replace({ pathname: "/analyzing", params: { id: String(id) } })}
+              secondary={t(ui.tabTranscript)}
+              onSecondary={() =>
+                router.replace({ pathname: "/lecture", params: { id: String(id) } })
+              }
+            />
           ) : (
             <>
               <View style={styles.rings}>
@@ -199,9 +204,9 @@ export default function Analyzing() {
                 <View style={styles.ringCore} />
               </View>
               <Text style={styles.title}>{t(pack.voice.analysing)}</Text>
-              <Animated.Text style={[styles.step, { opacity: fade }]}>
-                {t(steps[step % steps.length])}
-              </Animated.Text>
+              <View style={styles.steps}>
+                <LoadingState steps={steps} />
+              </View>
             </>
           )}
         </View>
@@ -237,36 +242,13 @@ const styles = StyleSheet.create({
   ringCore: { width: 7, height: 7, borderRadius: 4, backgroundColor: GOLD, opacity: 0.85 },
   /* The manuscript face, used here and on the wordmark and nowhere else. */
   title: {
-    color: "#F5EEDF",
+    color: TEXT,
     fontSize: 34,
     fontFamily: FONTS.scriptItalic,
     lineHeight: 56,
     textAlign: "center",
   },
-  step: {
-    color: TEXT_FAINT,
-    fontSize: 14,
-    textAlign: "center",
-    fontFamily: FONTS.body,
-    letterSpacing: 0.2,
-  },
-  errorTitle: {
-    color: "#E8E0CE",
-    fontSize: 16,
-    lineHeight: 32,
-    textAlign: "center",
-    fontFamily: FONTS.body,
-  },
-  errorActions: { flexDirection: "row", gap: 10 },
-  retry: { backgroundColor: GOLD, borderRadius: 999, paddingVertical: 15, paddingHorizontal: 24 },
-  retryText: { color: "#0E0D0B", fontSize: 15, fontFamily: FONTS.displayBold },
-  ghost: {
-    backgroundColor: "#17150F",
-    borderWidth: 1,
-    borderColor: "#2A2519",
-    borderRadius: 999,
-    paddingVertical: 15,
-    paddingHorizontal: 24,
-  },
-  ghostText: { color: "#E8E0CE", fontSize: 15, fontFamily: FONTS.bodyMedium },
+  /* Wide enough for the stage list to breathe, capped so five short labels
+     do not stretch across a tablet. */
+  steps: { alignSelf: "stretch", maxWidth: 380, width: "100%" },
 });

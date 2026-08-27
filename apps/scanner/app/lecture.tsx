@@ -1,36 +1,28 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  View,
-  Text,
-  StyleSheet,
-  Pressable,
-  ScrollView,
-  Alert,
-  ActivityIndicator,
-  TextInput,
-} from "react-native";
+import { View, Text, StyleSheet, Pressable, ScrollView, Alert, ActivityIndicator } from "react-native";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import { SafeAreaView } from "react-native-safe-area-context";
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 import { useAudioPlayer, useAudioPlayerStatus } from "expo-audio";
 import { pack, isAudio, type Lecture, type Text as I18nText } from "../src/packs";
-import { t, locale } from "../src/i18n";
+import { t, locale, fill } from "../src/i18n";
 import { ui } from "../src/i18n/ui";
 import {
   audioDuration,
   clock,
+  decideTask,
   deleteLecture,
   deleteRecording,
   getLecture,
   locate,
+  savePlayhead,
   scoreEnergy,
-  transcriptOfSegments,
   updateLecture,
+  waveformOf,
 } from "../src/lectures";
+import { conceptsOf, type ConceptDetail } from "../src/concepts";
 import {
   cancelTaskReminders,
-  datedTasks,
   remindersScheduled,
   scheduleTaskReminders,
   shareFile,
@@ -38,74 +30,120 @@ import {
   toMarkdown,
 } from "../src/lecture-export";
 import { FONTS, SCALE } from "../src/type";
+import { useLayout } from "../src/layout";
 import {
   GOLD,
-  GOLD_DEEP,
   INK,
-  BLOOM,
-  PANEL_GRADIENT,
-  lift,
-  audio as s,
-  READ,
-  READ_END,
+  TEXT,
+  TEXT_SOFT,
+  TEXT_FAINT,
+  HAIRLINE,
   STATE,
   SP,
   RADIUS,
-  TEXT_SOFT,
+  READ,
+  READ_END,
+  BACK_GLYPH,
+  glow,
+  audio as s,
 } from "../src/components/audio-theme";
-import { LinearGradient } from "expo-linear-gradient";
+import { Shell, useContentPad } from "../src/components/Shell";
+import {
+  Card,
+  Button,
+  IconButton,
+  Chip,
+  ProgressBar,
+  Waveform,
+  SectionTitle,
+  SearchField,
+  Tabs,
+  EmptyState,
+  ErrorState,
+  LoadingState,
+  Meta,
+} from "../src/components/kit";
 import { normalise } from "../src/countries";
 
-type TabKey = "summary" | "tasks" | "terms" | "exam" | "map" | "tone" | "transcript";
+/**
+ * The lecture.
+ *
+ * This is the screen the product is for, and its job is narrow: let a student
+ * find what was said, and then hear it. Everything is arranged around that
+ * single move — a claim, the second it was made, and a way to play it.
+ *
+ * Five tabs, not seven. The two that went were "map" and "tone", which were
+ * names for the shape of the data rather than for anything a student wanted;
+ * both now live inside Overview, where they read as parts of the lecture
+ * instead of as separate features.
+ */
+
+type TabKey = "overview" | "concepts" | "tasks" | "exam" | "transcript";
 
 const TABS: { key: TabKey; label: I18nText }[] = [
-  { key: "summary", label: ui.tabSummary },
+  { key: "overview", label: ui.tabOverview },
+  { key: "concepts", label: ui.tabTerms },
   { key: "tasks", label: ui.tabTasks },
-  { key: "terms", label: ui.tabTerms },
   { key: "exam", label: ui.tabExam },
-  { key: "map", label: ui.tabMap },
-  { key: "tone", label: ui.tabTone },
   { key: "transcript", label: ui.tabTranscript },
 ];
 
+const TAB_KEYS = TABS.map((tab) => tab.key);
+
+/** How many moments Overview shows before "see all". */
+const MOMENTS_PREVIEW = 3;
+
 export default function LectureScreen() {
   const router = useRouter();
-  const { id, at, tab: requestedTab } = useLocalSearchParams<{ id: string; at?: string; tab?: string }>();
+  const layout = useLayout();
+  const pad = useContentPad();
+  const { id, at, tab: requestedTab } = useLocalSearchParams<{
+    id: string;
+    at?: string;
+    tab?: string;
+  }>();
+
   const [lecture, setLecture] = useState<Lecture | null>(null);
   const [tab, setTab] = useState<TabKey>(
-    (["summary", "tasks", "terms", "exam", "map", "tone", "transcript"] as TabKey[]).includes(
-      requestedTab as TabKey,
-    )
-      ? (requestedTab as TabKey)
-      : "summary",
+    TAB_KEYS.includes(requestedTab as TabKey) ? (requestedTab as TabKey) : "overview",
   );
-  /** A deep link carries the moment it came from; honoured once, so scrolling
-   *  away and coming back does not drag the student to it again. */
-  const jumped = useRef(false);
   const [copied, setCopied] = useState(false);
   const [remindersOn, setRemindersOn] = useState(false);
   const [find, setFind] = useState("");
-  const [autoplay, setAutoplay] = useState(false);
+  const [allMoments, setAllMoments] = useState(false);
+  const [openConcept, setOpenConcept] = useState<string | null>(null);
+  const [busyTask, setBusyTask] = useState<number | null>(null);
+
+  /** A deep link carries the moment it came from; honoured once, so scrolling
+   *  away and coming back does not drag the student to it again. */
+  const jumped = useRef(false);
   /** Offset to seek to once a newly loaded slice reports itself ready. */
   const pendingSeek = useRef<number | null>(null);
+  const [autoplay, setAutoplay] = useState(false);
+
+  const load = useCallback(async () => {
+    const found = await getLecture(String(id));
+    setLecture(found ?? null);
+    if (found) {
+      // Reflect what is actually scheduled with the OS, rather than
+      // defaulting to "off" and offering to schedule duplicates.
+      setRemindersOn(await remindersScheduled(found));
+      // Opening it is what makes it read. Written once, so the home screen
+      // stops offering it for review.
+      if (!found.openedAt) await updateLecture(found.id, { openedAt: Date.now() });
+    }
+  }, [id]);
 
   useFocusEffect(
     useCallback(() => {
       let active = true;
-      getLecture(String(id)).then(async (found) => {
-        if (!active) return;
-        setLecture(found ?? null);
-        // Reflect what is actually scheduled with the OS, rather than
-        // defaulting to "off" and offering to schedule duplicates.
-        if (found) {
-          const on = await remindersScheduled(found);
-          if (active) setRemindersOn(on);
-        }
+      void load().catch(() => {
+        if (active) setLecture(null);
       });
       return () => {
         active = false;
       };
-    }, [id]),
+    }, [load]),
   );
 
   /* The recording is a list of closed files rather than one long one, so the
@@ -121,6 +159,7 @@ export default function LectureScreen() {
   const recordedSeconds = useMemo(() => audioDuration(chunks), [chunks]);
   /** Position on the lecture's timeline, not the current file's. */
   const playedSeconds = (current?.at ?? 0) + (status.currentTime ?? 0);
+  const totalSeconds = recordedSeconds || lecture?.duration || 0;
 
   /* Roll into the next slice when one runs out, so a lecture recorded in
    * eighteen files still plays as one continuous recording. */
@@ -143,11 +182,56 @@ export default function LectureScreen() {
     player.play();
   }, [autoplay, status.isLoaded, player]);
 
+  /* Where the student stopped. Held in a ref rather than written per tick —
+   * a storage write every second for a number nobody reads until the next
+   * visit — and flushed when they pause or leave. Without this there is no
+   * resume and the home screen's progress bar would be a guess. */
+  const position = useRef(0);
+  position.current = playedSeconds;
+  const lectureId = lecture?.id;
+
+  useEffect(() => {
+    if (!lectureId) return;
+    if (!status.playing && position.current > 0) void savePlayhead(lectureId, position.current);
+  }, [status.playing, lectureId]);
+
+  useEffect(
+    () => () => {
+      if (lectureId) void savePlayhead(lectureId, position.current);
+    },
+    [lectureId],
+  );
+
   const analysis = lecture?.analysis;
+
   /** Scored once per render rather than per row: the rolling baseline is a
    *  windowed pass over every segment, so calling it inside map() would make
    *  rendering an hour-long transcript quadratic. */
   const scored = useMemo(() => scoreEnergy(lecture?.segments ?? []), [lecture?.segments]);
+  const bars = useMemo(() => waveformOf(lecture?.segments ?? [], 72), [lecture?.segments]);
+  const concepts = useMemo(() => (lecture ? conceptsOf(lecture) : []), [lecture]);
+
+  /**
+   * The moments worth surfacing, best first.
+   *
+   * The model's own list is preferred because it comes with a reason; the
+   * loudest passages fill in behind it when it is short. Both carry a real
+   * second on the timeline, so every one of them is playable.
+   */
+  const moments = useMemo(() => {
+    const stated = (analysis?.emphasised ?? []).map((m) => ({
+      at: m.atSeconds,
+      text: m.text,
+      reason: m.reason,
+    }));
+    const seen = new Set(stated.map((m) => Math.round(m.at)));
+    const loud = scored
+      .filter((seg) => seg.emphasis >= 0.55 && !seen.has(Math.round(seg.at)))
+      .sort((a, b) => b.emphasis - a.emphasis)
+      .slice(0, 6)
+      .map((seg) => ({ at: seg.at, text: seg.text.trim(), reason: undefined as string | undefined }));
+    return [...stated, ...loud].sort((a, b) => a.at - b.at);
+  }, [analysis?.emphasised, scored]);
 
   /** Filtered transcript. Empty search shows everything, so the default is
    *  the whole lecture rather than a hidden one. */
@@ -156,7 +240,65 @@ export default function LectureScreen() {
     if (!q) return scored;
     return scored.filter((segment) => normalise(segment.text).includes(q));
   }, [scored, find]);
+
+  /** Which line is sounding right now. Compared against the *next* segment's
+   *  start so the highlight holds through a pause instead of flickering off. */
+  const activeAt = useMemo(() => {
+    if (!status.playing && playedSeconds === 0) return null;
+    let found: number | null = null;
+    for (const segment of scored) {
+      if (segment.at <= playedSeconds + 0.35) found = segment.at;
+      else break;
+    }
+    return found;
+  }, [scored, playedSeconds, status.playing]);
+
   const done = useMemo(() => new Set(lecture?.done ?? []), [lecture?.done]);
+  const accepted = lecture?.accepted;
+  const dismissed = useMemo(() => new Set(lecture?.dismissed ?? []), [lecture?.dismissed]);
+
+  /** Tasks split into what has been agreed and what is still being offered. */
+  const { confirmed, candidates } = useMemo(() => {
+    const list = analysis?.tasks ?? [];
+    const yes: number[] = [];
+    const maybe: number[] = [];
+    list.forEach((_, index) => {
+      if (dismissed.has(index)) return;
+      if (accepted === undefined || accepted.includes(index)) yes.push(index);
+      else maybe.push(index);
+    });
+    return { confirmed: yes, candidates: maybe };
+  }, [analysis?.tasks, accepted, dismissed]);
+
+  /** Seeks the lecture's timeline, crossing into another slice if needed. */
+  const seek = useCallback(
+    (seconds: number) => {
+      const target = locate(chunks, seconds);
+      if (!target) return;
+      if (target.index === chunkIndex) {
+        player.seekTo(target.offset);
+        player.play();
+        return;
+      }
+      // A different file has to load first; the seek is applied when it
+      // reports ready, otherwise it lands on the outgoing slice and is lost.
+      pendingSeek.current = target.offset;
+      setChunkIndex(target.index);
+      setAutoplay(true);
+    },
+    [chunks, chunkIndex, player],
+  );
+
+  /* Landing from a task, an insight or an exam signal: go to the moment it
+   * came from as soon as there is audio to go to. This is the link the whole
+   * provenance idea rests on — a claim you can hear. */
+  useEffect(() => {
+    if (jumped.current || !lecture || chunks.length === 0) return;
+    const target = Number(at);
+    if (!Number.isFinite(target) || target <= 0) return;
+    jumped.current = true;
+    seek(target);
+  }, [lecture, chunks.length, at, seek]);
 
   const toggleTask = async (index: number) => {
     if (!lecture) return;
@@ -167,6 +309,14 @@ export default function LectureScreen() {
     const list = [...next];
     setLecture({ ...lecture, done: list });
     await updateLecture(lecture.id, { done: list });
+  };
+
+  const decide = async (index: number, keep: boolean) => {
+    if (!lecture) return;
+    setBusyTask(index);
+    await decideTask(lecture.id, index, keep);
+    await load();
+    setBusyTask(null);
   };
 
   const copyAll = async () => {
@@ -208,6 +358,19 @@ export default function LectureScreen() {
     setRemindersOn(true);
   };
 
+  const reanalyse = async (retranscribe?: boolean) => {
+    if (!lecture) return;
+    // The scheduled reminders point at tasks in the list that is about to be
+    // replaced. Left alone they would fire for work the new analysis no
+    // longer contains.
+    await cancelTaskReminders(lecture);
+    setRemindersOn(false);
+    router.push({
+      pathname: "/analyzing",
+      params: retranscribe ? { id: lecture.id, retranscribe: "1" } : { id: lecture.id },
+    });
+  };
+
   const confirmDelete = () => {
     if (!lecture) return;
     Alert.alert(t(ui.deleteLecture), t(ui.deleteLectureConfirm), [
@@ -225,725 +388,934 @@ export default function LectureScreen() {
     ]);
   };
 
-  /* Landing from a task or an exam signal: go to the moment it came from as
-   * soon as there is audio to go to. This is the link the whole provenance
-   * idea rests on — a claim you can hear. */
-  useEffect(() => {
-    if (jumped.current || !lecture || chunks.length === 0) return;
-    const target = Number(at);
-    if (!Number.isFinite(target)) return;
-    jumped.current = true;
-    seek(target);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lecture, chunks.length, at]);
+  /**
+   * What a student can do with one line of the transcript.
+   *
+   * Tapping plays it, which is the common case and stays a single tap. The
+   * long press is for the rarer, more interesting move: take this sentence to
+   * Ask Mahdar and have it explained against the rest of the semester.
+   */
+  const lineActions = (atSeconds: number, text: string) => {
+    Haptics.selectionAsync();
+    Alert.alert(clock(atSeconds), text, [
+      { text: t(ui.playFromMoment), onPress: () => seek(atSeconds) },
+      {
+        text: t(ui.askAboutThis),
+        onPress: () =>
+          router.push({
+            pathname: "/study",
+            params: { q: fill(ui.askAboutLine, { text: text.trim().slice(0, 240) }) },
+          }),
+      },
+      { text: t(ui.home), style: "cancel" as const },
+    ]);
+  };
 
-  /** Seeks the lecture's timeline, crossing into another slice if needed. */
-  const seek = (seconds: number) => {
-    const target = locate(chunks, seconds);
-    if (!target) return;
-
-    if (target.index === chunkIndex) {
-      player.seekTo(target.offset);
-      player.play();
-      return;
-    }
-    // A different file has to load first; the seek is applied when it reports
-    // ready, otherwise it lands on the outgoing slice and is thrown away.
-    pendingSeek.current = target.offset;
-    setChunkIndex(target.index);
-    setAutoplay(true);
+  const moreActions = () => {
+    if (!lecture) return;
+    Alert.alert(lecture.title || t(ui.untitledLecture), undefined, [
+      { text: copied ? t(ui.copied) : t(ui.copyAll), onPress: () => void copyAll() },
+      { text: t(ui.downloadMd), onPress: () => void downloadMd() },
+      ...(hasAudio
+        ? [{ text: t(ui.retranscribe), onPress: () => void reanalyse(true) }]
+        : []),
+      { text: t(ui.reanalyse), onPress: () => void reanalyse() },
+      { text: t(ui.deleteLecture), style: "destructive" as const, onPress: confirmDelete },
+      { text: t(ui.home), style: "cancel" as const },
+    ]);
   };
 
   if (!isAudio(pack)) return null;
 
   if (!lecture) {
     return (
-      <View style={[s.root, styles.loading]}>
-        <ActivityIndicator color={GOLD} />
-      </View>
+      <Shell bare>
+        <View style={styles.loading}>
+          <ActivityIndicator color={GOLD} />
+        </View>
+      </Shell>
     );
   }
 
-  const recorded = new Date(lecture.at);
-  const dateLabel = recorded.toLocaleDateString(locale, {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-  });
+  const subtitle = [
+    analysis?.lecturer,
+    new Date(lecture.at).toLocaleDateString(locale, {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    }),
+    clock(lecture.duration),
+  ]
+    .filter(Boolean)
+    .join("  ·  ");
+
+  const openTab = (next: TabKey, concept?: string) => {
+    setTab(next);
+    if (concept !== undefined) setOpenConcept(concept);
+  };
 
   return (
-    <View style={s.root}>
-      <LinearGradient colors={BLOOM} locations={[0, 0.4, 1]} style={StyleSheet.absoluteFill} />
-      <SafeAreaView style={s.safe} edges={["top"]}>
-        <ScrollView contentContainerStyle={styles.content}>
-          <View style={s.wordmarkWrap}>
-            <View style={s.langPill}>
-              <Text style={s.langText}>{locale === "ar" ? "EN" : "ع"}</Text>
-            </View>
-            <Text style={s.wordmarkLatin}>{pack.wordmark}</Text>
-            <Text style={s.wordmarkDot}>•</Text>
-            <Text style={s.wordmarkArabic}>{t(pack.appName)}</Text>
-          </View>
-
-          <View style={styles.datePill}>
-            <View style={styles.dateDot} />
-            <Text style={styles.dateText}>{dateLabel}</Text>
-          </View>
-
-          <Text style={styles.title}>{lecture.title || t(ui.untitledLecture)}</Text>
-
-          <View style={styles.notice}>
-            <Text style={styles.noticeText}>{t(pack.disclaimer)}</Text>
-          </View>
-
-          <View style={styles.chips}>
-            <Chip text={`${Math.max(1, Math.round(lecture.duration / 60))} ${t(ui.minShort)}`} />
-            <Chip text={`${analysis?.tasks.length ?? 0} ${t(ui.tasksCount)}`} />
-            <Chip text={`${analysis?.terms.length ?? 0} ${t(ui.termsCount)}`} />
-            {typeof analysis?.confidence === "number" ? (
-              <Chip text={`🎯 ${analysis.confidence}%`} gold />
-            ) : null}
-          </View>
-
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.actions}
-          >
-            <Action label={t(ui.home)} glyph="←" onPress={() => router.replace("/")} />
-            <Action label={copied ? t(ui.copied) : t(ui.copyAll)} glyph="⧉" onPress={copyAll} />
-            <Action label={t(ui.downloadMd)} glyph="↓" onPress={downloadMd} />
-            {hasAudio ? (
-              <Action
-                label={t(ui.retranscribe)}
-                glyph="↻"
-                onPress={async () => {
-                  await cancelTaskReminders(lecture);
-                  setRemindersOn(false);
-                  router.push({
-                    pathname: "/analyzing",
-                    params: { id: lecture.id, retranscribe: "1" },
-                  });
-                }}
-              />
-            ) : null}
-            <Action
-              label={t(ui.reanalyse)}
-              glyph="✧"
-              onPress={async () => {
-                // The scheduled reminders point at tasks in the list that is
-                // about to be replaced. Left alone they would fire for work
-                // the new analysis no longer contains.
-                await cancelTaskReminders(lecture);
-                setRemindersOn(false);
-                router.push({ pathname: "/analyzing", params: { id: lecture.id } });
-              }}
+    <Shell>
+      <ScrollView
+        contentContainerStyle={[
+          styles.content,
+          { paddingHorizontal: layout.gutter, paddingBottom: pad },
+        ]}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+        stickyHeaderIndices={hasAudio ? [1] : undefined}
+      >
+        {/* Header: who said it, when, and the way back. */}
+        <View style={styles.header}>
+          <View style={styles.headerRow}>
+            <IconButton
+              glyph={BACK_GLYPH}
+              label={t(ui.home)}
+              tone="bare"
+              size={34}
+              onPress={() => (router.canGoBack() ? router.back() : router.replace("/"))}
             />
-            <Action label={t(ui.deleteLecture)} glyph="🗑" onPress={confirmDelete} danger />
-          </ScrollView>
+            <View style={styles.headerBody}>
+              <Text style={styles.title} numberOfLines={3}>
+                {lecture.title || t(ui.untitledLecture)}
+              </Text>
+              <Meta>{subtitle}</Meta>
+            </View>
+            <IconButton glyph="⋯" label={t(ui.settings)} size={34} onPress={moreActions} />
+          </View>
+        </View>
 
-          {hasAudio ? (
-            <View style={styles.playerWrap}>
-              <Text style={styles.playerHint}>{t(ui.playerHint)}</Text>
-              <View style={[s.panel, styles.player, lift]}>
-                <LinearGradient colors={PANEL_GRADIENT} style={StyleSheet.absoluteFill} />
-                <Pressable
-                  style={styles.playButton}
-                  onPress={() => (status.playing ? player.pause() : player.play())}
-                >
-                  <Text style={styles.playGlyph}>{status.playing ? "❙❙" : "▶"}</Text>
-                </Pressable>
-                <Text style={styles.playerTime}>{clock(playedSeconds)}</Text>
-                <View style={styles.track}>
-                  <View
-                    style={[
-                      styles.trackFill,
-                      {
-                        width: `${Math.min(
-                          100,
-                          (playedSeconds / Math.max(1, recordedSeconds || lecture.duration)) * 100,
-                        )}%`,
-                      },
-                    ]}
-                  />
+        {/* The player stays put while the tabs scroll under it — a timestamp
+            you tap three screens down should not scroll you away from the
+            controls that are about to start playing. */}
+        {hasAudio ? (
+          <Player
+            playing={status.playing}
+            played={playedSeconds}
+            total={totalSeconds}
+            bars={bars}
+            onToggle={() => (status.playing ? player.pause() : player.play())}
+            onSeekFraction={(f) => seek(f * totalSeconds)}
+            onNudge={(delta) => seek(Math.max(0, Math.min(totalSeconds, playedSeconds + delta)))}
+          />
+        ) : null}
+
+        <Tabs
+          items={TABS.map((entry) => ({ key: entry.key, label: t(entry.label) }))}
+          value={tab}
+          onChange={(next) => openTab(next)}
+        />
+
+        {lecture.status === "processing" ? (
+          <LoadingState
+            title={t(ui.processing)}
+            steps={[
+              { label: t(ui.stepSaved), state: "done" },
+              { label: t(ui.stepTranscribing), state: "done" },
+              { label: t(ui.stepMoments), state: "active" },
+              { label: t(ui.stepTasks), state: "waiting" },
+              { label: t(ui.stepStudyView), state: "waiting" },
+            ]}
+          />
+        ) : null}
+
+        {lecture.status === "failed" ? (
+          <ErrorState
+            title={t(ui.failed)}
+            body={lecture.error || t(ui.savedButAnalysisFailed)}
+            action={t(ui.retryAnalysis)}
+            onAction={() => void reanalyse()}
+            secondary={hasAudio ? t(ui.retranscribe) : undefined}
+            onSecondary={hasAudio ? () => void reanalyse(true) : undefined}
+          />
+        ) : null}
+
+        {tab === "overview" ? (
+          <Overview
+            lecture={lecture}
+            concepts={concepts}
+            moments={moments}
+            showAllMoments={allMoments}
+            onToggleMoments={() => setAllMoments((x) => !x)}
+            tasks={confirmed}
+            done={done}
+            onSeek={seek}
+            onOpenTab={openTab}
+            onToggleTask={(index) => void toggleTask(index)}
+          />
+        ) : null}
+
+        {tab === "concepts" ? (
+          <Concepts
+            concepts={concepts}
+            open={openConcept}
+            onOpen={setOpenConcept}
+            onSeek={seek}
+          />
+        ) : null}
+
+        {tab === "tasks" ? (
+          <TasksTab
+            lecture={lecture}
+            confirmed={confirmed}
+            candidates={candidates}
+            done={done}
+            busy={busyTask}
+            remindersOn={remindersOn}
+            onToggle={(index) => void toggleTask(index)}
+            onDecide={(index, keep) => void decide(index, keep)}
+            onSeek={seek}
+            onIcs={() => void downloadIcs()}
+            onReminders={() => void toggleReminders()}
+          />
+        ) : null}
+
+        {tab === "exam" ? <ExamTab lecture={lecture} onSeek={seek} /> : null}
+
+        {tab === "transcript" ? (
+          <View style={styles.stack}>
+            <SearchField
+              value={find}
+              onChange={setFind}
+              placeholder={t(ui.searchGuide)}
+            />
+            <Meta>{t(ui.transcriptHint)}</Meta>
+            {visibleSegments.length === 0 ? (
+              <EmptyState glyph="⌕" title={t(ui.noMatch)} />
+            ) : (
+              <Card style={styles.transcript}>
+                {visibleSegments.map((segment) => (
+                  <Pressable
+                    key={segment.at}
+                    style={[styles.line, segment.at === activeAt && styles.lineActive]}
+                    onPress={() => seek(segment.at)}
+                    onLongPress={() => lineActions(segment.at, segment.text)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${clock(segment.at)} ${segment.text}`}
+                  >
+                    <Text
+                      style={[styles.lineStamp, segment.at === activeAt && styles.lineStampActive]}
+                    >
+                      {clock(segment.at)}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.lineText,
+                        segment.emphasis >= 0.5 && styles.lineLoud,
+                        segment.marked && styles.lineMarked,
+                        segment.at === activeAt && styles.lineTextActive,
+                      ]}
+                    >
+                      {segment.text}
+                    </Text>
+                    {segment.marked ? <Text style={styles.lineStar}>★</Text> : null}
+                  </Pressable>
+                ))}
+              </Card>
+            )}
+          </View>
+        ) : null}
+
+        <Text style={s.footer}>{t(pack.disclaimer)}</Text>
+      </ScrollView>
+    </Shell>
+  );
+}
+
+/* -------------------------------------------------------------- the player */
+
+/**
+ * The recording, always within reach.
+ *
+ * Everything else on this screen is a pointer into this bar. The waveform is
+ * the lecture's own loudness, so scrubbing it is scrubbing something the
+ * student can see the shape of rather than a featureless line.
+ */
+function Player({
+  playing,
+  played,
+  total,
+  bars,
+  onToggle,
+  onSeekFraction,
+  onNudge,
+}: {
+  playing: boolean;
+  played: number;
+  total: number;
+  bars: number[];
+  onToggle: () => void;
+  onSeekFraction: (fraction: number) => void;
+  onNudge: (delta: number) => void;
+}) {
+  const fraction = total > 0 ? Math.min(1, played / total) : 0;
+
+  return (
+    <View style={styles.playerWrap}>
+      <Card style={styles.player}>
+        <View style={styles.playerRow}>
+          <Pressable
+            onPress={onToggle}
+            style={({ pressed }) => [styles.play, pressed && s.pressed]}
+            accessibilityRole="button"
+            accessibilityLabel={playing ? t(ui.pause) : t(ui.playFromMoment)}
+          >
+            <Text style={styles.playGlyph}>{playing ? "❙❙" : "▶"}</Text>
+          </Pressable>
+
+          <View style={styles.playerBody}>
+            {bars.length > 0 ? (
+              <Waveform bars={bars} progress={fraction} height={26} onSeek={onSeekFraction} />
+            ) : (
+              <ProgressBar value={fraction} height={4} />
+            )}
+            <View style={styles.playerTimes}>
+              <Text style={styles.playerTime}>{clock(played)}</Text>
+              <Text style={styles.playerTime}>{clock(total)}</Text>
+            </View>
+          </View>
+
+          <View style={styles.nudges}>
+            <IconButton glyph="↺" label="-15" size={30} tone="bare" onPress={() => onNudge(-15)} />
+            <IconButton glyph="↻" label="+15" size={30} tone="bare" onPress={() => onNudge(15)} />
+          </View>
+        </View>
+      </Card>
+    </View>
+  );
+}
+
+/* ------------------------------------------------------------------ tabs */
+
+type Moment = { at: number; text: string; reason?: string };
+
+/**
+ * What the lecture was, in the order a student wants it.
+ *
+ * Summary, then the words that carried the hour, then the moments worth
+ * hearing again, then the work. The concept chips are a way *into* the
+ * concepts tab rather than a duplicate of it — the tap changes tab and opens
+ * the one that was pressed.
+ */
+function Overview({
+  lecture,
+  concepts,
+  moments,
+  showAllMoments,
+  onToggleMoments,
+  tasks,
+  done,
+  onSeek,
+  onOpenTab,
+  onToggleTask,
+}: {
+  lecture: Lecture;
+  concepts: ConceptDetail[];
+  moments: Moment[];
+  showAllMoments: boolean;
+  onToggleMoments: () => void;
+  tasks: number[];
+  done: Set<number>;
+  onSeek: (seconds: number) => void;
+  onOpenTab: (tab: TabKey, concept?: string) => void;
+  onToggleTask: (index: number) => void;
+}) {
+  const analysis = lecture.analysis;
+  const shown = showAllMoments ? moments : moments.slice(0, MOMENTS_PREVIEW);
+  const chapters = analysis?.chapters ?? [];
+
+  if (!analysis) {
+    return <EmptyState glyph="◫" title={t(ui.stillProcessing)} />;
+  }
+
+  return (
+    <View style={styles.stack}>
+      {analysis.summary ? (
+        <Card style={styles.section}>
+          <SectionTitle>{t(ui.aboutThisLecture)}</SectionTitle>
+          <Text style={styles.paragraph}>{analysis.summary}</Text>
+          {analysis.keyPoints.length > 0 ? (
+            <View style={styles.points}>
+              {analysis.keyPoints.map((point, index) => (
+                <View key={index} style={styles.pointRow}>
+                  <View style={styles.bullet} />
+                  <Text style={styles.pointText}>{point}</Text>
                 </View>
-                <Text style={styles.playerTime}>
-                  {clock(recordedSeconds || lecture.duration)}
-                </Text>
-              </View>
+              ))}
             </View>
           ) : null}
+        </Card>
+      ) : null}
 
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.tabs}
+      {concepts.length > 0 ? (
+        <Card style={styles.section}>
+          <SectionTitle action={t(ui.seeAll)} onAction={() => onOpenTab("concepts")}>
+            {t(ui.keyConcepts)}
+          </SectionTitle>
+          <View style={styles.chips}>
+            {concepts.slice(0, 8).map((concept) => (
+              <Chip
+                key={concept.term}
+                label={concept.term}
+                gold
+                onPress={() => onOpenTab("concepts", concept.term)}
+              />
+            ))}
+          </View>
+        </Card>
+      ) : null}
+
+      {moments.length > 0 ? (
+        <Card style={styles.section}>
+          <SectionTitle
+            action={moments.length > MOMENTS_PREVIEW ? (showAllMoments ? t(ui.showLess) : t(ui.viewAllMoments)) : undefined}
+            onAction={moments.length > MOMENTS_PREVIEW ? onToggleMoments : undefined}
           >
-            {TABS.map((entry) => (
+            {t(ui.importantMomentsTitle)}
+          </SectionTitle>
+
+          <View style={styles.moments}>
+            {shown.map((moment, index) => (
               <Pressable
-                key={entry.key}
-                style={[styles.tab, tab === entry.key && styles.tabActive]}
-                onPress={() => setTab(entry.key)}
+                key={`${moment.at}:${index}`}
+                style={styles.moment}
+                onPress={() => onSeek(moment.at)}
+                accessibilityRole="button"
+                accessibilityLabel={`${clock(moment.at)} ${moment.text}`}
               >
-                <Text style={[styles.tabText, tab === entry.key && styles.tabTextActive]}>
-                  {t(entry.label)}
-                </Text>
+                <View style={styles.momentBody}>
+                  <Text style={styles.momentStamp}>{clock(moment.at)}</Text>
+                  <Text style={styles.momentText}>“{moment.text}”</Text>
+                  {moment.reason ? <Meta>{moment.reason}</Meta> : null}
+                </View>
+                <View style={styles.momentPlay}>
+                  <Text style={styles.momentPlayGlyph}>▶</Text>
+                </View>
               </Pressable>
             ))}
-          </ScrollView>
+          </View>
+        </Card>
+      ) : null}
 
-          {lecture.status !== "ready" ? (
-            <View style={[s.panel, styles.stateCard]}>
-              <Text style={styles.stateTitle}>
-                {lecture.status === "failed" ? t(ui.failed) : t(ui.processing)}
-              </Text>
-              <Text style={styles.stateBody}>
-                {lecture.error || (lecture.status === "processing" ? t(ui.stillProcessing) : "")}
-              </Text>
-              <View style={styles.stateActions}>
-                <Action
-                  label={t(ui.reanalyse)}
-                  glyph="✧"
-                  onPress={() => router.push({ pathname: "/analyzing", params: { id: lecture.id } })}
-                />
-                {hasAudio ? (
-                  <Action
-                    label={t(ui.retranscribe)}
-                    glyph="↻"
-                    onPress={() =>
-                      router.push({
-                        pathname: "/analyzing",
-                        params: { id: lecture.id, retranscribe: "1" },
-                      })
-                    }
-                  />
-                ) : null}
-              </View>
-            </View>
-          ) : null}
-
-          <View style={[s.panel, styles.body, lift]}>
-            <LinearGradient colors={PANEL_GRADIENT} style={StyleSheet.absoluteFill} />
-            {tab === "summary" ? (
-              <>
-                <Text style={styles.paragraph}>{analysis?.summary}</Text>
-                {analysis?.keyPoints.map((point, index) => (
-                  <View key={index} style={styles.bulletRow}>
-                    <View style={styles.bullet} />
-                    <Text style={styles.bulletText}>{point}</Text>
-                  </View>
-                ))}
-              </>
-            ) : null}
-
-            {tab === "tasks" ? (
-              <>
-                <View style={styles.taskActions}>
-                  <Action label={t(ui.downloadIcs)} glyph="🗓" onPress={downloadIcs} />
-                  <Action
-                    label={remindersOn ? t(ui.remindersOn) : t(ui.enableReminders)}
-                    glyph="🔔"
-                    onPress={toggleReminders}
-                    active={remindersOn}
-                  />
-                </View>
-                {(analysis?.tasks ?? []).length === 0 ? (
-                  <Text style={styles.empty}>{t(ui.noTasks)}</Text>
-                ) : (
-                  analysis!.tasks.map((task, index) => (
-                    <View key={index} style={styles.entry}>
-                      <Pressable style={styles.taskRow} onPress={() => toggleTask(index)}>
-                        <View style={[styles.checkbox, done.has(index) && styles.checkboxOn]}>
-                          {done.has(index) ? <Text style={styles.checkGlyph}>✓</Text> : null}
-                        </View>
-                        <View style={styles.taskBody}>
-                          <Text style={[styles.taskText, done.has(index) && styles.taskDone]}>
-                            {task.text}
-                          </Text>
-                          {task.due ? (
-                            <View style={styles.dueRow}>
-                              <Text style={styles.taskDue}>{task.due}</Text>
-                              {task.dueIsExplicit === false ? (
-                                <Text style={styles.dueGuessed}>· {t(ui.deadlineInferred)}</Text>
-                              ) : null}
-                            </View>
-                          ) : null}
-                        </View>
-                        {task.difficulty ? (
-                          <View style={s.tag}>
-                            <Text style={s.tagText}>
-                              {t(
-                                task.difficulty === "easy"
-                                  ? ui.easy
-                                  : task.difficulty === "hard"
-                                    ? ui.hard
-                                    : ui.medium,
-                              )}
-                            </Text>
-                          </View>
-                        ) : null}
-                      </Pressable>
-                      <Source quote={task.quote} atSeconds={task.atSeconds} onPlay={seek} />
-                    </View>
-                  ))
-                )}
-              </>
-            ) : null}
-
-            {tab === "terms" ? (
-              (analysis?.terms ?? []).length === 0 ? (
-                <Text style={styles.empty}>{t(ui.noTerms)}</Text>
-              ) : (
-                analysis!.terms.map((entry, index) => (
-                  <View key={index} style={styles.termRow}>
-                    <Text style={styles.term}>{entry.term}</Text>
-                    <Text style={styles.termDef}>{entry.definition}</Text>
-                    <Source quote={entry.quote} atSeconds={entry.atSeconds} onPlay={seek} />
-                  </View>
-                ))
-              )
-            ) : null}
-
-            {tab === "exam" ? (
-              (analysis?.examPredictions ?? []).length === 0 ? (
-                <Text style={styles.empty}>{t(ui.noExam)}</Text>
-              ) : (
-                <>
-                  {/* Stated first, and separated. A student revising has to be
-                      able to tell what the lecturer actually said from what we
-                      concluded — mixing them in one list is how an app loses
-                      the right to be trusted about an exam. */}
-                  {(["stated", "inferred"] as const).map((basis) => {
-                    const group = analysis!.examPredictions.filter(
-                      (p) => (p.basis ?? "inferred") === basis,
-                    );
-                    if (group.length === 0) return null;
-                    return (
-                      <View key={basis} style={styles.examGroup}>
-                        <Basis basis={basis} />
-                        {group.map((prediction, index) => (
-                          <View key={index} style={styles.entry}>
-                            <View style={styles.predictionHead}>
-                              <Text style={styles.term}>{prediction.topic}</Text>
-                              <View
-                                style={[
-                                  s.tag,
-                                  prediction.confidence === "high" && styles.tagHigh,
-                                  prediction.confidence === "low" && styles.tagLow,
-                                ]}
-                              >
-                                <Text style={s.tagText}>
-                                  {t(
-                                    prediction.confidence === "high"
-                                      ? ui.confHigh
-                                      : prediction.confidence === "low"
-                                        ? ui.confLow
-                                        : ui.confMedium,
-                                  )}
-                                </Text>
-                              </View>
-                            </View>
-                            <Text style={styles.termDef}>{prediction.why}</Text>
-                            <Source
-                              quote={prediction.quote}
-                              atSeconds={prediction.atSeconds}
-                              onPlay={seek}
-                            />
-                          </View>
-                        ))}
-                      </View>
-                    );
-                  })}
-                </>
-              )
-            ) : null}
-
-            {tab === "map" ? (
-              (analysis?.chapters ?? []).map((chapter, index) => (
-                <Pressable
+      {tasks.length > 0 ? (
+        <Card style={styles.section}>
+          <SectionTitle action={t(ui.seeAll)} onAction={() => onOpenTab("tasks")}>
+            {t(ui.tasksAndAssignments)}
+          </SectionTitle>
+          <View style={styles.taskList}>
+            {tasks.slice(0, 4).map((index) => {
+              const task = analysis.tasks[index]!;
+              return (
+                <TaskRow
                   key={index}
-                  style={styles.chapter}
-                  onPress={() => seek(chapter.atSeconds)}
-                >
-                  {/* A rail down the side turns a list of headings into the
-                      shape of the hour: each part in order, each one a way
-                      back into the recording. */}
+                  text={task.text}
+                  due={task.due}
+                  inferredDue={task.dueISO ? task.dueIsExplicit === false : false}
+                  atSeconds={task.atSeconds}
+                  done={done.has(index)}
+                  onToggle={() => onToggleTask(index)}
+                  onSeek={onSeek}
+                />
+              );
+            })}
+          </View>
+        </Card>
+      ) : null}
+
+      {chapters.length > 0 ? (
+        <Card style={styles.section}>
+          <SectionTitle>{t(ui.lectureMap)}</SectionTitle>
+          <View style={styles.chapters}>
+            {chapters.map((chapter, index) => (
+              <Pressable
+                key={index}
+                style={styles.chapter}
+                onPress={() => onSeek(chapter.atSeconds)}
+                accessibilityRole="button"
+                accessibilityLabel={`${clock(chapter.atSeconds)} ${chapter.title}`}
+              >
+                {/* A rail down the side turns a list of headings into the
+                    shape of the hour: each part in order, each one a way back
+                    into the recording. */}
+                <View style={styles.chapterMark}>
+                  <View style={styles.chapterNode} />
+                  {index < chapters.length - 1 ? <View style={styles.chapterRail} /> : null}
+                </View>
+                <View style={styles.chapterBody}>
                   <View style={styles.chapterHead}>
-                    <View style={styles.chapterMark}>
-                      <View style={styles.chapterNode} />
-                      {index < (analysis?.chapters.length ?? 0) - 1 ? (
-                        <View style={styles.chapterRail} />
-                      ) : null}
-                    </View>
                     <Text style={styles.chapterStamp}>{clock(chapter.atSeconds)}</Text>
                     <Text style={styles.chapterTitle}>{chapter.title}</Text>
                   </View>
                   {chapter.points.map((point, i) => (
-                    <View key={i} style={styles.bulletRow}>
-                      <View style={styles.bullet} />
-                      <Text style={styles.bulletText}>{point}</Text>
-                    </View>
+                    <Text key={i} style={styles.chapterPoint}>
+                      {point}
+                    </Text>
                   ))}
-                </Pressable>
-              ))
-            ) : null}
-
-            {tab === "tone" ? (
-              (analysis?.emphasised ?? []).length === 0 ? (
-                <Text style={styles.empty}>{t(ui.noTone)}</Text>
-              ) : (
-                analysis!.emphasised.map((moment, index) => (
-                  <Pressable
-                    key={index}
-                    style={styles.toneRow}
-                    onPress={() => seek(moment.atSeconds)}
-                  >
-                    <Text style={styles.toneStamp}>{clock(moment.atSeconds)}</Text>
-                    <View style={styles.taskBody}>
-                      <Text style={styles.toneText}>{moment.text}</Text>
-                      <Text style={styles.toneReason}>{moment.reason}</Text>
-                    </View>
-                    <Text style={styles.tonePlay}>▶</Text>
-                  </Pressable>
-                ))
-              )
-            ) : null}
-
-            {tab === "transcript" ? (
-              <>
-                {/* A ninety-minute transcript is unusable as a wall. Search is
-                    how anyone actually returns to something they half
-                    remember, and the marked lines are the shortcuts. */}
-                <View style={styles.tSearch}>
-                  <Text style={styles.tSearchGlyph}>⌕</Text>
-                  <TextInput
-                    style={styles.tSearchInput}
-                    value={find}
-                    onChangeText={setFind}
-                    placeholder={t(ui.searchGuide)}
-                    placeholderTextColor="#5B5443"
-                    autoCorrect={false}
-                    textAlign={READ}
-                  />
-                  {find.length > 0 ? (
-                    <Pressable onPress={() => setFind("")} hitSlop={10}>
-                      <Text style={styles.tSearchClear}>✕</Text>
-                    </Pressable>
-                  ) : null}
                 </View>
-
-                {visibleSegments.length === 0 ? (
-                  <Text style={styles.empty}>
-                    {find ? t(ui.noMatch) : transcriptOfSegments(lecture.segments)}
-                  </Text>
-                ) : (
-                  visibleSegments.map((segment, index) => (
-                    <Pressable key={index} style={styles.line} onPress={() => seek(segment.at)}>
-                      <Text style={styles.lineStamp}>{clock(segment.at)}</Text>
-                      <Text
-                        style={[
-                          styles.lineText,
-                          segment.emphasis >= 0.5 && styles.lineLoud,
-                          segment.marked && styles.lineMarked,
-                        ]}
-                      >
-                        {segment.text}
-                      </Text>
-                      {segment.marked ? <Text style={styles.lineStar}>★</Text> : null}
-                    </Pressable>
-                  ))
-                )}
-              </>
-            ) : null}
+              </Pressable>
+            ))}
           </View>
-
-          <Text style={s.footer}>{t(pack.voice.footer)}</Text>
-        </ScrollView>
-      </SafeAreaView>
+        </Card>
+      ) : null}
     </View>
   );
 }
 
 /**
- * Where a claim came from.
+ * Concepts, with the lecture behind each one.
  *
- * The quotation is verified against the transcript on the server before it
- * ever reaches here, so what is shown is genuinely what was said. Tapping it
- * plays that second of the recording — which is the whole reason any of this
- * exists.
+ * The chips are the index; opening one replaces it with everything the
+ * lecture has to say about that word — the definition, every second it was
+ * said, and what the lecturer put beside it.
  */
-function Source({
+function Concepts({
+  concepts,
+  open,
+  onOpen,
+  onSeek,
+}: {
+  concepts: ConceptDetail[];
+  open: string | null;
+  onOpen: (term: string | null) => void;
+  onSeek: (seconds: number) => void;
+}) {
+  if (concepts.length === 0) {
+    return <EmptyState glyph="◈" title={t(ui.noTerms)} />;
+  }
+
+  const active = concepts.find((c) => c.term === open) ?? null;
+
+  return (
+    <View style={styles.stack}>
+      <Card style={styles.section}>
+        <View style={styles.chips}>
+          {concepts.map((concept) => (
+            <Chip
+              key={concept.term}
+              label={concept.term}
+              active={concept.term === active?.term}
+              gold={concept.term !== active?.term}
+              onPress={() => onOpen(concept.term === active?.term ? null : concept.term)}
+            />
+          ))}
+        </View>
+      </Card>
+
+      {active ? (
+        <Card raised style={styles.section}>
+          <Text style={styles.conceptTerm}>{active.term}</Text>
+          <Text style={styles.paragraph}>{active.definition}</Text>
+
+          {active.quote ? (
+            <View style={styles.quote}>
+              <View style={styles.quoteBar} />
+              <View style={styles.quoteBody}>
+                <Text style={styles.quoteText}>“{active.quote}”</Text>
+                {typeof active.atSeconds === "number" ? (
+                  <Pressable onPress={() => onSeek(active.atSeconds!)} accessibilityRole="button">
+                    <Text style={styles.quoteMeta}>
+                      ▶ {t(ui.saidAt)} {clock(active.atSeconds)}
+                    </Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            </View>
+          ) : null}
+
+          {active.mentions.length > 0 ? (
+            <View style={styles.subsection}>
+              <Text style={styles.subhead}>
+                {t(ui.whereItAppeared)} · {active.mentions.length} {t(ui.mentionsCount)}
+              </Text>
+              <View style={styles.mentions}>
+                {active.mentions.slice(0, 8).map((mention) => (
+                  <Pressable
+                    key={mention.at}
+                    style={styles.mention}
+                    onPress={() => onSeek(mention.at)}
+                    accessibilityRole="button"
+                  >
+                    <Text style={styles.mentionStamp}>{clock(mention.at)}</Text>
+                    <Text style={styles.mentionText} numberOfLines={2}>
+                      {mention.text}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+          ) : null}
+
+          {active.related.length > 0 ? (
+            <View style={styles.subsection}>
+              <Text style={styles.subhead}>{t(ui.relatedConcepts)}</Text>
+              <View style={styles.chips}>
+                {active.related.map((term) => (
+                  <Chip key={term} label={term} onPress={() => onOpen(term)} />
+                ))}
+              </View>
+            </View>
+          ) : null}
+        </Card>
+      ) : null}
+    </View>
+  );
+}
+
+function TasksTab({
+  lecture,
+  confirmed,
+  candidates,
+  done,
+  busy,
+  remindersOn,
+  onToggle,
+  onDecide,
+  onSeek,
+  onIcs,
+  onReminders,
+}: {
+  lecture: Lecture;
+  confirmed: number[];
+  candidates: number[];
+  done: Set<number>;
+  busy: number | null;
+  remindersOn: boolean;
+  onToggle: (index: number) => void;
+  onDecide: (index: number, keep: boolean) => void;
+  onSeek: (seconds: number) => void;
+  onIcs: () => void;
+  onReminders: () => void;
+}) {
+  const tasks = lecture.analysis?.tasks ?? [];
+
+  if (tasks.length === 0) {
+    return <EmptyState glyph="◪" title={t(ui.noTasks)} />;
+  }
+
+  return (
+    <View style={styles.stack}>
+      {candidates.length > 0 ? (
+        <Card style={styles.section}>
+          <SectionTitle>
+            {candidates.length === 1 ? t(ui.newTaskFound) : t(ui.newTasksFound)}
+          </SectionTitle>
+          <View style={styles.taskList}>
+            {candidates.map((index) => {
+              const task = tasks[index]!;
+              return (
+                <View key={index} style={styles.candidate}>
+                  <Text style={styles.taskText}>{task.text}</Text>
+                  {typeof task.atSeconds === "number" ? (
+                    <Pressable onPress={() => onSeek(task.atSeconds!)} accessibilityRole="button">
+                      <Text style={styles.jumpText}>
+                        ▶ {t(ui.mentionedAt)} {clock(task.atSeconds)}
+                      </Text>
+                    </Pressable>
+                  ) : null}
+                  <View style={styles.candidateActions}>
+                    <Button
+                      label={t(ui.addTask)}
+                      variant="primary"
+                      size="sm"
+                      busy={busy === index}
+                      onPress={() => onDecide(index, true)}
+                    />
+                    <Button
+                      label={t(ui.dismissTask)}
+                      variant="ghost"
+                      size="sm"
+                      disabled={busy === index}
+                      onPress={() => onDecide(index, false)}
+                    />
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        </Card>
+      ) : null}
+
+      {confirmed.length > 0 ? (
+        <Card style={styles.section}>
+          <SectionTitle>{t(ui.tasksAndAssignments)}</SectionTitle>
+          <View style={styles.taskList}>
+            {confirmed.map((index) => {
+              const task = tasks[index]!;
+              return (
+                <TaskRow
+                  key={index}
+                  text={task.text}
+                  due={task.due}
+                  inferredDue={task.dueISO ? task.dueIsExplicit === false : false}
+                  quote={task.quote}
+                  atSeconds={task.atSeconds}
+                  done={done.has(index)}
+                  onToggle={() => onToggle(index)}
+                  onSeek={onSeek}
+                />
+              );
+            })}
+          </View>
+
+          <View style={styles.taskActions}>
+            <Button label={t(ui.downloadIcs)} glyph="🗓" size="sm" onPress={onIcs} />
+            <Button
+              label={remindersOn ? t(ui.remindersOn) : t(ui.enableReminders)}
+              glyph="🔔"
+              size="sm"
+              variant={remindersOn ? "primary" : "secondary"}
+              onPress={onReminders}
+            />
+          </View>
+        </Card>
+      ) : null}
+    </View>
+  );
+}
+
+/**
+ * The exam tab.
+ *
+ * Stated first, and separated. A student revising has to be able to tell what
+ * the lecturer actually said from what we concluded — mixing them in one list
+ * is how an app loses the right to be trusted about an exam.
+ */
+function ExamTab({ lecture, onSeek }: { lecture: Lecture; onSeek: (seconds: number) => void }) {
+  const predictions = lecture.analysis?.examPredictions ?? [];
+  if (predictions.length === 0) {
+    return <EmptyState glyph="★" title={t(ui.noExam)} />;
+  }
+
+  return (
+    <View style={styles.stack}>
+      {(["stated", "inferred"] as const).map((basis) => {
+        const group = predictions.filter((p) => (p.basis ?? "inferred") === basis);
+        if (group.length === 0) return null;
+        return (
+          <Card key={basis} style={styles.section}>
+            <View style={styles.basisRow}>
+              <Chip
+                label={t(basis === "stated" ? ui.statedByLecturer : ui.inferredByAI)}
+                tone={basis === "stated" ? "stated" : "inferred"}
+              />
+            </View>
+
+            {group.map((prediction, index) => (
+              <View key={index} style={styles.entry}>
+                <View style={styles.predictionHead}>
+                  <Text style={styles.conceptTerm}>{prediction.topic}</Text>
+                  <Chip
+                    label={t(
+                      prediction.confidence === "high"
+                        ? ui.confHigh
+                        : prediction.confidence === "low"
+                          ? ui.confLow
+                          : ui.confMedium,
+                    )}
+                    gold={prediction.confidence === "high"}
+                  />
+                </View>
+                <Text style={styles.paragraph}>{prediction.why}</Text>
+                {prediction.quote ? (
+                  <View style={styles.quote}>
+                    <View style={styles.quoteBar} />
+                    <View style={styles.quoteBody}>
+                      <Text style={styles.quoteText}>“{prediction.quote}”</Text>
+                      {typeof prediction.atSeconds === "number" ? (
+                        <Pressable
+                          onPress={() => onSeek(prediction.atSeconds!)}
+                          accessibilityRole="button"
+                        >
+                          <Text style={styles.quoteMeta}>
+                            ▶ {t(ui.saidAt)} {clock(prediction.atSeconds)}
+                          </Text>
+                        </Pressable>
+                      ) : null}
+                    </View>
+                  </View>
+                ) : null}
+              </View>
+            ))}
+          </Card>
+        );
+      })}
+    </View>
+  );
+}
+
+/** One task, wherever it is shown. */
+function TaskRow({
+  text,
+  due,
+  inferredDue,
   quote,
   atSeconds,
-  onPlay,
+  done,
+  onToggle,
+  onSeek,
 }: {
+  text: string;
+  due?: string;
+  inferredDue: boolean;
   quote?: string;
   atSeconds?: number;
-  onPlay: (seconds: number) => void;
+  done: boolean;
+  onToggle: () => void;
+  onSeek: (seconds: number) => void;
 }) {
-  const has = typeof atSeconds === "number";
-  if (!quote && !has) return null;
-
   return (
-    <Pressable
-      style={styles.source}
-      onPress={() => has && onPlay(atSeconds!)}
-      disabled={!has}
-      accessibilityRole={has ? "button" : undefined}
-    >
-      <View style={styles.sourceBar} />
-      <View style={styles.sourceBody}>
-        {quote ? <Text style={styles.sourceQuote}>“{quote}”</Text> : null}
-        {has ? (
-          <Text style={styles.sourcePlay}>
-            ▶ {t(ui.saidAt)} {clock(atSeconds!)}
-          </Text>
-        ) : null}
+    <View style={styles.task}>
+      <View style={styles.taskTop}>
+        <Pressable
+          onPress={onToggle}
+          hitSlop={12}
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: done }}
+          accessibilityLabel={text}
+          style={[styles.check, done && styles.checkOn]}
+        >
+          {done ? <Text style={styles.checkGlyph}>✓</Text> : null}
+        </Pressable>
+
+        <View style={styles.taskBody}>
+          <Text style={[styles.taskText, done && styles.taskDone]}>{text}</Text>
+          {due ? (
+            <View style={styles.dueRow}>
+              <Text style={styles.taskDue}>{due}</Text>
+              {inferredDue ? (
+                <Text style={styles.dueGuessed}>· {t(ui.deadlineInferred)}</Text>
+              ) : null}
+            </View>
+          ) : null}
+        </View>
       </View>
-    </Pressable>
-  );
-}
 
-/** Says plainly whether the lecturer stated something or the model worked it
- *  out. Carries a word as well as a colour — a student who cannot see the
- *  difference in hue still has to be able to tell these apart. */
-function Basis({ basis }: { basis?: "stated" | "inferred" }) {
-  const stated = basis === "stated";
-  const tone = stated ? STATE.stated : STATE.inferred;
-  return (
-    <View style={[styles.basis, { backgroundColor: tone.bg, borderColor: tone.line }]}>
-      <Text style={[styles.basisText, { color: tone.fg }]}>
-        {stated ? t(ui.statedByLecturer) : t(ui.inferredByAI)}
-      </Text>
+      {quote ? (
+        <Pressable
+          style={styles.quote}
+          onPress={() => (typeof atSeconds === "number" ? onSeek(atSeconds) : undefined)}
+          accessibilityRole="button"
+        >
+          <View style={styles.quoteBar} />
+          <View style={styles.quoteBody}>
+            <Text style={styles.quoteText}>“{quote}”</Text>
+            {typeof atSeconds === "number" ? (
+              <Text style={styles.quoteMeta}>
+                ▶ {t(ui.saidAt)} {clock(atSeconds)}
+              </Text>
+            ) : null}
+          </View>
+        </Pressable>
+      ) : typeof atSeconds === "number" ? (
+        <Pressable onPress={() => onSeek(atSeconds)} accessibilityRole="button">
+          <Text style={styles.jumpText}>
+            ▶ {t(ui.mentionedAt)} {clock(atSeconds)}
+          </Text>
+        </Pressable>
+      ) : null}
     </View>
-  );
-}
-
-function Chip({ text, gold }: { text: string; gold?: boolean }) {
-  return (
-    <View style={[styles.chip, gold && styles.chipGold]}>
-      <Text style={[styles.chipText, gold && styles.chipTextGold]}>{text}</Text>
-    </View>
-  );
-}
-
-function Action({
-  label,
-  glyph,
-  onPress,
-  danger,
-  active,
-}: {
-  label: string;
-  glyph: string;
-  onPress: () => void;
-  danger?: boolean;
-  active?: boolean;
-}) {
-  return (
-    <Pressable
-      style={({ pressed }) => [
-        styles.action,
-        danger && styles.actionDanger,
-        active && styles.actionActive,
-        pressed && s.pressed,
-      ]}
-      onPress={onPress}
-    >
-      <Text style={[styles.actionGlyph, danger && styles.actionDangerText]}>{glyph}</Text>
-      <Text style={[styles.actionText, danger && styles.actionDangerText]}>{label}</Text>
-    </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
-  loading: { alignItems: "center", justifyContent: "center" },
-  stateCard: { padding: 20, gap: 12, marginBottom: 14 },
-  stateTitle: { color: GOLD, fontSize: 16, fontFamily: FONTS.displayBold, textAlign: READ },
-  stateBody: { color: "#9C9382", fontSize: 14, fontFamily: FONTS.body, lineHeight: 28, textAlign: READ },
-  stateActions: { flexDirection: "row", gap: 8, flexWrap: "wrap", justifyContent: READ_END },
-  content: { paddingHorizontal: 20, paddingBottom: 56 },
+  loading: { flex: 1, alignItems: "center", justifyContent: "center" },
+  content: { paddingTop: SP.sm, gap: SP.lg },
+  stack: { gap: SP.md },
 
-  datePill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    alignSelf: READ_END,
-    backgroundColor: "#17150F",
-    borderWidth: 1,
-    borderColor: "#2A2519",
-    borderRadius: 999,
-    paddingVertical: 7,
-    paddingHorizontal: 14,
-    marginTop: 26,
-  },
-  dateDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: GOLD },
-  dateText: { color: "#C9BC9A", fontSize: 12.5, fontFamily: FONTS.body },
-
+  header: { gap: SP.sm },
+  headerRow: { flexDirection: "row", alignItems: "flex-start", gap: SP.sm },
+  headerBody: { flex: 1, gap: 3, paddingTop: 2 },
   title: {
-    color: "#F5EEDF",
-    fontSize: 40,
-    fontFamily: FONTS.displayBold,
-    lineHeight: 60,
-    marginTop: 18,
+    color: TEXT,
+    fontSize: SCALE.title - 2,
+    lineHeight: SCALE.titleLine - 2,
+    fontFamily: FONTS.display,
     textAlign: READ,
   },
 
-  notice: {
-    backgroundColor: "#241E0C",
-    borderWidth: 1,
-    borderColor: "#4A3D18",
-    borderRadius: 14,
-    padding: 16,
-    marginTop: 18,
+  /* Sticky, so it has to be opaque — content sliding under a transparent
+     band reads as a rendering fault rather than as a fixed control. */
+  playerWrap: { paddingVertical: SP.sm, backgroundColor: INK },
+  player: { padding: SP.md },
+  playerRow: { flexDirection: "row", alignItems: "center", gap: SP.md },
+  playerBody: { flex: 1, gap: SP.xs },
+  playerTimes: { flexDirection: "row", justifyContent: "space-between" },
+  playerTime: {
+    color: TEXT_FAINT,
+    fontSize: SCALE.micro,
+    fontFamily: FONTS.body,
+    fontVariant: ["tabular-nums"],
   },
-  noticeText: { color: "#C9AE73", fontSize: 13, fontFamily: FONTS.body, lineHeight: 24, textAlign: READ },
-
-  chips: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 16, justifyContent: READ_END },
-  chip: {
-    backgroundColor: "#17150F",
-    borderWidth: 1,
-    borderColor: "#2A2519",
-    borderRadius: 999,
-    paddingVertical: 7,
-    paddingHorizontal: 14,
-  },
-  chipGold: { borderColor: "#4A3D18", backgroundColor: "#241E0C" },
-  chipText: { color: "#C9BC9A", fontSize: 12.5, fontFamily: FONTS.body },
-  chipTextGold: { color: GOLD, fontFamily: FONTS.displayBold },
-
-  actions: { gap: 8, paddingVertical: 16, flexDirection: "row" },
-  action: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    backgroundColor: "#17150F",
-    borderWidth: 1,
-    borderColor: "#2A2519",
-    borderRadius: 999,
-    paddingVertical: 13,
-    paddingHorizontal: 17,
-  },
-  actionActive: { backgroundColor: "#241E0C", borderColor: "#4A3D18" },
-  actionDanger: { backgroundColor: "#2A1310", borderColor: "#5A2620" },
-  actionGlyph: { color: "#C9BC9A", fontSize: 13 },
-  actionText: { color: "#E8E0CE", fontSize: 14, fontFamily: FONTS.bodyMedium },
-  actionDangerText: { color: "#E08878" },
-
-  playerWrap: { marginTop: 6, gap: 10 },
-  playerHint: { color: "#6E685C", fontSize: 12, fontFamily: FONTS.body, textAlign: READ },
-  player: { flexDirection: "row", alignItems: "center", gap: 14, padding: 16, overflow: "hidden" },
-  playButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+  play: {
+    width: 44,
+    height: 44,
+    borderRadius: RADIUS.pill,
     backgroundColor: GOLD,
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: GOLD,
-    shadowOpacity: 0.34,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 5 },
+    ...glow(GOLD, 16, 0.24),
   },
   playGlyph: { color: INK, fontSize: 15 },
-  playerTime: { color: "#8E8676", fontSize: 12, fontFamily: FONTS.body, fontVariant: ["tabular-nums"] },
-  track: { flex: 1, height: 4, backgroundColor: "#241F14", borderRadius: 2, overflow: "hidden" },
-  trackFill: { height: 4, backgroundColor: GOLD, borderRadius: 2 },
+  nudges: { flexDirection: "row", gap: 2 },
 
-  tabs: { gap: 7, paddingTop: 22, paddingBottom: 14, flexDirection: "row" },
-  tab: {
-    backgroundColor: "#17150F",
+  section: { gap: SP.md },
+  subsection: { gap: SP.sm, borderTopWidth: 1, borderTopColor: HAIRLINE, paddingTop: SP.md },
+  subhead: { color: TEXT_FAINT, fontSize: SCALE.micro, fontFamily: FONTS.bodyMedium, textAlign: READ },
+
+  paragraph: {
+    color: TEXT_SOFT,
+    fontSize: SCALE.body,
+    lineHeight: SCALE.bodyLine,
+    fontFamily: FONTS.body,
+    textAlign: READ,
+  },
+
+  points: { gap: SP.md, marginTop: SP.xs },
+  pointRow: { flexDirection: "row", alignItems: "flex-start", gap: SP.md },
+  bullet: { width: 5, height: 5, borderRadius: 3, backgroundColor: GOLD, marginTop: 9 },
+  pointText: {
+    flex: 1,
+    color: TEXT,
+    fontSize: SCALE.label + 1,
+    lineHeight: SCALE.labelLine + 7,
+    fontFamily: FONTS.body,
+    textAlign: READ,
+  },
+
+  chips: { flexDirection: "row", flexWrap: "wrap", gap: SP.sm, justifyContent: READ_END },
+
+  moments: { gap: SP.md },
+  moment: { flexDirection: "row", alignItems: "center", gap: SP.md },
+  momentBody: { flex: 1, gap: 3 },
+  momentStamp: {
+    color: GOLD,
+    fontSize: SCALE.micro,
+    fontFamily: FONTS.bodyMedium,
+    fontVariant: ["tabular-nums"],
+    textAlign: READ,
+  },
+  momentText: {
+    color: TEXT,
+    fontSize: SCALE.label + 1,
+    lineHeight: SCALE.labelLine + 7,
+    fontFamily: FONTS.body,
+    textAlign: READ,
+  },
+  momentPlay: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     borderWidth: 1,
-    borderColor: "#2A2519",
-    borderRadius: 999,
-    paddingVertical: 12,
-    paddingHorizontal: 18,
-  },
-  tabActive: {
-    backgroundColor: GOLD,
-    borderColor: GOLD,
-    shadowColor: GOLD,
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-  },
-  tabText: { color: "#C9BC9A", fontSize: 14, fontFamily: FONTS.bodyMedium },
-  tabTextActive: { color: INK, fontFamily: FONTS.displayBold },
-
-  body: { padding: 20, gap: 15, overflow: "hidden" },
-  paragraph: { color: "#E8E0CE", fontSize: 16, fontFamily: FONTS.body, lineHeight: 32, textAlign: READ },
-  empty: { color: "#8E8676", fontSize: 15, fontFamily: FONTS.body, lineHeight: 30, textAlign: "center", paddingVertical: 20 },
-
-  bulletRow: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
-  bullet: { width: 5, height: 5, borderRadius: 3, backgroundColor: GOLD, marginTop: 13 },
-  bulletText: { color: "#C9BC9A", fontSize: 15, fontFamily: FONTS.body, lineHeight: 30, flex: 1, textAlign: READ },
-
-  taskActions: { flexDirection: "row", gap: 8, flexWrap: "wrap", justifyContent: READ_END },
-  taskRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    borderTopWidth: 1,
-    borderTopColor: "#221D12",
-    paddingTop: 14,
-  },
-  checkbox: {
-    width: 22,
-    height: 22,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: "#3A3324",
+    borderColor: "rgba(217,185,104,0.35)",
     alignItems: "center",
     justifyContent: "center",
   },
-  checkboxOn: { backgroundColor: GOLD, borderColor: GOLD },
-  checkGlyph: { color: INK, fontSize: 13, fontFamily: FONTS.displayBold },
-  taskBody: { flex: 1, gap: 3 },
-  taskText: { color: "#E8E0CE", fontSize: 15, fontFamily: FONTS.body, lineHeight: 28, textAlign: READ },
-  taskDone: { color: "#6E685C", textDecorationLine: "line-through" },
-  taskDue: { color: GOLD, fontSize: 12, fontFamily: FONTS.body, textAlign: READ },
-  taskCal: { fontSize: 13 },
+  momentPlayGlyph: { color: GOLD, fontSize: 12 },
 
-  entry: { borderTopWidth: 1, borderTopColor: "#221D12", paddingTop: 14, gap: 9 },
-  termRow: { borderTopWidth: 1, borderTopColor: "#221D12", paddingTop: 14, gap: 7 },
-  examGroup: { gap: 12, marginBottom: 6 },
-  dueRow: { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" },
-  dueGuessed: { color: STATE.inferred.fg, fontSize: SCALE.micro, fontFamily: FONTS.body },
-
-  basis: {
-    alignSelf: READ_END,
-    borderWidth: 1,
-    borderRadius: RADIUS.pill,
-    paddingVertical: 4,
-    paddingHorizontal: 11,
-  },
-  basisText: { fontSize: SCALE.micro, fontFamily: FONTS.bodyMedium },
-
-  /* The lecturer's own words, and the way back to them. */
-  source: { flexDirection: "row", gap: SP.md, alignItems: "stretch", marginTop: 2 },
-  sourceBar: { width: 2, borderRadius: 1, backgroundColor: STATE.stated.line },
-  sourceBody: { flex: 1, gap: 4 },
-  sourceQuote: {
-    color: TEXT_SOFT,
-    fontSize: SCALE.label,
-    lineHeight: SCALE.labelLine + 4,
-    fontFamily: FONTS.scriptItalic,
-    textAlign: READ,
-  },
-  sourcePlay: {
-    color: STATE.stated.fg,
-    fontSize: SCALE.micro,
-    fontFamily: FONTS.bodyMedium,
-    textAlign: READ,
-  },
-  term: { color: "#E8E0CE", fontSize: 16, fontFamily: FONTS.displayBold, textAlign: READ },
-  termDef: { color: "#9C9382", fontSize: 14, fontFamily: FONTS.body, lineHeight: 28, textAlign: READ },
-  predictionHead: { flexDirection: "row", alignItems: "center", gap: 10, justifyContent: READ_END },
-  tagHigh: { backgroundColor: "#2E2A10" },
-  tagLow: { backgroundColor: "#221F19" },
-
-  chapter: { paddingTop: 6, gap: 8 },
-  chapterMark: { alignItems: "center", width: 12, alignSelf: "stretch" },
+  chapters: { gap: 0 },
+  chapter: { flexDirection: "row", gap: SP.md, paddingBottom: SP.md },
+  chapterMark: { alignItems: "center", width: 12 },
   chapterNode: {
     width: 8,
     height: 8,
@@ -952,49 +1324,144 @@ const styles = StyleSheet.create({
     borderColor: GOLD,
     marginTop: 5,
   },
-  chapterRail: { flex: 1, width: 1, backgroundColor: "#2A2318", marginTop: 2 },
-  chapterHead: { flexDirection: "row", alignItems: "center", gap: 10, justifyContent: READ_END },
-  chapterStamp: { color: GOLD, fontSize: 12, fontFamily: FONTS.body, fontVariant: ["tabular-nums"] },
-  chapterTitle: { color: "#E8E0CE", fontSize: 16, fontFamily: FONTS.displayBold, flex: 1, textAlign: READ },
-
-  toneRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    borderTopWidth: 1,
-    borderTopColor: "#221D12",
-    paddingTop: 14,
+  chapterRail: { flex: 1, width: 1, backgroundColor: HAIRLINE, marginTop: 2 },
+  chapterBody: { flex: 1, gap: SP.xs },
+  chapterHead: { flexDirection: "row", alignItems: "baseline", gap: SP.sm, flexWrap: "wrap" },
+  chapterStamp: {
+    color: GOLD,
+    fontSize: SCALE.micro,
+    fontFamily: FONTS.bodyMedium,
+    fontVariant: ["tabular-nums"],
   },
-  toneStamp: { color: GOLD, fontSize: 12, fontFamily: FONTS.body, fontVariant: ["tabular-nums"] },
-  toneText: { color: "#E8E0CE", fontSize: 15, fontFamily: FONTS.body, lineHeight: 28, textAlign: READ },
-  toneReason: { color: "#8E8676", fontSize: 13, fontFamily: FONTS.body, lineHeight: 24, textAlign: READ },
-  tonePlay: { color: "#6E685C", fontSize: 12 },
-
-  tSearch: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: SP.md,
-    backgroundColor: "rgba(26,22,15,0.8)",
-    borderWidth: 1,
-    borderColor: "#2A2318",
-    borderRadius: RADIUS.md,
-    paddingHorizontal: SP.md,
-    marginBottom: 4,
-  },
-  tSearchGlyph: { color: "#5B5443", fontSize: 16 },
-  tSearchInput: {
+  chapterTitle: {
     flex: 1,
-    color: "#E8E0CE",
-    fontSize: SCALE.label,
-    fontFamily: FONTS.body,
-    paddingVertical: SP.md,
+    color: TEXT,
+    fontSize: SCALE.label + 1,
+    fontFamily: FONTS.bodyMedium,
+    textAlign: READ,
   },
-  tSearchClear: { color: "#5B5443", fontSize: 14 },
-  lineStar: { color: GOLD, fontSize: 11, marginTop: 6 },
+  chapterPoint: {
+    color: TEXT_SOFT,
+    fontSize: SCALE.label,
+    lineHeight: SCALE.labelLine + 5,
+    fontFamily: FONTS.body,
+    textAlign: READ,
+  },
 
-  line: { flexDirection: "row", alignItems: "flex-start", gap: 12, paddingVertical: 5 },
-  lineStamp: { color: "#6E685C", fontSize: 12, fontFamily: FONTS.body, fontVariant: ["tabular-nums"], marginTop: 5, minWidth: 42 },
-  lineText: { color: "#C9BC9A", fontSize: 15, fontFamily: FONTS.body, lineHeight: 30, flex: 1, textAlign: READ },
-  lineLoud: { color: "#E8E0CE" },
+  conceptTerm: {
+    color: TEXT,
+    fontSize: SCALE.section + 1,
+    lineHeight: SCALE.sectionLine,
+    fontFamily: FONTS.displayBold,
+    textAlign: READ,
+  },
+
+  mentions: { gap: SP.sm },
+  mention: { flexDirection: "row", gap: SP.md, alignItems: "flex-start" },
+  mentionStamp: {
+    color: GOLD,
+    fontSize: SCALE.micro,
+    fontFamily: FONTS.bodyMedium,
+    fontVariant: ["tabular-nums"],
+    minWidth: 44,
+  },
+  mentionText: {
+    flex: 1,
+    color: TEXT_SOFT,
+    fontSize: SCALE.label,
+    lineHeight: SCALE.labelLine + 4,
+    fontFamily: FONTS.body,
+    textAlign: READ,
+  },
+
+  taskList: { gap: SP.lg },
+  task: { gap: SP.sm },
+  taskTop: { flexDirection: "row", alignItems: "flex-start", gap: SP.md },
+  taskBody: { flex: 1, gap: SP.xs },
+  check: {
+    width: 22,
+    height: 22,
+    borderRadius: 7,
+    borderWidth: 1.5,
+    borderColor: "#3B3324",
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 2,
+  },
+  checkOn: { backgroundColor: GOLD, borderColor: GOLD },
+  checkGlyph: { color: INK, fontSize: 13, fontFamily: FONTS.displayBold },
+  taskText: {
+    color: TEXT,
+    fontSize: SCALE.body,
+    lineHeight: SCALE.bodyLine,
+    fontFamily: FONTS.body,
+    textAlign: READ,
+  },
+  taskDone: { color: TEXT_FAINT, textDecorationLine: "line-through" },
+  dueRow: { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" },
+  taskDue: { color: GOLD, fontSize: SCALE.micro, fontFamily: FONTS.bodyMedium },
+  dueGuessed: { color: STATE.inferred.fg, fontSize: SCALE.micro, fontFamily: FONTS.body },
+  taskActions: {
+    flexDirection: "row",
+    gap: SP.sm,
+    flexWrap: "wrap",
+    borderTopWidth: 1,
+    borderTopColor: HAIRLINE,
+    paddingTop: SP.md,
+  },
+
+  candidate: { gap: SP.sm },
+  candidateActions: { flexDirection: "row", gap: SP.sm, marginTop: SP.xs },
+
+  entry: { gap: SP.sm, borderTopWidth: 1, borderTopColor: HAIRLINE, paddingTop: SP.md },
+  basisRow: { flexDirection: "row", justifyContent: READ_END },
+  predictionHead: { flexDirection: "row", alignItems: "center", gap: SP.sm, flexWrap: "wrap" },
+
+  quote: { flexDirection: "row", gap: SP.md, alignItems: "stretch" },
+  quoteBar: { width: 2, borderRadius: 1, backgroundColor: STATE.stated.line },
+  quoteBody: { flex: 1, gap: 3 },
+  quoteText: {
+    color: TEXT_SOFT,
+    fontSize: SCALE.label,
+    lineHeight: SCALE.labelLine + 5,
+    fontFamily: FONTS.body,
+    fontStyle: "italic",
+    textAlign: READ,
+  },
+  quoteMeta: { color: GOLD, fontSize: SCALE.micro, fontFamily: FONTS.bodyMedium, textAlign: READ },
+  jumpText: { color: GOLD, fontSize: SCALE.micro, fontFamily: FONTS.bodyMedium, textAlign: READ },
+
+  transcript: { gap: 0, padding: SP.md },
+  line: {
+    flexDirection: "row",
+    gap: SP.md,
+    alignItems: "flex-start",
+    paddingVertical: SP.sm,
+    paddingHorizontal: SP.sm,
+    borderRadius: RADIUS.sm,
+  },
+  /* The line currently sounding. A tinted band rather than a colour change on
+     the words themselves, so a long Arabic paragraph does not start shouting. */
+  lineActive: { backgroundColor: "rgba(217,185,104,0.09)" },
+  lineStamp: {
+    color: TEXT_FAINT,
+    fontSize: SCALE.micro,
+    fontFamily: FONTS.body,
+    fontVariant: ["tabular-nums"],
+    minWidth: 44,
+    paddingTop: 3,
+  },
+  lineStampActive: { color: GOLD, fontFamily: FONTS.bodyMedium },
+  lineText: {
+    flex: 1,
+    color: TEXT_SOFT,
+    fontSize: SCALE.body,
+    lineHeight: SCALE.bodyLine,
+    fontFamily: FONTS.body,
+    textAlign: READ,
+  },
+  lineTextActive: { color: TEXT },
+  lineLoud: { color: TEXT, fontFamily: FONTS.bodyMedium },
   lineMarked: { color: GOLD },
+  lineStar: { color: GOLD, fontSize: 11, paddingTop: 4 },
 });

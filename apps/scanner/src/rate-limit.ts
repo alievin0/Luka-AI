@@ -16,6 +16,10 @@ const MAX_PER_WINDOW = 30;
 /** Transcribing an hour of audio costs orders of magnitude more than one
  *  image, so the lecture endpoints get their own, much tighter allowance. */
 export const LECTURE_MAX_PER_WINDOW = 6;
+/** Asking a question is a text-only call over an excerpt, so it costs a
+ *  fraction of an analysis — but it is still a paid call on a public route,
+ *  and a study session is a handful of questions rather than a hundred. */
+export const ASK_MAX_PER_WINDOW = 20;
 /** Stop the map growing without bound if traffic is spread over many IPs. */
 const MAX_TRACKED_CLIENTS = 10_000;
 
