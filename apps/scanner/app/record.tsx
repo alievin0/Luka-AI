@@ -21,15 +21,16 @@ import {
   requestRecordingPermissionsAsync,
   type RecordingOptions,
 } from "expo-audio";
-import { pack, isAudio, type Segment } from "../src/packs";
+import { pack, isAudio, type AudioChunk, type Segment } from "../src/packs";
 import { t, locale, isRTL } from "../src/i18n";
 import { ui } from "../src/i18n/ui";
 import { getProfile } from "../src/storage";
 import {
+  audioDuration,
   bumpLectureCount,
   clock,
   newLectureId,
-  persistRecording,
+  persistChunk,
   saveLecture,
   scoreEnergy,
 } from "../src/lectures";
@@ -81,6 +82,17 @@ const SEGMENT_GAP_MS = 1800;
  *  transcript is written to storage as it accumulates rather than only at the
  *  end — if the app is killed at minute 80, minute 79 is still there. */
 const AUTOSAVE_MS = 15_000;
+/**
+ * How long each slice of the recording runs before the recorder is rotated.
+ *
+ * Five minutes is the trade. Rotating costs the fraction of a second it takes
+ * to close one file and open the next — about eighteen such gaps across a
+ * ninety-minute lecture — and buys the guarantee that a crash or a force-quit
+ * costs at most the last five minutes instead of the entire recording, which
+ * is what an unclosed .m4a is worth. The live transcript is unaffected: the
+ * speech recogniser is a separate session and does not rotate with the file.
+ */
+const CHUNK_MS = 5 * 60 * 1000;
 
 export default function Record() {
   const router = useRouter();
@@ -111,6 +123,9 @@ export default function Record() {
   const finishing = useRef(false);
   const restarting = useRef(false);
   const autosave = useRef<ReturnType<typeof setInterval> | null>(null);
+  const chunks = useRef<AudioChunk[]>([]);
+  const rotating = useRef(false);
+  const elapsedRef = useRef(0);
   const restartAttempts = useRef(0);
   const idRef = useRef(newLectureId());
   const scroller = useRef<ScrollView>(null);
@@ -126,14 +141,19 @@ export default function Record() {
    *  for two minutes would stamp the next sentence two minutes early, and
    *  tapping it would seek the recording to the wrong place. */
   const speaking = useRef(false);
-  /* durationMillis is the recorder's own clock — the same timeline the ASR
-   * word timestamps are offsets into. A tick counter would drift over ninety
-   * minutes and take every timestamp in the app with it. */
-  const seconds = Math.floor((state.durationMillis ?? 0) / 1000);
+  /* durationMillis is the recorder's own clock — the timeline the audio is
+   * written on, and the one the ASR word timestamps are offsets into. A tick
+   * counter would drift over ninety minutes and take every timestamp with it.
+   *
+   * It restarts from zero on every rotation, so the lecture's own clock is
+   * that plus the chunks already closed. */
+  const [elapsedBefore, setElapsedBefore] = useState(0);
+  const seconds = elapsedBefore + Math.floor((state.durationMillis ?? 0) / 1000);
   const secondsRef = useRef(0);
   secondsRef.current = seconds;
   const segmentsRef = useRef<Segment[]>([]);
   segmentsRef.current = segments;
+  elapsedRef.current = seconds;
   const startedAtRef = useRef(Date.now());
 
   /* Metering runs whether or not the live writer exists — the tone analysis
@@ -222,6 +242,61 @@ export default function Record() {
     });
     setInterim("");
   }, []);
+
+  /**
+   * Closes the current slice and opens the next.
+   *
+   * Everything but the last chunk is therefore a complete, playable file the
+   * moment it is written. `paused` is deliberately not rotated through — a
+   * paused recorder has nothing to close, and stopping it would restart the
+   * clock underneath a student who is only pausing for a question.
+   */
+  const rotate = useCallback(async (): Promise<AudioChunk | null> => {
+    if (rotating.current || finishing.current) return null;
+    rotating.current = true;
+
+    // Read the clock before stopping: stop() resets durationMillis, and this
+    // is what tells the next chunk where it begins on the lecture's timeline.
+    const closedAt = elapsedRef.current;
+    const startedAt = audioDuration(chunks.current);
+
+    let chunk: AudioChunk | null = null;
+    try {
+      await recorder.stop();
+      const uri = recorder.uri;
+      if (uri) {
+        const stored = await persistChunk(uri, idRef.current, chunks.current.length);
+        if (stored) {
+          chunk = { uri: stored, at: startedAt, duration: Math.max(0, closedAt - startedAt) };
+          chunks.current = [...chunks.current, chunk];
+        }
+      }
+    } catch {
+      // The slice is lost; the ones already closed are not, which is the
+      // entire reason for rotating.
+    }
+
+    if (!finishing.current) {
+      try {
+        await recorder.prepareToRecordAsync();
+        recorder.record();
+        // The recorder's clock is back at zero, so the lecture's clock takes
+        // over from where the closed chunks end.
+        setElapsedBefore(closedAt);
+      } catch {
+        setFailed(true);
+      }
+    }
+
+    rotating.current = false;
+    return chunk;
+  }, [recorder]);
+
+  useEffect(() => {
+    if (!ready || paused || ending || denied || failed) return;
+    const timer = setInterval(() => void rotate(), CHUNK_MS);
+    return () => clearInterval(timer);
+  }, [ready, paused, ending, denied, failed, rotate]);
 
   /**
    * Nothing leaves this screen without going through end().
@@ -402,13 +477,24 @@ export default function Record() {
       : segments;
 
     const id = idRef.current;
-    let uri: string | undefined;
+    // Close the slice still open. Everything before it is already on disk as
+    // a finished file, which is what makes a crash survivable.
+    const closedAt = seconds;
+    const startedAt = audioDuration(chunks.current);
     try {
       await recorder.stop();
-      uri = recorder.uri ? await persistRecording(recorder.uri, id) : undefined;
+      const uri = recorder.uri;
+      if (uri) {
+        const stored = await persistChunk(uri, id, chunks.current.length);
+        if (stored) {
+          chunks.current = [
+            ...chunks.current,
+            { uri: stored, at: startedAt, duration: Math.max(0, closedAt - startedAt) },
+          ];
+        }
+      }
     } catch {
-      // The recording is lost, but whatever the live writer captured is not.
-      uri = undefined;
+      // The last slice is lost; the earlier ones are not.
     }
 
     // Hand the microphone back. Nothing else in the app resets this, and the
@@ -425,7 +511,7 @@ export default function Record() {
       title: "",
       at: startedAtRef.current,
       duration: seconds,
-      audioUri: uri,
+      audioChunks: chunks.current,
       // Raw dBFS goes to storage. Scoring here would write a 0–1 value into
       // the same field the scorer later reads as dBFS, and every later pass
       // would read those as clipping and zero the whole lecture.

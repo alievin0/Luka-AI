@@ -1,6 +1,7 @@
 import Constants from "expo-constants";
 import { locale } from "./i18n";
-import type { LectureAnalysis, Segment } from "./packs";
+import type { AudioChunk, LectureAnalysis, Segment } from "./packs";
+import { offsetSegments } from "./lectures";
 
 /** Same origin resolution as the scan client: explicit in production, the
  *  Expo dev host otherwise so a phone on the same Wi-Fi reaches the laptop. */
@@ -65,51 +66,70 @@ async function post<T>(path: string, body: unknown): Promise<T> {
  * of a transcript that is already good enough.
  */
 export async function transcribeLecture(input: {
-  audioUri: string;
+  chunks: AudioChunk[];
   mimeType?: string;
 }): Promise<{ segments: Segment[] }> {
   // uploadAsync streams from disk natively. fetch + FormData with a file part
   // is unreliable for bodies this size on iOS, and reading the file into JS
-  // first would put ~20MB of a lecture through the heap for nothing. It only
-  // exists on the legacy surface — expo-file-system's default export in SDK 54
-  // is the new sync File API, which has no upload.
+  // first would put the audio through the heap for nothing. It only exists on
+  // the legacy surface — expo-file-system's default export in SDK 54 is the
+  // new sync File API, which has no upload.
   const legacy = require("expo-file-system/legacy") as typeof import("expo-file-system/legacy");
 
-  let result: { status: number; body: string };
-  try {
-    result = await withTimeout(
-      legacy.uploadAsync(`${apiBase()}/api/transcribe`, input.audioUri, {
-        httpMethod: "POST",
-        uploadType: legacy.FileSystemUploadType.MULTIPART,
-        fieldName: "file",
-        mimeType: input.mimeType ?? "audio/m4a",
-        // The default is a background session, which by design never fails
-        // when the server or the connection is down — it retries silently
-        // forever. On campus Wi-Fi behind a captive portal that leaves the
-        // analysing screen spinning with no error and no way out.
-        sessionType: legacy.FileSystemSessionType.FOREGROUND,
-      }),
-      UPLOAD_TIMEOUT_MS,
-    );
-  } catch {
-    throw new LectureError("offline");
-  }
+  const all: Segment[] = [];
+  let reachedAny = false;
+  let lastError: string | null = null;
 
-  const parsed = (() => {
+  // Sequential, not parallel: these are multi-megabyte uploads over a phone
+  // connection, and running them at once makes every one of them slower and
+  // more likely to time out.
+  for (const chunk of input.chunks) {
+    let result: { status: number; body: string };
     try {
-      return JSON.parse(result.body) as { segments?: Segment[]; error?: string };
+      result = await withTimeout(
+        legacy.uploadAsync(`${apiBase()}/api/transcribe`, chunk.uri, {
+          httpMethod: "POST",
+          uploadType: legacy.FileSystemUploadType.MULTIPART,
+          fieldName: "file",
+          mimeType: input.mimeType ?? "audio/m4a",
+          // The default is a background session, which by design never fails
+          // when the server or the connection is down — it retries silently
+          // forever. On campus Wi-Fi behind a captive portal that leaves the
+          // analysing screen spinning with no error and no way out.
+          sessionType: legacy.FileSystemSessionType.FOREGROUND,
+        }),
+        UPLOAD_TIMEOUT_MS,
+      );
     } catch {
-      return null;
+      lastError = "offline";
+      continue;
     }
-  })();
 
-  if (result.status < 200 || result.status >= 300) {
-    throw new LectureError(parsed?.error ?? "server");
+    const parsed = (() => {
+      try {
+        return JSON.parse(result.body) as { segments?: Segment[]; error?: string };
+      } catch {
+        return null;
+      }
+    })();
+
+    if (result.status < 200 || result.status >= 300) {
+      lastError = parsed?.error ?? "server";
+      continue;
+    }
+    if (!parsed?.segments?.length) {
+      // A slice of silence is a normal thing to record, not a failure.
+      reachedAny = true;
+      continue;
+    }
+
+    reachedAny = true;
+    // Each chunk is transcribed on its own and comes back starting at zero.
+    all.push(...offsetSegments(parsed.segments, chunk.at));
   }
-  if (!parsed?.segments?.length) {
-    throw new LectureError(parsed?.error ?? "empty");
-  }
-  return { segments: parsed.segments };
+
+  if (all.length === 0) throw new LectureError(reachedAny ? "empty" : lastError ?? "server");
+  return { segments: all };
 }
 
 export function analyseLecture(input: {

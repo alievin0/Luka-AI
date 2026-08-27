@@ -181,6 +181,23 @@ export type Segment = {
   speaker?: string;
 };
 
+/**
+ * One closed slice of the recording.
+ *
+ * A single ninety-minute .m4a carries no index until it is closed, so a crash
+ * or a force-quit at minute eighty leaves a file nothing can play — the whole
+ * lecture, gone. Rotating the recorder means every slice but the last is
+ * already complete on disk, and the cost is the fraction of a second it takes
+ * to close one file and open the next.
+ */
+export type AudioChunk = {
+  uri: string;
+  /** Seconds from the start of the lecture at which this chunk begins. */
+  at: number;
+  /** Length of this chunk, in seconds. */
+  duration: number;
+};
+
 export type Lecture = {
   id: string;
   title: string;
@@ -188,7 +205,8 @@ export type Lecture = {
   at: number;
   /** Seconds of recorded audio. */
   duration: number;
-  audioUri?: string;
+  /** The recording, in order. Empty for a pasted transcript. */
+  audioChunks?: AudioChunk[];
   /** The transcript in timestamped pieces, so tapping a line seeks the audio. */
   segments: Segment[];
   analysis?: LectureAnalysis;

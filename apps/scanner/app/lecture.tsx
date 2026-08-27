@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -17,10 +17,12 @@ import { pack, isAudio, type Lecture, type Text as I18nText } from "../src/packs
 import { t, locale } from "../src/i18n";
 import { ui } from "../src/i18n/ui";
 import {
+  audioDuration,
   clock,
   deleteLecture,
   deleteRecording,
   getLecture,
+  locate,
   scoreEnergy,
   transcriptOfSegments,
   updateLecture,
@@ -55,6 +57,9 @@ export default function LectureScreen() {
   const [tab, setTab] = useState<TabKey>("summary");
   const [copied, setCopied] = useState(false);
   const [remindersOn, setRemindersOn] = useState(false);
+  const [autoplay, setAutoplay] = useState(false);
+  /** Offset to seek to once a newly loaded slice reports itself ready. */
+  const pendingSeek = useRef<number | null>(null);
 
   useFocusEffect(
     useCallback(() => {
@@ -75,10 +80,40 @@ export default function LectureScreen() {
     }, [id]),
   );
 
-  // The player is created unconditionally so the hook order never changes;
-  // an empty source simply gives an idle player.
-  const player = useAudioPlayer(lecture?.audioUri ? { uri: lecture.audioUri } : null);
+  /* The recording is a list of closed files rather than one long one, so the
+   * player holds whichever slice is currently sounding and the screen presents
+   * them as a single timeline. Created unconditionally so the hook order never
+   * changes; a null source simply gives an idle player. */
+  const chunks = lecture?.audioChunks ?? [];
+  const [chunkIndex, setChunkIndex] = useState(0);
+  const current = chunks[chunkIndex];
+  const player = useAudioPlayer(current ? { uri: current.uri } : null);
   const status = useAudioPlayerStatus(player);
+  const hasAudio = chunks.length > 0;
+  const recordedSeconds = useMemo(() => audioDuration(chunks), [chunks]);
+  /** Position on the lecture's timeline, not the current file's. */
+  const playedSeconds = (current?.at ?? 0) + (status.currentTime ?? 0);
+
+  /* Roll into the next slice when one runs out, so a lecture recorded in
+   * eighteen files still plays as one continuous recording. */
+  useEffect(() => {
+    if (!status.didJustFinish) return;
+    if (chunkIndex >= chunks.length - 1) return;
+    setChunkIndex(chunkIndex + 1);
+    setAutoplay(true);
+  }, [status.didJustFinish, chunkIndex, chunks.length]);
+
+  /* A slice loaded because playback moved into it, or because a timestamp was
+   * tapped, has to start itself once it is ready. */
+  useEffect(() => {
+    if (!autoplay || !status.isLoaded) return;
+    setAutoplay(false);
+    if (pendingSeek.current !== null) {
+      player.seekTo(pendingSeek.current);
+      pendingSeek.current = null;
+    }
+    player.play();
+  }, [autoplay, status.isLoaded, player]);
 
   const analysis = lecture?.analysis;
   /** Scored once per render rather than per row: the rolling baseline is a
@@ -146,7 +181,7 @@ export default function LectureScreen() {
         style: "destructive",
         onPress: async () => {
           await cancelTaskReminders(lecture);
-          await deleteRecording(lecture.audioUri);
+          await deleteRecording(lecture.audioChunks);
           await deleteLecture(lecture.id);
           router.replace("/");
         },
@@ -154,10 +189,21 @@ export default function LectureScreen() {
     ]);
   };
 
+  /** Seeks the lecture's timeline, crossing into another slice if needed. */
   const seek = (seconds: number) => {
-    if (!lecture?.audioUri) return;
-    player.seekTo(seconds);
-    player.play();
+    const target = locate(chunks, seconds);
+    if (!target) return;
+
+    if (target.index === chunkIndex) {
+      player.seekTo(target.offset);
+      player.play();
+      return;
+    }
+    // A different file has to load first; the seek is applied when it reports
+    // ready, otherwise it lands on the outgoing slice and is thrown away.
+    pendingSeek.current = target.offset;
+    setChunkIndex(target.index);
+    setAutoplay(true);
   };
 
   if (!isAudio(pack)) return null;
@@ -218,7 +264,7 @@ export default function LectureScreen() {
             <Action label={t(ui.home)} glyph="←" onPress={() => router.replace("/")} />
             <Action label={copied ? t(ui.copied) : t(ui.copyAll)} glyph="⧉" onPress={copyAll} />
             <Action label={t(ui.downloadMd)} glyph="↓" onPress={downloadMd} />
-            {lecture.audioUri ? (
+            {hasAudio ? (
               <Action
                 label={t(ui.retranscribe)}
                 glyph="↻"
@@ -247,7 +293,7 @@ export default function LectureScreen() {
             <Action label={t(ui.deleteLecture)} glyph="🗑" onPress={confirmDelete} danger />
           </ScrollView>
 
-          {lecture.audioUri ? (
+          {hasAudio ? (
             <View style={styles.playerWrap}>
               <Text style={styles.playerHint}>{t(ui.playerHint)}</Text>
               <View style={[s.panel, styles.player]}>
@@ -257,7 +303,7 @@ export default function LectureScreen() {
                 >
                   <Text style={styles.playGlyph}>{status.playing ? "❙❙" : "▶"}</Text>
                 </Pressable>
-                <Text style={styles.playerTime}>{clock(status.currentTime ?? 0)}</Text>
+                <Text style={styles.playerTime}>{clock(playedSeconds)}</Text>
                 <View style={styles.track}>
                   <View
                     style={[
@@ -265,14 +311,14 @@ export default function LectureScreen() {
                       {
                         width: `${Math.min(
                           100,
-                          ((status.currentTime ?? 0) / Math.max(1, status.duration || lecture.duration)) * 100,
+                          (playedSeconds / Math.max(1, recordedSeconds || lecture.duration)) * 100,
                         )}%`,
                       },
                     ]}
                   />
                 </View>
                 <Text style={styles.playerTime}>
-                  {clock(status.duration || lecture.duration)}
+                  {clock(recordedSeconds || lecture.duration)}
                 </Text>
               </View>
             </View>
@@ -310,7 +356,7 @@ export default function LectureScreen() {
                   glyph="✧"
                   onPress={() => router.push({ pathname: "/analyzing", params: { id: lecture.id } })}
                 />
-                {lecture.audioUri ? (
+                {hasAudio ? (
                   <Action
                     label={t(ui.retranscribe)}
                     glyph="↻"

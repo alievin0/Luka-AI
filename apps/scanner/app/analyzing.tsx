@@ -65,8 +65,8 @@ export default function Analyzing() {
           lecture.liveWriterFailed === true ||
           transcriptOfSegments(segments).length < 40;
 
-        if (needsTranscription && lecture.audioUri) {
-          const result = await transcribeLecture({ audioUri: lecture.audioUri });
+        if (needsTranscription && lecture.audioChunks?.length) {
+          const result = await transcribeLecture({ chunks: lecture.audioChunks });
           // Persist before honouring the cancel flag. This transcript has
           // already been paid for; dropping it because the student navigated
           // away means billing them again for the same audio.

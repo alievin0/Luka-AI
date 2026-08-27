@@ -1,6 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform } from "react-native";
-import { activePackId, type Lecture, type Segment } from "./packs";
+import { activePackId, type AudioChunk, type Lecture, type Segment } from "./packs";
 
 /** Lecture storage. Namespaced per pack like the rest of the engine.
  *
@@ -260,36 +260,76 @@ export function emphasisCandidates(segments: Segment[], limit = 24) {
 /* --------------------------------------------------------------- recordings */
 
 /**
- * Moves a finished recording out of the cache directory.
+ * Moves a finished chunk out of the cache directory.
  *
  * expo-audio writes into cache, which the OS is free to purge whenever it
  * wants the space — and the recording is the one thing in this app that
- * cannot be regenerated. Returns the original uri if the move fails, since a
- * recording in a risky place still beats no recording.
+ * cannot be regenerated. Returns null if the move fails and the source is
+ * gone, so a chunk is never recorded as present when it is not.
  */
-export async function persistRecording(uri: string, id: string): Promise<string> {
+export async function persistChunk(uri: string, id: string, index: number): Promise<string | null> {
   try {
     const { File, Directory, Paths } = require("expo-file-system") as typeof import("expo-file-system");
-    const folder = new Directory(Paths.document, "lectures");
+    const folder = new Directory(Paths.document, "lectures", id);
     if (!folder.exists) folder.create({ intermediates: true });
     const extension = uri.split(".").pop()?.split("?")[0] || "m4a";
     const source = new File(uri);
-    const target = new File(folder, `${id}.${extension}`);
+    if (!source.exists) return null;
+    const target = new File(folder, `${String(index).padStart(3, "0")}.${extension}`);
+    if (target.exists) target.delete();
     source.move(target);
     return target.uri;
   } catch {
+    // Better a chunk that plays from cache than one recorded as missing.
     return uri;
   }
 }
 
 /** Deletes a lecture's audio along with its metadata. */
-export async function deleteRecording(uri?: string) {
-  if (!uri) return;
+export async function deleteRecording(chunks?: AudioChunk[]) {
+  if (!chunks?.length) return;
   try {
     const { File } = require("expo-file-system") as typeof import("expo-file-system");
-    const file = new File(uri);
-    if (file.exists) file.delete();
+    for (const chunk of chunks) {
+      const file = new File(chunk.uri);
+      if (file.exists) file.delete();
+    }
   } catch {
     // Already gone, or never written. Nothing to clean up.
   }
 }
+
+/** Total seconds of audio actually captured. */
+export const audioDuration = (chunks?: AudioChunk[]) =>
+  (chunks ?? []).reduce((total, chunk) => total + chunk.duration, 0);
+
+/**
+ * Which chunk holds a given moment of the lecture, and where inside it.
+ *
+ * Seeking is the whole point of the tone feature — "tap any moment of emphasis
+ * to hear it again" — so this has to be exact across a boundary. A time past
+ * the end of the recording clamps to the last chunk rather than returning
+ * nothing, so a timestamp slightly beyond the audio still plays something.
+ */
+export function locate(
+  chunks: AudioChunk[] | undefined,
+  seconds: number,
+): { index: number; offset: number } | null {
+  if (!chunks?.length) return null;
+  const at = Math.max(0, seconds);
+
+  for (let i = 0; i < chunks.length; i += 1) {
+    const chunk = chunks[i];
+    if (at < chunk.at + chunk.duration) {
+      return { index: i, offset: Math.max(0, at - chunk.at) };
+    }
+  }
+
+  const last = chunks.length - 1;
+  return { index: last, offset: chunks[last].duration };
+}
+
+/** Shifts a chunk's own timestamps onto the lecture's timeline. Each chunk is
+ *  transcribed separately and comes back starting at zero. */
+export const offsetSegments = (segments: Segment[], by: number): Segment[] =>
+  segments.map((segment) => ({ ...segment, at: segment.at + by }));

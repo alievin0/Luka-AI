@@ -37,7 +37,7 @@ require.extensions[".ts"] = (mod, filename) => {
   mod._compile(outputText, filename);
 };
 
-const { scoreEnergy, emphasisCandidates, mergeTranscript } = require(path.join(ROOT, "src/lectures.ts"));
+const { scoreEnergy, emphasisCandidates, mergeTranscript, locate, offsetSegments, audioDuration } = require(path.join(ROOT, "src/lectures.ts"));
 
 let failures = 0;
 const check = (label, actual, expected) => {
@@ -136,6 +136,48 @@ check(
   "merge passes through untouched when nothing was measured",
   mergeTranscript(fromServer, []).map((m) => m.energy),
   [undefined, undefined, undefined],
+);
+
+
+/* ------------------------------------------------------- chunked recordings */
+
+// The recording is stored as closed 5-minute files so a crash costs one slice
+// rather than the lecture. Everything the student sees still has to behave as
+// one continuous timeline — so locating a moment must land on the right file
+// at the right offset, or "tap any moment of emphasis" plays the wrong audio.
+const CHUNKS = [
+  { uri: "a.m4a", at: 0, duration: 300 },
+  { uri: "b.m4a", at: 300, duration: 300 },
+  { uri: "c.m4a", at: 600, duration: 137 },
+];
+
+check("total duration is the sum of the slices", audioDuration(CHUNKS), 737);
+check("the start of the lecture", locate(CHUNKS, 0), { index: 0, offset: 0 });
+check("mid-way through the first slice", locate(CHUNKS, 120), { index: 0, offset: 120 });
+// The boundary is the off-by-one that would silently play the wrong file.
+check("the last moment of a slice stays in it", locate(CHUNKS, 299.5), { index: 0, offset: 299.5 });
+check("the first moment of the next slice crosses over", locate(CHUNKS, 300), { index: 1, offset: 0 });
+check("a moment in the final slice", locate(CHUNKS, 700), { index: 2, offset: 100 });
+// A timestamp can sit slightly past the audio when the model rounds up; that
+// should play the end rather than silently doing nothing.
+check("past the end clamps to the end", locate(CHUNKS, 5000), { index: 2, offset: 137 });
+check("a negative time clamps to the start", locate(CHUNKS, -10), { index: 0, offset: 0 });
+check("no chunks means nothing to locate", locate([], 10), null);
+check("undefined chunks means nothing to locate", locate(undefined, 10), null);
+
+// Each slice is transcribed on its own and comes back starting at zero, so
+// the offsets are what make the transcript one lecture again.
+check(
+  "chunk transcripts are shifted onto the lecture timeline",
+  offsetSegments([{ at: 0, text: "a" }, { at: 42.5, text: "b" }], 300).map((s) => s.at),
+  [300, 342.5],
+);
+check(
+  "every located segment round-trips to its own slice",
+  offsetSegments([{ at: 0, text: "x" }, { at: 299, text: "y" }], 300)
+    .map((s) => locate(CHUNKS, s.at))
+    .map((r) => r.index),
+  [1, 1],
 );
 
 console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} check(s) failed.`);
