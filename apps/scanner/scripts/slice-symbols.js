@@ -6,6 +6,7 @@
  *   oem      DAHTe_FF9Yc  "OEM Icon Master Set", pages 2-7   26 symbols
  *   pack48   DAHTevrIKak  "48 Icon Pack", page 1              7 symbols
  *   iconset  DAHTemejARE  "Icon Set", page 1                  2 symbols
+ *   extra6   generated to fill the six none of them draw       6 symbols
  *
  * Every light on all three is its own element with a known box, so the table
  * below is read off the designs rather than guessed from a screenshot. Boxes
@@ -14,7 +15,10 @@
  *
  *   node scripts/slice-symbols.js <dir> [outDir]
  *
- * The directory holds oem-2.png ... oem-7.png, pack48.png, iconset.png.
+ * The directory holds oem-2.png ... oem-7.png, pack48.png, iconset.png and
+ * extra6.png. The first three are sliced by the box table; extra6 is a bare
+ * grid with no cards and no labels, so it is cut by dividing the image into
+ * cells instead — nothing to measure, and it survives any resolution.
  * The renders have to be fetched by hand: this session's egress policy refuses
  * media.canva.com and export-download.canva.com, and Canva signs the export URL
  * for the latter with the host inside the signature, so it cannot be re-pointed
@@ -109,6 +113,19 @@ const PARTS = [
   ["ev-battery", "iconset", 163, 1239, 92, 66],
 ];
 
+/**
+ * Sheets that are a plain grid of icons on a flat ground: no cards, no labels,
+ * evenly spaced. Cut by cell rather than by box, reading left to right and top
+ * to bottom, so the order below IS the mapping.
+ */
+const GRIDS = {
+  extra6: {
+    cols: 3,
+    rows: 2,
+    keys: ["catalytic", "coolant", "pad-wear", "suspension", "turtle", "water-in-fuel"],
+  },
+};
+
 (async () => {
   const srcDir = process.argv[2];
   const outDir = process.argv[3] || path.join(__dirname, "..", "assets", "symbols");
@@ -122,11 +139,11 @@ const PARTS = [
   fs.mkdirSync(extraDir, { recursive: true });
 
   const sheets = {};
-  for (const name of Object.keys(SHEETS)) {
+  for (const name of [...Object.keys(SHEETS), ...Object.keys(GRIDS)]) {
     const f = path.join(srcDir, `${name}.png`);
     if (fs.existsSync(f)) sheets[name] = fs.readFileSync(f).toString("base64");
   }
-  const absent = Object.keys(SHEETS).filter((n) => !sheets[n]);
+  const absent = [...Object.keys(SHEETS), ...Object.keys(GRIDS)].filter((n) => !sheets[n]);
   if (absent.length) console.warn(`no render for ${absent.join(", ")} — those rows are skipped\n`);
 
   const browser = await chromium.launch({
@@ -137,21 +154,31 @@ const PARTS = [
 
   let done = 0;
   const blank = [];
-  for (const [key, sheet, l, t, w, h, label] of PARTS) {
-    if (!sheets[sheet]) continue;
-    const name = key ?? label;
-    const png = await page.evaluate(
-      async ({ data, l, t, w, h, canvasW, SIZE, INK, FLOOR }) => {
+
+  /** Crop, key and fit one icon. Give it a box in sheet units, or a cell. */
+  const cutOne = (data, canvasW, box, cell) =>
+    page.evaluate(
+      async ({ data, canvasW, box, cell, SIZE, INK, FLOOR }) => {
         const img = new Image();
         await new Promise((r) => { img.onload = r; img.src = "data:image/png;base64," + data; });
-        const scale = img.naturalWidth / canvasW;
 
-        const cw = Math.max(1, Math.round(w * scale));
-        const ch = Math.max(1, Math.round(h * scale));
+        let l, t, w, h;
+        if (cell) {
+          w = img.naturalWidth / cell.cols;
+          h = img.naturalHeight / cell.rows;
+          l = cell.col * w;
+          t = cell.row * h;
+        } else {
+          const scale = img.naturalWidth / canvasW;
+          l = box.l * scale; t = box.t * scale; w = box.w * scale; h = box.h * scale;
+        }
+
+        const cw = Math.max(1, Math.round(w));
+        const ch = Math.max(1, Math.round(h));
         const cut = document.createElement("canvas");
         cut.width = cw; cut.height = ch;
         const cx = cut.getContext("2d", { willReadFrequently: true });
-        cx.drawImage(img, -Math.round(l * scale), -Math.round(t * scale));
+        cx.drawImage(img, -Math.round(l), -Math.round(t));
         const px = cx.getImageData(0, 0, cw, ch);
         const d = px.data;
 
@@ -215,15 +242,31 @@ const PARTS = [
         ox.drawImage(cut, minX, minY, tw, th, Math.round((SIZE - dw) / 2), Math.round((SIZE - dh) / 2), dw, dh);
         return out.toDataURL("image/png").split(",")[1];
       },
-      { data: sheets[sheet], l, t, w, h, canvasW: SHEETS[sheet], SIZE, INK, FLOOR },
+      { data, canvasW, box, cell, SIZE, INK, FLOOR },
     );
 
-    if (!png) { blank.push(name); continue; }
+  const write = (key, name, png) => {
+    if (!png) { blank.push(name); return; }
     fs.writeFileSync(path.join(key ? outDir : extraDir, `${name}.png`), Buffer.from(png, "base64"));
     console.log(`  ${key ? "" : "_extra/"}${name}.png`);
     done++;
+  };
+
+  for (const [key, sheet, l, t, w, h, label] of PARTS) {
+    if (!sheets[sheet]) continue;
+    write(key, key ?? label, await cutOne(sheets[sheet], SHEETS[sheet], { l, t, w, h }, null));
   }
+
+  for (const [name, g] of Object.entries(GRIDS)) {
+    if (!sheets[name]) continue;
+    for (let i = 0; i < g.keys.length; i++) {
+      const cell = { col: i % g.cols, row: Math.floor(i / g.cols), cols: g.cols, rows: g.rows };
+      write(g.keys[i], g.keys[i], await cutOne(sheets[name], null, null, cell));
+    }
+  }
+
   await browser.close();
-  console.log(`\n${done}/${PARTS.length} cut`);
+  const total = PARTS.length + Object.values(GRIDS).reduce((n, g) => n + g.keys.length, 0);
+  console.log(`\n${done}/${total} cut`);
   if (blank.length) console.log(`blank boxes — check the table: ${blank.join(", ")}`);
 })();
