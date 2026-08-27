@@ -7,6 +7,7 @@ import {
   ScrollView,
   Alert,
   ActivityIndicator,
+  TextInput,
 } from "react-native";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -36,7 +37,7 @@ import {
   toIcs,
   toMarkdown,
 } from "../src/lecture-export";
-import { FONTS } from "../src/type";
+import { FONTS, SCALE } from "../src/type";
 import {
   GOLD,
   GOLD_DEEP,
@@ -47,8 +48,13 @@ import {
   audio as s,
   READ,
   READ_END,
+  STATE,
+  SP,
+  RADIUS,
+  TEXT_SOFT,
 } from "../src/components/audio-theme";
 import { LinearGradient } from "expo-linear-gradient";
+import { normalise } from "../src/countries";
 
 type TabKey = "summary" | "tasks" | "terms" | "exam" | "map" | "tone" | "transcript";
 
@@ -78,6 +84,7 @@ export default function LectureScreen() {
   const jumped = useRef(false);
   const [copied, setCopied] = useState(false);
   const [remindersOn, setRemindersOn] = useState(false);
+  const [find, setFind] = useState("");
   const [autoplay, setAutoplay] = useState(false);
   /** Offset to seek to once a newly loaded slice reports itself ready. */
   const pendingSeek = useRef<number | null>(null);
@@ -141,6 +148,14 @@ export default function LectureScreen() {
    *  windowed pass over every segment, so calling it inside map() would make
    *  rendering an hour-long transcript quadratic. */
   const scored = useMemo(() => scoreEnergy(lecture?.segments ?? []), [lecture?.segments]);
+
+  /** Filtered transcript. Empty search shows everything, so the default is
+   *  the whole lecture rather than a hidden one. */
+  const visibleSegments = useMemo(() => {
+    const q = normalise(find.trim());
+    if (!q) return scored;
+    return scored.filter((segment) => normalise(segment.text).includes(q));
+  }, [scored, find]);
   const done = useMemo(() => new Set(lecture?.done ?? []), [lecture?.done]);
 
   const toggleTask = async (index: number) => {
@@ -436,35 +451,40 @@ export default function LectureScreen() {
                   <Text style={styles.empty}>{t(ui.noTasks)}</Text>
                 ) : (
                   analysis!.tasks.map((task, index) => (
-                    <Pressable
-                      key={index}
-                      style={styles.taskRow}
-                      onPress={() => toggleTask(index)}
-                    >
-                      <View style={[styles.checkbox, done.has(index) && styles.checkboxOn]}>
-                        {done.has(index) ? <Text style={styles.checkGlyph}>✓</Text> : null}
-                      </View>
-                      <View style={styles.taskBody}>
-                        <Text style={[styles.taskText, done.has(index) && styles.taskDone]}>
-                          {task.text}
-                        </Text>
-                        {task.due ? <Text style={styles.taskDue}>{task.due}</Text> : null}
-                      </View>
-                      {task.difficulty ? (
-                        <View style={s.tag}>
-                          <Text style={s.tagText}>
-                            {t(
-                              task.difficulty === "easy"
-                                ? ui.easy
-                                : task.difficulty === "hard"
-                                  ? ui.hard
-                                  : ui.medium,
-                            )}
-                          </Text>
+                    <View key={index} style={styles.entry}>
+                      <Pressable style={styles.taskRow} onPress={() => toggleTask(index)}>
+                        <View style={[styles.checkbox, done.has(index) && styles.checkboxOn]}>
+                          {done.has(index) ? <Text style={styles.checkGlyph}>✓</Text> : null}
                         </View>
-                      ) : null}
-                      {task.dueISO ? <Text style={styles.taskCal}>🗓</Text> : null}
-                    </Pressable>
+                        <View style={styles.taskBody}>
+                          <Text style={[styles.taskText, done.has(index) && styles.taskDone]}>
+                            {task.text}
+                          </Text>
+                          {task.due ? (
+                            <View style={styles.dueRow}>
+                              <Text style={styles.taskDue}>{task.due}</Text>
+                              {task.dueIsExplicit === false ? (
+                                <Text style={styles.dueGuessed}>· {t(ui.deadlineInferred)}</Text>
+                              ) : null}
+                            </View>
+                          ) : null}
+                        </View>
+                        {task.difficulty ? (
+                          <View style={s.tag}>
+                            <Text style={s.tagText}>
+                              {t(
+                                task.difficulty === "easy"
+                                  ? ui.easy
+                                  : task.difficulty === "hard"
+                                    ? ui.hard
+                                    : ui.medium,
+                              )}
+                            </Text>
+                          </View>
+                        ) : null}
+                      </Pressable>
+                      <Source quote={task.quote} atSeconds={task.atSeconds} onPlay={seek} />
+                    </View>
                   ))
                 )}
               </>
@@ -478,6 +498,7 @@ export default function LectureScreen() {
                   <View key={index} style={styles.termRow}>
                     <Text style={styles.term}>{entry.term}</Text>
                     <Text style={styles.termDef}>{entry.definition}</Text>
+                    <Source quote={entry.quote} atSeconds={entry.atSeconds} onPlay={seek} />
                   </View>
                 ))
               )
@@ -487,31 +508,53 @@ export default function LectureScreen() {
               (analysis?.examPredictions ?? []).length === 0 ? (
                 <Text style={styles.empty}>{t(ui.noExam)}</Text>
               ) : (
-                analysis!.examPredictions.map((prediction, index) => (
-                  <View key={index} style={styles.termRow}>
-                    <View style={styles.predictionHead}>
-                      <Text style={styles.term}>{prediction.topic}</Text>
-                      <View
-                        style={[
-                          s.tag,
-                          prediction.confidence === "high" && styles.tagHigh,
-                          prediction.confidence === "low" && styles.tagLow,
-                        ]}
-                      >
-                        <Text style={s.tagText}>
-                          {t(
-                            prediction.confidence === "high"
-                              ? ui.confHigh
-                              : prediction.confidence === "low"
-                                ? ui.confLow
-                                : ui.confMedium,
-                          )}
-                        </Text>
+                <>
+                  {/* Stated first, and separated. A student revising has to be
+                      able to tell what the lecturer actually said from what we
+                      concluded — mixing them in one list is how an app loses
+                      the right to be trusted about an exam. */}
+                  {(["stated", "inferred"] as const).map((basis) => {
+                    const group = analysis!.examPredictions.filter(
+                      (p) => (p.basis ?? "inferred") === basis,
+                    );
+                    if (group.length === 0) return null;
+                    return (
+                      <View key={basis} style={styles.examGroup}>
+                        <Basis basis={basis} />
+                        {group.map((prediction, index) => (
+                          <View key={index} style={styles.entry}>
+                            <View style={styles.predictionHead}>
+                              <Text style={styles.term}>{prediction.topic}</Text>
+                              <View
+                                style={[
+                                  s.tag,
+                                  prediction.confidence === "high" && styles.tagHigh,
+                                  prediction.confidence === "low" && styles.tagLow,
+                                ]}
+                              >
+                                <Text style={s.tagText}>
+                                  {t(
+                                    prediction.confidence === "high"
+                                      ? ui.confHigh
+                                      : prediction.confidence === "low"
+                                        ? ui.confLow
+                                        : ui.confMedium,
+                                  )}
+                                </Text>
+                              </View>
+                            </View>
+                            <Text style={styles.termDef}>{prediction.why}</Text>
+                            <Source
+                              quote={prediction.quote}
+                              atSeconds={prediction.atSeconds}
+                              onPlay={seek}
+                            />
+                          </View>
+                        ))}
                       </View>
-                    </View>
-                    <Text style={styles.termDef}>{prediction.why}</Text>
-                  </View>
-                ))
+                    );
+                  })}
+                </>
               )
             ) : null}
 
@@ -522,7 +565,16 @@ export default function LectureScreen() {
                   style={styles.chapter}
                   onPress={() => seek(chapter.atSeconds)}
                 >
+                  {/* A rail down the side turns a list of headings into the
+                      shape of the hour: each part in order, each one a way
+                      back into the recording. */}
                   <View style={styles.chapterHead}>
+                    <View style={styles.chapterMark}>
+                      <View style={styles.chapterNode} />
+                      {index < (analysis?.chapters.length ?? 0) - 1 ? (
+                        <View style={styles.chapterRail} />
+                      ) : null}
+                    </View>
                     <Text style={styles.chapterStamp}>{clock(chapter.atSeconds)}</Text>
                     <Text style={styles.chapterTitle}>{chapter.title}</Text>
                   </View>
@@ -558,30 +610,111 @@ export default function LectureScreen() {
             ) : null}
 
             {tab === "transcript" ? (
-              scored.length === 0 ? (
-                <Text style={styles.empty}>{transcriptOfSegments(lecture.segments)}</Text>
-              ) : (
-                scored.map((segment, index) => (
-                  <Pressable key={index} style={styles.line} onPress={() => seek(segment.at)}>
-                    <Text style={styles.lineStamp}>{clock(segment.at)}</Text>
-                    <Text
-                      style={[
-                        styles.lineText,
-                        segment.emphasis >= 0.5 && styles.lineLoud,
-                        segment.marked && styles.lineMarked,
-                      ]}
-                    >
-                      {segment.text}
-                    </Text>
-                  </Pressable>
-                ))
-              )
+              <>
+                {/* A ninety-minute transcript is unusable as a wall. Search is
+                    how anyone actually returns to something they half
+                    remember, and the marked lines are the shortcuts. */}
+                <View style={styles.tSearch}>
+                  <Text style={styles.tSearchGlyph}>⌕</Text>
+                  <TextInput
+                    style={styles.tSearchInput}
+                    value={find}
+                    onChangeText={setFind}
+                    placeholder={t(ui.searchGuide)}
+                    placeholderTextColor="#5B5443"
+                    autoCorrect={false}
+                    textAlign={READ}
+                  />
+                  {find.length > 0 ? (
+                    <Pressable onPress={() => setFind("")} hitSlop={10}>
+                      <Text style={styles.tSearchClear}>✕</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+
+                {visibleSegments.length === 0 ? (
+                  <Text style={styles.empty}>
+                    {find ? t(ui.noMatch) : transcriptOfSegments(lecture.segments)}
+                  </Text>
+                ) : (
+                  visibleSegments.map((segment, index) => (
+                    <Pressable key={index} style={styles.line} onPress={() => seek(segment.at)}>
+                      <Text style={styles.lineStamp}>{clock(segment.at)}</Text>
+                      <Text
+                        style={[
+                          styles.lineText,
+                          segment.emphasis >= 0.5 && styles.lineLoud,
+                          segment.marked && styles.lineMarked,
+                        ]}
+                      >
+                        {segment.text}
+                      </Text>
+                      {segment.marked ? <Text style={styles.lineStar}>★</Text> : null}
+                    </Pressable>
+                  ))
+                )}
+              </>
             ) : null}
           </View>
 
           <Text style={s.footer}>{t(pack.voice.footer)}</Text>
         </ScrollView>
       </SafeAreaView>
+    </View>
+  );
+}
+
+/**
+ * Where a claim came from.
+ *
+ * The quotation is verified against the transcript on the server before it
+ * ever reaches here, so what is shown is genuinely what was said. Tapping it
+ * plays that second of the recording — which is the whole reason any of this
+ * exists.
+ */
+function Source({
+  quote,
+  atSeconds,
+  onPlay,
+}: {
+  quote?: string;
+  atSeconds?: number;
+  onPlay: (seconds: number) => void;
+}) {
+  const has = typeof atSeconds === "number";
+  if (!quote && !has) return null;
+
+  return (
+    <Pressable
+      style={styles.source}
+      onPress={() => has && onPlay(atSeconds!)}
+      disabled={!has}
+      accessibilityRole={has ? "button" : undefined}
+    >
+      <View style={styles.sourceBar} />
+      <View style={styles.sourceBody}>
+        {quote ? <Text style={styles.sourceQuote}>“{quote}”</Text> : null}
+        {has ? (
+          <Text style={styles.sourcePlay}>
+            ▶ {t(ui.saidAt)} {clock(atSeconds!)}
+          </Text>
+        ) : null}
+      </View>
+    </Pressable>
+  );
+}
+
+/** Says plainly whether the lecturer stated something or the model worked it
+ *  out. Carries a word as well as a colour — a student who cannot see the
+ *  difference in hue still has to be able to tell these apart. */
+function Basis({ basis }: { basis?: "stated" | "inferred" }) {
+  const stated = basis === "stated";
+  const tone = stated ? STATE.stated : STATE.inferred;
+  return (
+    <View style={[styles.basis, { backgroundColor: tone.bg, borderColor: tone.line }]}>
+      <Text style={[styles.basisText, { color: tone.fg }]}>
+        {stated ? t(ui.statedByLecturer) : t(ui.inferredByAI)}
+      </Text>
     </View>
   );
 }
@@ -771,14 +904,55 @@ const styles = StyleSheet.create({
   taskDue: { color: GOLD, fontSize: 12, fontFamily: FONTS.body, textAlign: READ },
   taskCal: { fontSize: 13 },
 
-  termRow: { borderTopWidth: 1, borderTopColor: "#221D12", paddingTop: 14, gap: 5 },
+  entry: { borderTopWidth: 1, borderTopColor: "#221D12", paddingTop: 14, gap: 9 },
+  termRow: { borderTopWidth: 1, borderTopColor: "#221D12", paddingTop: 14, gap: 7 },
+  examGroup: { gap: 12, marginBottom: 6 },
+  dueRow: { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" },
+  dueGuessed: { color: STATE.inferred.fg, fontSize: SCALE.micro, fontFamily: FONTS.body },
+
+  basis: {
+    alignSelf: READ_END,
+    borderWidth: 1,
+    borderRadius: RADIUS.pill,
+    paddingVertical: 4,
+    paddingHorizontal: 11,
+  },
+  basisText: { fontSize: SCALE.micro, fontFamily: FONTS.bodyMedium },
+
+  /* The lecturer's own words, and the way back to them. */
+  source: { flexDirection: "row", gap: SP.md, alignItems: "stretch", marginTop: 2 },
+  sourceBar: { width: 2, borderRadius: 1, backgroundColor: STATE.stated.line },
+  sourceBody: { flex: 1, gap: 4 },
+  sourceQuote: {
+    color: TEXT_SOFT,
+    fontSize: SCALE.label,
+    lineHeight: SCALE.labelLine + 4,
+    fontFamily: FONTS.scriptItalic,
+    textAlign: READ,
+  },
+  sourcePlay: {
+    color: STATE.stated.fg,
+    fontSize: SCALE.micro,
+    fontFamily: FONTS.bodyMedium,
+    textAlign: READ,
+  },
   term: { color: "#E8E0CE", fontSize: 16, fontFamily: FONTS.displayBold, textAlign: READ },
   termDef: { color: "#9C9382", fontSize: 14, fontFamily: FONTS.body, lineHeight: 28, textAlign: READ },
   predictionHead: { flexDirection: "row", alignItems: "center", gap: 10, justifyContent: READ_END },
   tagHigh: { backgroundColor: "#2E2A10" },
   tagLow: { backgroundColor: "#221F19" },
 
-  chapter: { borderTopWidth: 1, borderTopColor: "#221D12", paddingTop: 14, gap: 8 },
+  chapter: { paddingTop: 6, gap: 8 },
+  chapterMark: { alignItems: "center", width: 12, alignSelf: "stretch" },
+  chapterNode: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    borderWidth: 1.5,
+    borderColor: GOLD,
+    marginTop: 5,
+  },
+  chapterRail: { flex: 1, width: 1, backgroundColor: "#2A2318", marginTop: 2 },
   chapterHead: { flexDirection: "row", alignItems: "center", gap: 10, justifyContent: READ_END },
   chapterStamp: { color: GOLD, fontSize: 12, fontFamily: FONTS.body, fontVariant: ["tabular-nums"] },
   chapterTitle: { color: "#E8E0CE", fontSize: 16, fontFamily: FONTS.displayBold, flex: 1, textAlign: READ },
@@ -795,6 +969,28 @@ const styles = StyleSheet.create({
   toneText: { color: "#E8E0CE", fontSize: 15, fontFamily: FONTS.body, lineHeight: 28, textAlign: READ },
   toneReason: { color: "#8E8676", fontSize: 13, fontFamily: FONTS.body, lineHeight: 24, textAlign: READ },
   tonePlay: { color: "#6E685C", fontSize: 12 },
+
+  tSearch: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: SP.md,
+    backgroundColor: "rgba(26,22,15,0.8)",
+    borderWidth: 1,
+    borderColor: "#2A2318",
+    borderRadius: RADIUS.md,
+    paddingHorizontal: SP.md,
+    marginBottom: 4,
+  },
+  tSearchGlyph: { color: "#5B5443", fontSize: 16 },
+  tSearchInput: {
+    flex: 1,
+    color: "#E8E0CE",
+    fontSize: SCALE.label,
+    fontFamily: FONTS.body,
+    paddingVertical: SP.md,
+  },
+  tSearchClear: { color: "#5B5443", fontSize: 14 },
+  lineStar: { color: GOLD, fontSize: 11, marginTop: 6 },
 
   line: { flexDirection: "row", alignItems: "flex-start", gap: 12, paddingVertical: 5 },
   lineStamp: { color: "#6E685C", fontSize: 12, fontFamily: FONTS.body, fontVariant: ["tabular-nums"], marginTop: 5, minWidth: 42 },

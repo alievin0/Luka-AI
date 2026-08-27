@@ -317,6 +317,10 @@ export const ui = {
     "The recording stopped before the lecture ended.",
     "التسجيل وقف قبل ما تخلص المحاضرة.",
   ),
+  textAfterLecture: L(
+    "Recording. The text is written up once the lecture ends.",
+    "عم يسجّل. النص بينكتب بعد ما تخلص المحاضرة.",
+  ),
   liveWriterOff: L(
     "The live writer isn't running — the lecture is still recording, and the text comes after it ends.",
     "الكاتب المباشر مش شغال — المحاضرة عم تنسجّل، والنص بيجي بعد ما تخلص.",

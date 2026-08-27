@@ -16,6 +16,7 @@ import * as Haptics from "expo-haptics";
 import { pack, activePackId, isAudio, isScanner, optionLabel, optionValue } from "../src/packs";
 import { t } from "../src/i18n";
 import { ui } from "../src/i18n/ui";
+import { FONTS } from "../src/type";
 import { theme, withAlpha } from "../src/theme";
 import { completeOnboarding, type Profile } from "../src/storage";
 import { CountryField } from "../src/components/CountryField";
@@ -188,26 +189,26 @@ const styles = StyleSheet.create({
 
   intro: { flex: 1, justifyContent: "center", alignItems: "center", padding: 32 },
   mark: { width: 116, height: 116, marginBottom: 32 },
-  appName: { color: theme.text, fontSize: 38, fontWeight: "800", textAlign: "center" },
+  appName: { color: theme.text, fontSize: 38, fontFamily: FONTS.displayBold, textAlign: "center" },
   tagline: {
     color: theme.textSoft,
-    fontSize: 18,
+    fontSize: 18, fontFamily: FONTS.body,
     textAlign: "center",
     marginTop: 14,
     lineHeight: 31,
   },
-  introNote: { color: theme.textFaint, fontSize: 14, textAlign: "center", marginTop: 26 },
+  introNote: { color: theme.textFaint, fontSize: 14, fontFamily: FONTS.body, textAlign: "center", marginTop: 26 },
 
   body: { padding: 24, paddingTop: 36, flexGrow: 1 },
-  stepLabel: { color: theme.accent, fontSize: 13, fontWeight: "700" },
+  stepLabel: { color: theme.accent, fontSize: 13, fontFamily: FONTS.displayBold },
   question: {
     color: theme.text,
     fontSize: 27,
-    fontWeight: "700",
+    fontFamily: FONTS.displayBold,
     marginTop: 10,
     lineHeight: 40,
   },
-  subQuestion: { color: theme.textSoft, fontSize: 15, marginTop: 6, lineHeight: 26 },
+  subQuestion: { color: theme.textSoft, fontSize: 15, fontFamily: FONTS.body, marginTop: 6, lineHeight: 26 },
   options: { marginTop: 26, gap: 10 },
   option: {
     flexDirection: "row",
@@ -221,8 +222,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
   },
   optionPressed: { backgroundColor: theme.surfaceAlt, borderColor: theme.accent },
-  optionText: { color: theme.text, fontSize: 17, flex: 1 },
-  chevron: { color: theme.textFaint, fontSize: 22, marginRight: 6 },
+  optionText: { color: theme.text, fontSize: 17, fontFamily: FONTS.body, flex: 1 },
+  chevron: { color: theme.textFaint, fontSize: 22, fontFamily: FONTS.body, marginRight: 6 },
 
   consentCard: {
     backgroundColor: theme.surface,
@@ -233,16 +234,16 @@ const styles = StyleSheet.create({
     marginTop: 24,
     gap: 14,
   },
-  consentText: { color: theme.textSoft, fontSize: 15, lineHeight: 27 },
+  consentText: { color: theme.textSoft, fontSize: 15, fontFamily: FONTS.body, lineHeight: 27 },
   consentLink: {
     color: theme.accent,
-    fontSize: 14,
+    fontSize: 14, fontFamily: FONTS.body,
     textDecorationLine: "underline",
     marginTop: 4,
   },
   consentWarn: {
     color: theme.textFaint,
-    fontSize: 13,
+    fontSize: 13, fontFamily: FONTS.body,
     lineHeight: 23,
     borderTopWidth: 1,
     borderTopColor: theme.border,
@@ -257,5 +258,5 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   ctaPressed: { opacity: 0.85 },
-  ctaText: { color: theme.bg, fontSize: 17, fontWeight: "800" },
+  ctaText: { color: theme.bg, fontSize: 17, fontFamily: FONTS.displayBold },
 });

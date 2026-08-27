@@ -5,6 +5,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { pack } from "../src/packs";
 import { t } from "../src/i18n";
 import { ui } from "../src/i18n/ui";
+import { FONTS } from "../src/type";
 import { theme } from "../src/theme";
 import { privacyUrl, supportUrl, termsUrl } from "../src/legal";
 import { getOffers, purchase, purchasesAvailable, restore, type Offer } from "../src/purchases";
@@ -163,11 +164,11 @@ const styles = StyleSheet.create({
   close: { alignSelf: "flex-start", padding: 18 },
   closeText: { color: theme.textFaint, fontSize: 20 },
   body: { flex: 1, paddingHorizontal: 24 },
-  headline: { color: theme.text, fontSize: 30, fontWeight: "800", lineHeight: 44 },
+  headline: { color: theme.text, fontSize: 30, fontFamily: FONTS.displayBold, lineHeight: 44 },
   bullets: { marginTop: 28, gap: 14 },
   bulletRow: { flexDirection: "row", gap: 12, alignItems: "flex-start" },
-  check: { color: theme.accent, fontSize: 17, fontWeight: "700" },
-  bulletText: { color: theme.textSoft, fontSize: 16, lineHeight: 27, flex: 1 },
+  check: { color: theme.accent, fontSize: 17, fontFamily: FONTS.displayBold },
+  bulletText: { color: theme.textSoft, fontSize: 16, fontFamily: FONTS.body, lineHeight: 27, flex: 1 },
   offers: { marginTop: 32, gap: 10 },
   offer: {
     backgroundColor: theme.surface,
@@ -182,7 +183,7 @@ const styles = StyleSheet.create({
   offerActive: { borderColor: theme.accent, backgroundColor: theme.surfaceAlt },
   offerBody: { flex: 1, gap: 3 },
   offerTitleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  offerTitle: { color: theme.text, fontSize: 16, fontWeight: "600" },
+  offerTitle: { color: theme.text, fontSize: 16, fontFamily: FONTS.bodyMedium },
   offerNote: { color: theme.textFaint, fontSize: 12 },
   badge: {
     backgroundColor: theme.accent,
@@ -190,16 +191,16 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
     paddingHorizontal: 9,
   },
-  badgeText: { color: theme.bg, fontSize: 10, fontWeight: "800" },
+  badgeText: { color: theme.bg, fontSize: 10, fontFamily: FONTS.displayBold },
   trialLine: {
     color: theme.textSoft,
-    fontSize: 13,
+    fontSize: 13, fontFamily: FONTS.body,
     textAlign: "center",
     marginTop: 14,
     lineHeight: 22,
   },
-  devNote: { color: theme.textFaint, fontSize: 12, textAlign: "center", marginTop: 10 },
-  offerPrice: { color: theme.accent, fontSize: 17, fontWeight: "700" },
+  devNote: { color: theme.textFaint, fontSize: 12, fontFamily: FONTS.body, textAlign: "center", marginTop: 10 },
+  offerPrice: { color: theme.accent, fontSize: 17, fontFamily: FONTS.displayBold },
   notice: {
     marginTop: 32,
     backgroundColor: theme.surface,
@@ -208,7 +209,7 @@ const styles = StyleSheet.create({
     borderColor: theme.border,
     padding: 16,
   },
-  noticeText: { color: theme.textFaint, fontSize: 14, lineHeight: 24 },
+  noticeText: { color: theme.textFaint, fontSize: 14, fontFamily: FONTS.body, lineHeight: 24 },
   footer: { padding: 24, gap: 14 },
   cta: {
     backgroundColor: theme.accent,
@@ -217,10 +218,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   ctaDisabled: { opacity: 0.45 },
-  ctaText: { color: "#0C0E13", fontSize: 17, fontWeight: "700" },
+  ctaText: { color: "#0C0E13", fontSize: 17, fontFamily: FONTS.displayBold },
   renewal: {
     color: theme.textFaint,
-    fontSize: 11,
+    fontSize: 11, fontFamily: FONTS.body,
     lineHeight: 18,
     textAlign: "center",
     marginTop: 14,
@@ -232,7 +233,7 @@ const styles = StyleSheet.create({
     gap: 8,
     marginTop: 10,
   },
-  legalLink: { color: theme.textSoft, fontSize: 12, textDecorationLine: "underline" },
+  legalLink: { color: theme.textSoft, fontSize: 12, fontFamily: FONTS.body, textDecorationLine: "underline" },
   legalDot: { color: theme.textFaint, fontSize: 12 },
-  restore: { color: theme.textFaint, fontSize: 13, textAlign: "center" },
+  restore: { color: theme.textFaint, fontSize: 13, fontFamily: FONTS.body, textAlign: "center" },
 });

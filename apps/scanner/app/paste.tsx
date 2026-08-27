@@ -16,7 +16,7 @@ import { pack, isAudio } from "../src/packs";
 import { t, locale, isRTL } from "../src/i18n";
 import { ui } from "../src/i18n/ui";
 import { bumpLectureCount, lectureAllowed, newLectureId, saveLecture } from "../src/lectures";
-import { FONTS } from "../src/type";
+import { FONTS, SCALE } from "../src/type";
 import { BLOOM, GOLD, INK, audio as s, READ, READ_END } from "../src/components/audio-theme";
 
 /** Text pasted in has no timestamps, so it is stored as one segment at zero.
@@ -132,12 +132,12 @@ const styles = StyleSheet.create({
   content: { paddingHorizontal: 20, paddingBottom: 40 },
   heading: {
     color: "#F5EEDF",
-    fontSize: 32,
+    fontSize: SCALE.title,
     fontFamily: FONTS.displayBold,
     marginTop: 30,
     textAlign: READ,
   },
-  hint: { color: "#9C9382", fontSize: 15, fontFamily: FONTS.body, lineHeight: 30, marginTop: 14, textAlign: READ },
+  hint: { color: "#9C9382", fontSize: SCALE.body, fontFamily: FONTS.body, lineHeight: SCALE.bodyLine, marginTop: 14, textAlign: READ },
   titleInput: {
     backgroundColor: "#141209",
     borderWidth: 1,
@@ -169,7 +169,7 @@ const styles = StyleSheet.create({
     paddingVertical: 17,
     paddingHorizontal: 30,
   },
-  primaryText: { color: INK, fontSize: 16, fontFamily: FONTS.displayBold },
+  primaryText: { color: INK, fontSize: SCALE.section - 2, fontFamily: FONTS.displayBold },
   ghost: {
     backgroundColor: "#17150F",
     borderWidth: 1,
@@ -178,5 +178,5 @@ const styles = StyleSheet.create({
     paddingVertical: 17,
     paddingHorizontal: 24,
   },
-  ghostText: { color: "#E8E0CE", fontSize: 16, fontFamily: FONTS.bodyMedium },
+  ghostText: { color: "#E8E0CE", fontSize: SCALE.body + 0.5, fontFamily: FONTS.bodyMedium },
 });

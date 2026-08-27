@@ -7,6 +7,7 @@ import { privacyUrl, supportUrl, termsUrl } from "../src/legal";
 import { switchLanguage, otherLocale } from "../src/language";
 import { t, locale } from "../src/i18n";
 import { ui } from "../src/i18n/ui";
+import { FONTS } from "../src/type";
 import { theme } from "../src/theme";
 import { clearHistory, getProfile, updateProfile, type Profile } from "../src/storage";
 import { resetProgress } from "../src/progress";
@@ -246,7 +247,7 @@ const styles = StyleSheet.create({
   section: {
     color: theme.textFaint,
     fontSize: 12,
-    fontWeight: "700",
+    fontFamily: FONTS.displayBold,
     marginTop: 22,
     marginBottom: 8,
     letterSpacing: 0.5,
@@ -271,10 +272,10 @@ const styles = StyleSheet.create({
   rowLabel: { color: theme.text, fontSize: 16 },
   rowValue: { color: theme.textFaint, fontSize: 15 },
   danger: { color: theme.critical },
-  note: { color: theme.textFaint, fontSize: 13, lineHeight: 22, marginTop: 10, paddingHorizontal: 4 },
+  note: { color: theme.textFaint, fontSize: 13, fontFamily: FONTS.body, lineHeight: 22, marginTop: 10, paddingHorizontal: 4 },
   disclaimer: {
     color: theme.textFaint,
-    fontSize: 12,
+    fontSize: 12, fontFamily: FONTS.body,
     lineHeight: 21,
     marginTop: 28,
     paddingHorizontal: 4,
@@ -285,7 +286,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     padding: 16,
   },
-  pickerTitle: { color: theme.text, fontSize: 20, fontWeight: "700" },
+  pickerTitle: { color: theme.text, fontSize: 20, fontFamily: FONTS.displayBold },
   cancel: { color: theme.accent, fontSize: 16 },
   pickerBody: { flex: 1, paddingHorizontal: 16 },
 });

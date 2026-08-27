@@ -677,7 +677,14 @@ export default function Record() {
               ))}
               {interim ? <Text style={styles.interim}>{interim}</Text> : null}
               {segments.length === 0 && !interim ? (
-                <Text style={styles.interim}>{t(pack.voice.listening)}</Text>
+                <Text style={styles.interim}>
+                  {/* Without the live writer there will be no text until the
+                      lecture ends. Saying "listening…" for ninety minutes
+                      reads as broken, when it is working exactly as built. */}
+                  {liveWriterAvailable() && !writerDown
+                    ? t(pack.voice.listening)
+                    : t(ui.textAfterLecture)}
+                </Text>
               ) : null}
             </ScrollView>
           </>
