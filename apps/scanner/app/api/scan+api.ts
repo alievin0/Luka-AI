@@ -178,6 +178,7 @@ export async function POST(request: Request) {
   }
 
   const client = new Anthropic();
+  const locale = body.locale === "ar" ? "ar" : "en";
 
   try {
     const response = await client.messages.create({
@@ -186,7 +187,7 @@ export async function POST(request: Request) {
       system: selected.systemPrompt({
         currency: body.currency || "USD",
         profile: body.profile || "",
-        locale: body.locale === "ar" ? "ar" : "en",
+        locale,
       }),
       output_config: {
         format: {
@@ -206,7 +207,13 @@ export async function POST(request: Request) {
                 data: body.base64,
               },
             },
-            { type: "text", text: "حلّل هذه الصورة." },
+            // The system prompt sets the answer's language; this turn was
+            // Arabic for everyone, which leans on the model to answer in
+            // Arabic for an English user against its own instructions.
+            {
+              type: "text",
+              text: locale === "ar" ? "حلّل هذه الصورة." : "Analyse this photo.",
+            },
           ],
         },
       ],
