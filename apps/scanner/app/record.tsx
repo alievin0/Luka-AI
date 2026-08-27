@@ -86,6 +86,7 @@ export default function Record() {
 
   const [ready, setReady] = useState(false);
   const [denied, setDenied] = useState(false);
+  const [failed, setFailed] = useState(false);
   const [paused, setPaused] = useState(false);
   const [segments, setSegments] = useState<Segment[]>([]);
   const [interim, setInterim] = useState("");
@@ -186,22 +187,38 @@ export default function Record() {
     let cancelled = false;
 
     (async () => {
-      const permission = await requestRecordingPermissionsAsync();
-      if (!permission.granted) {
+      const permission = await requestRecordingPermissionsAsync().catch(() => null);
+      if (!permission?.granted) {
         if (!cancelled) setDenied(true);
         return;
       }
       // Must come before prepare: on Android this is what turns on the
       // foreground service that keeps recording alive with the screen locked.
-      await setAudioModeAsync({
-        allowsRecording: true,
-        playsInSilentMode: true,
-        shouldPlayInBackground: true,
-        allowsBackgroundRecording: true,
-      });
-      await recorder.prepareToRecordAsync();
-      if (cancelled) return;
-      recorder.record();
+      // Background recording needs a dev build, so on a runtime that rejects
+      // it (Expo Go) fall back rather than losing the recording entirely —
+      // in the foreground it still records, which is what testing needs.
+      try {
+        await setAudioModeAsync({
+          allowsRecording: true,
+          playsInSilentMode: true,
+          shouldPlayInBackground: true,
+          allowsBackgroundRecording: true,
+        });
+      } catch {
+        await setAudioModeAsync({
+          allowsRecording: true,
+          playsInSilentMode: true,
+        }).catch(() => undefined);
+      }
+
+      try {
+        await recorder.prepareToRecordAsync();
+        if (cancelled) return;
+        recorder.record();
+      } catch {
+        if (!cancelled) setFailed(true);
+        return;
+      }
       setReady(true);
 
       const profile = await getProfile();
@@ -357,9 +374,17 @@ export default function Record() {
           </View>
         )}
 
-        {denied ? (
+        {denied || failed ? (
           <View style={styles.centered}>
-            <Text style={styles.deniedText}>{t(ui.micDenied)}</Text>
+            <Text style={styles.deniedText}>
+              {failed ? t(ui.serverError) : t(ui.micDenied)}
+            </Text>
+            <Pressable
+              style={({ pressed }) => [styles.ghost, pressed && s.pressed, styles.backButton]}
+              onPress={() => router.replace("/")}
+            >
+              <Text style={styles.ghostText}>{t(ui.home)}</Text>
+            </Pressable>
           </View>
         ) : !ready ? (
           <View style={styles.centered}>
@@ -384,7 +409,7 @@ export default function Record() {
           </View>
         )}
 
-        <View style={styles.actions}>
+        <View style={[styles.actions, (denied || failed) && styles.hidden]}>
           <Pressable
             style={({ pressed }) => [styles.end, pressed && s.pressed]}
             onPress={end}
@@ -469,7 +494,8 @@ const styles = StyleSheet.create({
   momentText: { color: "#C9BC9A", fontSize: 14, flex: 1, textAlign: "right" },
   tagMarked: { backgroundColor: "#3A2E12" },
 
-  centered: { flex: 1, alignItems: "center", justifyContent: "center", padding: 32 },
+  centered: { flex: 1, alignItems: "center", justifyContent: "center", padding: 32, gap: 22 },
+  backButton: { alignSelf: "center" },
   deniedText: { color: "#9C9382", fontSize: 16, lineHeight: 30, textAlign: "center" },
 
   actions: {
@@ -480,6 +506,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     flexWrap: "wrap",
   },
+  hidden: { display: "none" },
   end: {
     flexDirection: "row",
     alignItems: "center",
