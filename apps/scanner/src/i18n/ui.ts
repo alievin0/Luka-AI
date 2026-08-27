@@ -187,6 +187,18 @@ export const ui = {
   privacyPolicy: L("Privacy policy", "سياسة الخصوصية"),
   readPrivacyPolicy: L("Read the privacy policy", "اقرأ سياسة الخصوصية"),
   terms: L("Terms of Use", "شروط الاستخدام"),
+  language: L("Language", "اللغة"),
+  switchToArabic: L("العربية", "العربية"),
+  switchToEnglish: L("English", "English"),
+  languageChanged: L("Language changed", "تغيّرت اللغة"),
+  restartToApply: L(
+    "Close the app and open it again to apply it.",
+    "سكّر التطبيق وافتحه من جديد عشان تنطبّق.",
+  ),
+  confirmSwitchLanguage: L(
+    "The app will restart to change language.",
+    "التطبيق رح يعيد التشغيل عشان يغيّر اللغة.",
+  ),
   support: L("Support", "المساعدة"),
   /* Apple requires the renewal terms on the purchase screen itself, not
      only in a linked document. Missing this is a routine rejection. */

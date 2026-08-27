@@ -41,6 +41,38 @@ export const FONTS = {
   scriptItalic: "Amiri_400Regular_Italic",
 } as const;
 
+/**
+ * The type scale.
+ *
+ * Arabic and Latin do not want the same numbers. Arabic needs generous line
+ * height for its ascenders and diacritics; the same value applied to Latin
+ * leaves the lines floating apart and a headline eats the whole screen — which
+ * is exactly what the first pass did. Sizes are also capped against the screen
+ * width so a long English headline shrinks rather than wrapping to four lines.
+ */
+import { Dimensions } from "react-native";
+import { isRTL } from "./i18n";
+
+const { width } = Dimensions.get("window");
+/** Below this the phone is small enough that everything steps down a notch. */
+const NARROW = width < 380;
+
+const leading = (multiplier: number) => (isRTL ? multiplier + 0.35 : multiplier);
+
+export const SCALE = {
+  hero: NARROW ? 26 : 29,
+  heroLine: Math.round((NARROW ? 26 : 29) * leading(1.28)),
+  title: NARROW ? 22 : 25,
+  titleLine: Math.round((NARROW ? 22 : 25) * leading(1.3)),
+  section: 17,
+  sectionLine: Math.round(17 * leading(1.4)),
+  body: 14.5,
+  bodyLine: Math.round(14.5 * leading(1.55)),
+  label: 12.5,
+  labelLine: Math.round(12.5 * leading(1.5)),
+  micro: 11,
+} as const;
+
 export function useAppFonts() {
   const [loaded, error] = useFonts({
     ReadexPro_200ExtraLight,

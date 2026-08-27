@@ -7,11 +7,13 @@ import {
   ScrollView,
   Animated,
   Easing,
+  Alert,
 } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { t, locale } from "../i18n";
+import { switchLanguage, otherLocale } from "../language";
 import { ui } from "../i18n/ui";
 import {
   GOLD,
@@ -31,7 +33,7 @@ import {
   lift,
   audio as s,
 } from "./audio-theme";
-import { FONTS } from "../type";
+import { FONTS, SCALE } from "../type";
 import type { AudioPack, Lecture } from "../packs";
 import { getLectures, lectureAllowed, clock, scoreEnergy } from "../lectures";
 
@@ -52,6 +54,20 @@ export function AudioHome({ pack }: { pack: AudioPack }) {
    *  is actually saved, not here: a denied microphone or a student who backs
    *  out of the record screen would otherwise burn the only free lecture
    *  without ever producing one. */
+  /** Confirms first: the app restarts, and a restart nobody expected reads
+   *  as a crash. */
+  const askSwitchLanguage = () => {
+    const next = otherLocale();
+    Alert.alert(
+      t(ui.language),
+      t(ui.confirmSwitchLanguage),
+      [
+        { text: t(ui.home), style: "cancel" },
+        { text: next === "ar" ? "العربية" : "English", onPress: () => void switchLanguage(next) },
+      ],
+    );
+  };
+
   const startLecture = async () => {
     if (await lectureAllowed()) router.push("/record");
     else router.push("/paywall");
@@ -92,12 +108,23 @@ export function AudioHome({ pack }: { pack: AudioPack }) {
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
           <Animated.View style={rise(-8)}>
             <View style={s.wordmarkWrap}>
-              <Pressable style={s.langPill} onPress={() => router.push("/settings")} hitSlop={6}>
+              {/* This actually switches the language. It looked like a
+                  language control and went to settings, which is worse than
+                  not having it. */}
+              <Pressable style={s.langPill} onPress={askSwitchLanguage} hitSlop={8}>
                 <Text style={s.langText}>{locale === "ar" ? "EN" : "ع"}</Text>
               </Pressable>
               <Text style={s.wordmarkLatin}>{pack.wordmark}</Text>
               <Text style={s.wordmarkDot}>◆</Text>
               <Text style={s.wordmarkArabic}>{t(pack.appName)}</Text>
+
+              <Pressable
+                style={s.langPill}
+                onPress={() => router.push("/settings")}
+                hitSlop={8}
+              >
+                <Text style={s.langText}>⚙</Text>
+              </Pressable>
             </View>
           </Animated.View>
 
@@ -124,7 +151,9 @@ export function AudioHome({ pack }: { pack: AudioPack }) {
                 style={styles.primary}
               >
                 <View style={styles.recDot} />
-                <Text style={styles.primaryText}>{t(pack.primaryAction)}</Text>
+                <Text style={styles.primaryText} numberOfLines={1}>
+                  {t(pack.primaryAction)}
+                </Text>
               </LinearGradient>
             </Pressable>
 
@@ -132,8 +161,10 @@ export function AudioHome({ pack }: { pack: AudioPack }) {
               style={({ pressed }) => [styles.secondary, pressed && s.pressed]}
               onPress={() => router.push("/paste")}
             >
-              <Text style={styles.secondaryGlyph}>❝</Text>
-              <Text style={styles.secondaryText}>{t(pack.secondaryAction)}</Text>
+              <Text style={styles.secondaryText} numberOfLines={1}>
+                {t(pack.secondaryAction)}
+              </Text>
+              <Text style={styles.secondaryChevron}>{locale === "ar" ? "‹" : "›"}</Text>
             </Pressable>
           </Animated.View>
 
@@ -310,46 +341,47 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     paddingVertical: 6,
     paddingHorizontal: 13,
-    marginTop: 38,
+    marginTop: 26,
   },
   badgeDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: GOLD },
-  badgeText: { color: "#BBAE90", fontSize: 12.5, fontFamily: FONTS.body },
+  badgeText: { color: "#BBAE90", fontSize: SCALE.label, fontFamily: FONTS.body },
 
   headline: {
     color: TEXT,
-    fontSize: 40,
-    lineHeight: 62,
-    marginTop: 22,
+    fontSize: SCALE.hero,
+    lineHeight: SCALE.heroLine,
+    marginTop: 16,
     textAlign: READ,
     fontFamily: FONTS.display,
-    letterSpacing: -0.3,
+    letterSpacing: -0.2,
   },
   rule: {
     height: 1,
-    width: 54,
+    width: 46,
     backgroundColor: GOLD_DEEP,
     opacity: 0.55,
-    marginTop: 20,
+    marginTop: 16,
     alignSelf: READ_END,
   },
   intro: {
     color: TEXT_SOFT,
-    fontSize: 15,
-    lineHeight: 33,
-    marginTop: 18,
+    fontSize: SCALE.body,
+    lineHeight: SCALE.bodyLine,
+    marginTop: 14,
     textAlign: READ,
     fontFamily: FONTS.body,
   },
 
-  actions: { flexDirection: "row", gap: 10, marginTop: 32, justifyContent: READ_END },
-  primaryWrap: { borderRadius: 999, ...glow(GOLD, 22, 0.3) },
+  actions: { gap: 10, marginTop: 24 },
+  primaryWrap: { borderRadius: 16, ...glow(GOLD, 20, 0.26) },
   primary: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
     gap: 10,
-    borderRadius: 999,
+    borderRadius: 16,
     paddingVertical: 17,
-    paddingHorizontal: 24,
+    paddingHorizontal: 22,
   },
   recDot: {
     width: 9,
@@ -357,29 +389,29 @@ const styles = StyleSheet.create({
     borderRadius: 5,
     backgroundColor: "#8C2F22",
   },
-  primaryText: { color: "#17130A", fontSize: 15, fontFamily: FONTS.displayBold },
+  primaryText: { color: "#17130A", fontSize: SCALE.section - 2, fontFamily: FONTS.displayBold },
   secondary: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 9,
+    justifyContent: "space-between",
     backgroundColor: "rgba(28,24,16,0.86)",
     borderWidth: 1,
     borderColor: "#332B1C",
-    borderRadius: 999,
-    paddingVertical: 17,
-    paddingHorizontal: 20,
+    borderRadius: 16,
+    paddingVertical: 15,
+    paddingHorizontal: 18,
   },
-  secondaryGlyph: { color: GOLD_DEEP, fontSize: 15, marginTop: 4 },
-  secondaryText: { color: "#DED3BB", fontSize: 15, fontFamily: FONTS.bodyMedium },
+  secondaryChevron: { color: "#5E563F", fontSize: 18 },
+  secondaryText: { color: "#DED3BB", fontSize: SCALE.body + 0.5, fontFamily: FONTS.bodyMedium },
 
   /* ------------------------------------------------------------ empty hall */
   empty: {
     borderWidth: 1,
     borderColor: PANEL_BORDER,
     borderRadius: 24,
-    paddingVertical: 46,
-    paddingHorizontal: 26,
-    marginTop: 34,
+    paddingVertical: 34,
+    paddingHorizontal: 24,
+    marginTop: 26,
     alignItems: "center",
     gap: 14,
     overflow: "hidden",
@@ -390,22 +422,22 @@ const styles = StyleSheet.create({
 
   emptyTitle: {
     color: TEXT,
-    fontSize: 27,
+    fontSize: SCALE.title,
     fontFamily: FONTS.script,
-    lineHeight: 44,
+    lineHeight: SCALE.titleLine + 8,
     textAlign: "center",
   },
   emptyBody: {
     color: TEXT_FAINT,
-    fontSize: 14,
-    lineHeight: 28,
+    fontSize: SCALE.label,
+    lineHeight: SCALE.labelLine + 6,
     textAlign: "center",
     fontFamily: FONTS.body,
     maxWidth: 300,
   },
 
   /* ----------------------------------------------------------------- list */
-  list: { marginTop: 34, gap: 11 },
+  list: { marginTop: 28, gap: 10 },
   listHead: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 3 },
   listLabel: {
     color: TEXT_FAINT,
@@ -457,7 +489,7 @@ const styles = StyleSheet.create({
     fontSize: 11.5,
     lineHeight: 23,
     textAlign: "center",
-    marginTop: 36,
+    marginTop: 28,
     fontFamily: FONTS.body,
   },
 });

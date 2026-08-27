@@ -3,8 +3,9 @@ import { View, Text, StyleSheet, Pressable, Alert, ScrollView, Linking } from "r
 import { useFocusEffect, useRouter } from "expo-router";
 import Constants from "expo-constants";
 import { pack, activePackId, isAudio, isProgram, isScanner } from "../src/packs";
-import { privacyUrl } from "../src/legal";
-import { t } from "../src/i18n";
+import { privacyUrl, supportUrl, termsUrl } from "../src/legal";
+import { switchLanguage, otherLocale } from "../src/language";
+import { t, locale } from "../src/i18n";
 import { ui } from "../src/i18n/ui";
 import { theme } from "../src/theme";
 import { clearHistory, getProfile, updateProfile, type Profile } from "../src/storage";
@@ -166,6 +167,23 @@ export default function Settings() {
         </>
       ) : null}
 
+      <Text style={styles.section}>{t(ui.language)}</Text>
+      <View style={styles.group}>
+        <Row
+          label={locale === "ar" ? "العربية" : "English"}
+          value={t(ui.language)}
+          onPress={() =>
+            Alert.alert(t(ui.language), t(ui.confirmSwitchLanguage), [
+              { text: t(ui.home), style: "cancel" },
+              {
+                text: otherLocale() === "ar" ? "العربية" : "English",
+                onPress: () => void switchLanguage(otherLocale()),
+              },
+            ])
+          }
+        />
+      </View>
+
       <Text style={styles.section}>{t(ui.sectionSubscription)}</Text>
       <View style={styles.group}>
         <Row label={t(ui.upgrade)} onPress={() => router.push("/paywall")} />
@@ -198,6 +216,20 @@ export default function Settings() {
           onPress={() =>
             Linking.openURL(privacyUrl()).catch(() =>
               Alert.alert(t(ui.couldNotOpen), privacyUrl()),
+            )
+          }
+        />
+        <Row
+          label={t(ui.terms)}
+          onPress={() =>
+            Linking.openURL(termsUrl()).catch(() => Alert.alert(t(ui.couldNotOpen), termsUrl()))
+          }
+        />
+        <Row
+          label={t(ui.support)}
+          onPress={() =>
+            Linking.openURL(supportUrl()).catch(() =>
+              Alert.alert(t(ui.couldNotOpen), supportUrl()),
             )
           }
         />
