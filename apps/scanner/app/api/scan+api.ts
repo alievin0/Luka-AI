@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { SCANNER_PACKS } from "../../src/packs/registry";
 import { checkRateLimit, clientKey } from "../../src/rate-limit";
 import type { ScanResult } from "../../src/packs/types";
+import { apiError } from "../../src/i18n/errors";
 
 const MODEL = process.env.DASHLIGHT_MODEL || "claude-opus-5";
 
@@ -102,14 +103,17 @@ export async function POST(request: Request) {
   const limit = checkRateLimit(clientKey(request));
   if (!limit.allowed) {
     return Response.json(
-      { error: "كترت الفحوصات بوقت قصير. جرّب بعد شوي." },
+      { error: apiError.tooManyScans },
       { status: 429, headers: { "Retry-After": String(limit.retryAfterSeconds) } },
     );
   }
 
+  // The message says only that the service is not set up: it is read by a
+  // user who cannot set an environment variable. The variable is named here,
+  // where the deployer is looking.
   if (!process.env.ANTHROPIC_API_KEY) {
     return Response.json(
-      { error: "الخادم غير مهيأ: مفتاح ANTHROPIC_API_KEY مفقود." },
+      { error: apiError.notConfigured },
       { status: 500 },
     );
   }
@@ -124,13 +128,13 @@ export async function POST(request: Request) {
 
   const selected = SCANNER_PACKS[body?.packId ?? ""];
   if (!selected) {
-    return Response.json({ error: "نوع الفحص غير معروف." }, { status: 400 });
+    return Response.json({ error: apiError.unknownScanType }, { status: 400 });
   }
   if (!body?.base64) {
-    return Response.json({ error: "ما وصلتنا صورة." }, { status: 400 });
+    return Response.json({ error: apiError.noImage }, { status: 400 });
   }
   if (body.base64.length > MAX_IMAGE_BYTES) {
-    return Response.json({ error: "الصورة كبيرة كتير." }, { status: 413 });
+    return Response.json({ error: apiError.imageTooLarge }, { status: 413 });
   }
 
   const client = new Anthropic();
@@ -162,7 +166,7 @@ export async function POST(request: Request) {
                 data: body.base64,
               },
             },
-            { type: "text", text: "حلّل هذي الصورة." },
+            { type: "text", text: "حلّل هذه الصورة." },
           ],
         },
       ],
@@ -170,7 +174,7 @@ export async function POST(request: Request) {
 
     if (response.stop_reason === "refusal") {
       return Response.json(
-        { error: "ما قدرنا نحلل هذي الصورة. جرّب صورة ثانية." },
+        { error: apiError.cannotRead },
         { status: 422 },
       );
     }
@@ -178,7 +182,7 @@ export async function POST(request: Request) {
     const text = response.content.find((b) => b.type === "text");
     if (!text || text.type !== "text") {
       return Response.json(
-        { error: "ما وصلنا رد صالح. جرّب كمان مرة." },
+        { error: apiError.badResponse },
         { status: 502 },
       );
     }
@@ -188,24 +192,24 @@ export async function POST(request: Request) {
   } catch (error) {
     if (error instanceof Anthropic.RateLimitError) {
       return Response.json(
-        { error: "في ضغط على الخدمة هلق. جرّب بعد شوي." },
+        { error: apiError.busy },
         { status: 429 },
       );
     }
     if (error instanceof Anthropic.AuthenticationError) {
       return Response.json(
-        { error: "الخادم غير مهيأ: مفتاح الـ API غير صالح." },
+        { error: apiError.badKey },
         { status: 500 },
       );
     }
     if (error instanceof Anthropic.APIError) {
       return Response.json(
-        { error: "صار خطأ أثناء التحليل. جرّب كمان مرة." },
+        { error: apiError.analysisFailed },
         { status: 502 },
       );
     }
     return Response.json(
-      { error: "صار خطأ غير متوقع. جرّب كمان مرة." },
+      { error: apiError.unexpected },
       { status: 500 },
     );
   }

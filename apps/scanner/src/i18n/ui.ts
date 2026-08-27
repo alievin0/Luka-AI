@@ -451,18 +451,13 @@ export const ui = {
     "استخدمت محاضرتك المجانية. اشترك لمتابعة التسجيل.",
   ),
 
-  // errors
-  rateLimited: L(
-    "Too many scans in a short time. Try again shortly.",
-    "عدد الفحوصات كبير في وقت قصير. حاول بعد قليل.",
-  ),
+  // Errors the screens raise themselves. The ones a server route sends back
+  // live in ./errors, which the routes share.
   offline: L(
     "We couldn't reach the server. Check your connection and try again.",
     "تعذّر الوصول إلى الخادم. تأكد من اتصالك بالإنترنت وحاول مرة أخرى.",
   ),
   serverError: L("Something went wrong. Try again.", "حدث خطأ في أثناء التحليل. حاول مرة أخرى."),
-  noImage: L("No image received.", "لم تصلنا صورة."),
-  imageTooLarge: L("That image is too large.", "الصورة كبيرة جداً."),
 
   // ---- redesign: home, study, states ----------------------------------
   // Greeting picks the time of day. It is the only place the app addresses

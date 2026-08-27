@@ -70,6 +70,23 @@ export const isRTL = locale === "ar";
 /** Resolve a Text pair, falling back to English if a translation is missing. */
 export const t = (text: Text): string => text[locale] || text.en;
 
+/**
+ * Resolve an error a server route sent back.
+ *
+ * The routes reply with whole `Text` pairs so the language is decided on the
+ * device, but a body can also be an older plain string, or malformed, or from
+ * a proxy that never saw the route at all. Anything that is not a usable pair
+ * or a non-empty string is `null`, and the caller falls back to its own copy.
+ */
+export const remote = (value: unknown): string | null => {
+  if (typeof value === "string") return value.trim() || null;
+  if (value && typeof value === "object") {
+    const pair = value as Partial<Text>;
+    if (typeof pair.en === "string" && typeof pair.ar === "string") return t(pair as Text);
+  }
+  return null;
+};
+
 /** Pick a value by locale without building a Text pair. */
 export const pick = <T,>(en: T, ar: T): T => (locale === "ar" ? ar : en);
 

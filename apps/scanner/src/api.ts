@@ -1,5 +1,6 @@
 import Constants from "expo-constants";
-import { locale } from "./i18n";
+import { locale, remote, t } from "./i18n";
+import { ui } from "./i18n/ui";
 import type { ScanResult } from "./packs";
 
 /**
@@ -38,15 +39,13 @@ export async function scanImage(input: {
       body: JSON.stringify(payload),
     });
   } catch {
-    throw new ScanError("ما قدرنا نوصل للخادم. تأكد من اتصالك بالإنترنت وجرّب كمان مرة.");
+    throw new ScanError(t(ui.offline));
   }
 
   if (!res.ok) {
-    const body = await res.json().catch(() => null);
-    throw new ScanError(
-      (body as { error?: string } | null)?.error ??
-        "صار خطأ أثناء التحليل. جرّب كمان مرة.",
-    );
+    const body = (await res.json().catch(() => null)) as { error?: unknown } | null;
+    // The route sends a whole Text pair; the device picks the language.
+    throw new ScanError(remote(body?.error) ?? t(ui.serverError));
   }
 
   return (await res.json()) as ScanResult;

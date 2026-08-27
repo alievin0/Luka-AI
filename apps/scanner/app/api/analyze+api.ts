@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { PACKS } from "../../src/packs/registry";
 import { checkRateLimit, clientKey, LECTURE_MAX_PER_WINDOW } from "../../src/rate-limit";
 import type { AudioPack, LectureAnalysis, Segment } from "../../src/packs/types";
+import { apiError } from "../../src/i18n/errors";
 
 const MODEL = process.env.DASHLIGHT_MODEL || "claude-opus-5";
 
@@ -165,14 +166,17 @@ export async function POST(request: Request) {
   const limit = checkRateLimit(`${clientKey(request)}:lecture`, LECTURE_MAX_PER_WINDOW);
   if (!limit.allowed) {
     return Response.json(
-      { error: "كترت التحليلات بوقت قصير. جرّب بعد شوي." },
+      { error: apiError.tooManyLectures },
       { status: 429, headers: { "Retry-After": String(limit.retryAfterSeconds) } },
     );
   }
 
+  // The message says only that the service is not set up: it is read by a
+  // user who cannot set an environment variable. The variable is named here,
+  // where the deployer is looking.
   if (!process.env.ANTHROPIC_API_KEY) {
     return Response.json(
-      { error: "الخادم غير مهيأ: مفتاح ANTHROPIC_API_KEY مفقود." },
+      { error: apiError.notConfigured },
       { status: 500 },
     );
   }
@@ -189,13 +193,13 @@ export async function POST(request: Request) {
 
   const selected = PACKS[body?.packId ?? ""];
   if (!selected || selected.kind !== "audio") {
-    return Response.json({ error: "نوع التطبيق غير معروف." }, { status: 400 });
+    return Response.json({ error: apiError.unknownPack }, { status: 400 });
   }
   const audioPack = selected as AudioPack;
 
   const segments = Array.isArray(body?.segments) ? body!.segments : [];
   if (segments.length === 0) {
-    return Response.json({ error: "ما في نص محاضرة نحلله." }, { status: 400 });
+    return Response.json({ error: apiError.noLectureText }, { status: 400 });
   }
 
   const transcript = segments
@@ -257,7 +261,7 @@ For each task, also set "dueISO" — the deadline resolved into an ISO 8601 time
     });
 
     if (response.stop_reason === "refusal") {
-      return Response.json({ error: "ما قدرنا نحلل هذي المحاضرة." }, { status: 422 });
+      return Response.json({ error: apiError.cannotAnalyseLecture }, { status: 422 });
     }
 
     // A response cut off at max_tokens is truncated mid-JSON. Letting it fall
@@ -266,14 +270,14 @@ For each task, also set "dueISO" — the deadline resolved into an ISO 8601 time
     // burning the hourly allowance for nothing.
     if (response.stop_reason === "max_tokens") {
       return Response.json(
-        { error: "المحاضرة طويلة كتير عالتحليل مرة وحدة. جرّب تقسمها." },
+        { error: apiError.lectureTooLong },
         { status: 413 },
       );
     }
 
     const text = response.content.find((b) => b.type === "text");
     if (!text || text.type !== "text") {
-      return Response.json({ error: "ما وصلنا رد صالح. جرّب كمان مرة." }, { status: 502 });
+      return Response.json({ error: apiError.badResponse }, { status: 502 });
     }
 
     let parsed: LectureAnalysis & { title: string };
@@ -282,17 +286,17 @@ For each task, also set "dueISO" — the deadline resolved into an ISO 8601 time
     } catch {
       // Distinguished from an API failure: retrying this is not free, and a
       // malformed payload is not something waiting will fix.
-      return Response.json({ error: "ما وصلنا رد صالح. جرّب كمان مرة." }, { status: 502 });
+      return Response.json({ error: apiError.badResponse }, { status: 502 });
     }
     const { title, ...analysis } = parsed;
     return Response.json({ title, analysis: clampAnalysis(analysis, words, transcript) });
   } catch (error) {
     if (error instanceof Anthropic.RateLimitError) {
-      return Response.json({ error: "في ضغط على الخدمة هلق. جرّب بعد شوي." }, { status: 429 });
+      return Response.json({ error: apiError.busy }, { status: 429 });
     }
     if (error instanceof Anthropic.AuthenticationError) {
-      return Response.json({ error: "الخادم غير مهيأ: مفتاح الـ API غير صالح." }, { status: 500 });
+      return Response.json({ error: apiError.badKey }, { status: 500 });
     }
-    return Response.json({ error: "صار خطأ أثناء التحليل. جرّب كمان مرة." }, { status: 502 });
+    return Response.json({ error: apiError.analysisFailed }, { status: 502 });
   }
 }

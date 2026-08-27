@@ -1,5 +1,5 @@
 import Constants from "expo-constants";
-import { locale } from "./i18n";
+import { locale, remote } from "./i18n";
 import type { AudioChunk, LectureAnalysis, Segment } from "./packs";
 import { offsetSegments } from "./lectures";
 
@@ -49,8 +49,11 @@ async function post<T>(path: string, body: unknown): Promise<T> {
     throw new LectureError("offline");
   }
   if (!res.ok) {
-    const parsed = (await res.json().catch(() => null)) as { error?: string } | null;
-    throw new LectureError(parsed?.error ?? "server");
+    const parsed = (await res.json().catch(() => null)) as { error?: unknown } | null;
+    // The route sends a whole Text pair; the device picks the language. When
+    // there is nothing usable in the body, "server" is a sentinel the screens
+    // recognise and replace with their own copy.
+    throw new LectureError(remote(parsed?.error) ?? "server");
   }
   return (await res.json()) as T;
 }
@@ -107,14 +110,14 @@ export async function transcribeLecture(input: {
 
     const parsed = (() => {
       try {
-        return JSON.parse(result.body) as { segments?: Segment[]; error?: string };
+        return JSON.parse(result.body) as { segments?: Segment[]; error?: unknown };
       } catch {
         return null;
       }
     })();
 
     if (result.status < 200 || result.status >= 300) {
-      lastError = parsed?.error ?? "server";
+      lastError = remote(parsed?.error) ?? "server";
       continue;
     }
     if (!parsed?.segments?.length) {

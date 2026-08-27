@@ -1,5 +1,6 @@
 import { checkRateLimit, clientKey, LECTURE_MAX_PER_WINDOW } from "../../src/rate-limit";
 import type { Segment } from "../../src/packs/types";
+import { apiError } from "../../src/i18n/errors";
 
 /**
  * The accurate transcription pass.
@@ -104,7 +105,7 @@ export async function POST(request: Request) {
   const limit = checkRateLimit(`${clientKey(request)}:lecture`, LECTURE_MAX_PER_WINDOW);
   if (!limit.allowed) {
     return Response.json(
-      { error: "كترت العمليات بوقت قصير. جرّب بعد شوي." },
+      { error: apiError.tooManyUploads },
       { status: 429, headers: { "Retry-After": String(limit.retryAfterSeconds) } },
     );
   }
@@ -112,7 +113,7 @@ export async function POST(request: Request) {
   const key = process.env.ELEVENLABS_API_KEY;
   if (!key) {
     return Response.json(
-      { error: "التفريغ الدقيق مش مفعّل على الخادم." },
+      { error: apiError.transcriptionOff },
       { status: 501 },
     );
   }
@@ -127,18 +128,18 @@ export async function POST(request: Request) {
     | { get(name: string): unknown }
     | null;
   if (!upload) {
-    return Response.json({ error: "ما وصلنا تسجيل." }, { status: 400 });
+    return Response.json({ error: apiError.noRecording }, { status: 400 });
   }
 
   const file = upload.get("file");
   if (!(file instanceof Blob)) {
-    return Response.json({ error: "ما وصلنا تسجيل." }, { status: 400 });
+    return Response.json({ error: apiError.noRecording }, { status: 400 });
   }
   if (file.size > MAX_AUDIO_BYTES) {
-    return Response.json({ error: "التسجيل طويل كتير." }, { status: 413 });
+    return Response.json({ error: apiError.recordingTooLong }, { status: 413 });
   }
   if (file.size < 1024) {
-    return Response.json({ error: "ما سمعنا كلام بالتسجيل." }, { status: 422 });
+    return Response.json({ error: apiError.noSpeech }, { status: 422 });
   }
 
   const form = new FormData();
@@ -161,17 +162,17 @@ export async function POST(request: Request) {
       body: form as unknown as BodyInit,
     });
   } catch {
-    return Response.json({ error: "ما قدرنا نوصل لخدمة التفريغ." }, { status: 502 });
+    return Response.json({ error: apiError.transcriptionUnreachable }, { status: 502 });
   }
 
   if (!response.ok) {
     if (response.status === 429) {
-      return Response.json({ error: "في ضغط على خدمة التفريغ. جرّب بعد شوي." }, { status: 429 });
+      return Response.json({ error: apiError.transcriptionBusy }, { status: 429 });
     }
     if (response.status === 401) {
-      return Response.json({ error: "الخادم غير مهيأ: مفتاح التفريغ غير صالح." }, { status: 500 });
+      return Response.json({ error: apiError.transcriptionBadKey }, { status: 500 });
     }
-    return Response.json({ error: "ما قدرنا نفرّغ التسجيل. جرّب كمان مرة." }, { status: 502 });
+    return Response.json({ error: apiError.transcriptionFailed }, { status: 502 });
   }
 
   const parsed = (await response.json().catch(() => null)) as
@@ -179,7 +180,7 @@ export async function POST(request: Request) {
     | null;
 
   if (!parsed) {
-    return Response.json({ error: "ما وصلنا رد صالح من خدمة التفريغ." }, { status: 502 });
+    return Response.json({ error: apiError.transcriptionBadResponse }, { status: 502 });
   }
 
   const segments = Array.isArray(parsed.words) && parsed.words.length > 0
@@ -189,7 +190,7 @@ export async function POST(request: Request) {
       : [];
 
   if (segments.length === 0) {
-    return Response.json({ error: "ما سمعنا كلام بالتسجيل." }, { status: 422 });
+    return Response.json({ error: apiError.noSpeech }, { status: 422 });
   }
 
   return Response.json({ segments });

@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { PACKS } from "../../src/packs/registry";
 import { ASK_MAX_PER_WINDOW, checkRateLimit, clientKey } from "../../src/rate-limit";
+import { apiError } from "../../src/i18n/errors";
 
 const MODEL = process.env.DASHLIGHT_MODEL || "claude-opus-5";
 
@@ -79,14 +80,17 @@ export async function POST(request: Request) {
   const limit = checkRateLimit(`${clientKey(request)}:ask`, ASK_MAX_PER_WINDOW);
   if (!limit.allowed) {
     return Response.json(
-      { error: "كترت الأسئلة بوقت قصير. جرّب بعد شوي." },
+      { error: apiError.tooManyQuestions },
       { status: 429, headers: { "Retry-After": String(limit.retryAfterSeconds) } },
     );
   }
 
+  // The message says only that the service is not set up: it is read by a
+  // user who cannot set an environment variable. The variable is named here,
+  // where the deployer is looking.
   if (!process.env.ANTHROPIC_API_KEY) {
     return Response.json(
-      { error: "الخادم غير مهيأ: مفتاح ANTHROPIC_API_KEY مفقود." },
+      { error: apiError.notConfigured },
       { status: 500 },
     );
   }
@@ -101,12 +105,12 @@ export async function POST(request: Request) {
 
   const selected = PACKS[body?.packId ?? ""];
   if (!selected || selected.kind !== "audio") {
-    return Response.json({ error: "نوع التطبيق غير معروف." }, { status: 400 });
+    return Response.json({ error: apiError.unknownPack }, { status: 400 });
   }
 
   const question = (body?.question ?? "").trim().slice(0, MAX_QUESTION_CHARS);
   if (!question) {
-    return Response.json({ error: "ما في سؤال." }, { status: 400 });
+    return Response.json({ error: apiError.noQuestion }, { status: 400 });
   }
 
   const excerpts = (Array.isArray(body?.excerpts) ? body!.excerpts : [])
@@ -182,29 +186,29 @@ QUESTION: ${question}`,
     });
 
     if (response.stop_reason === "refusal") {
-      return Response.json({ error: "ما قدرنا نجاوب هالسؤال." }, { status: 422 });
+      return Response.json({ error: apiError.cannotAnswer }, { status: 422 });
     }
 
     const text = response.content.find((b) => b.type === "text");
     if (!text || text.type !== "text") {
-      return Response.json({ error: "ما وصلنا رد صالح. جرّب كمان مرة." }, { status: 502 });
+      return Response.json({ error: apiError.badResponse }, { status: 502 });
     }
 
     let parsed: Answer;
     try {
       parsed = JSON.parse(text.text) as Answer;
     } catch {
-      return Response.json({ error: "ما وصلنا رد صالح. جرّب كمان مرة." }, { status: 502 });
+      return Response.json({ error: apiError.badResponse }, { status: 502 });
     }
 
     return Response.json(ground(parsed, excerpts));
   } catch (error) {
     if (error instanceof Anthropic.RateLimitError) {
-      return Response.json({ error: "في ضغط على الخدمة هلق. جرّب بعد شوي." }, { status: 429 });
+      return Response.json({ error: apiError.busy }, { status: 429 });
     }
     if (error instanceof Anthropic.AuthenticationError) {
-      return Response.json({ error: "الخادم غير مهيأ: مفتاح الـ API غير صالح." }, { status: 500 });
+      return Response.json({ error: apiError.badKey }, { status: 500 });
     }
-    return Response.json({ error: "صار خطأ. جرّب كمان مرة." }, { status: 502 });
+    return Response.json({ error: apiError.failed }, { status: 502 });
   }
 }

@@ -29,6 +29,7 @@ const ts = require(path.join(ROOT, "node_modules/typescript"));
 /** Files whose Arabic has been converted and must stay converted. */
 const SCOPE = [
   "src/i18n/ui.ts",
+  "src/i18n/errors.ts",
   "src/packs/dashlight.ts",
   "src/packs/dashlight-library.ts",
   "src/packs/mahdar.ts",
