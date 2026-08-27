@@ -52,16 +52,16 @@ export const dashlight: ScannerPack = {
     {
       key: "year",
       question: L("What year?", "سنة كم؟"),
-      input: { placeholder: L("2019", "٢٠١٩"), keyboard: "number-pad", maxLength: 4 },
+      input: { placeholder: L("2019", "2019"), keyboard: "number-pad", maxLength: 4 },
     },
     {
       key: "age",
       question: L("How old is it?", "قديش عمر السيارة؟"),
       options: [
-        L("Under 3 years", "أقل من ٣ سنين"),
-        L("3–7 years", "٣ – ٧ سنين"),
-        L("7–15 years", "٧ – ١٥ سنة"),
-        L("Over 15 years", "أكثر من ١٥ سنة"),
+        L("Under 3 years", "أقل من 3 سنين"),
+        L("3–7 years", "3 – 7 سنين"),
+        L("7–15 years", "7 – 15 سنة"),
+        L("Over 15 years", "أكثر من 15 سنة"),
       ],
     },
     {
@@ -109,7 +109,7 @@ export const dashlight: ScannerPack = {
       {
         icon: "book-open",
         text: L("The whole guide", "دليل كامل"),
-        detail: L("48 warning lights, offline", "دليل واضح لـ٤٨ لمبة"),
+        detail: L("48 warning lights, offline", "دليل واضح لـ48 لمبة"),
       },
       {
         icon: "credit-card",

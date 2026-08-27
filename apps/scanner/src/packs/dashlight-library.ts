@@ -103,7 +103,7 @@ export const DASHLIGHT_LIBRARY: LibraryEntry[] = [
     title: L("Charging System", "نظام الشحن"),
     subtitle: "Battery / Charging System",
     severity: "warning",
-    summary: L("The alternator has stopped charging and the car is running on the battery alone — typically 20 to 40 minutes before everything shuts down. It rarely means the battery itself is the faulty part.", "الدينمو وقف عن الشحن والسيارة عم تشتغل على البطارية بس — عادة من ٢٠ لـ ٤٠ دقيقة وبعدها تطفى. ونادراً تكون البطارية نفسها هي الخربانة."),
+    summary: L("The alternator has stopped charging and the car is running on the battery alone — typically 20 to 40 minutes before everything shuts down. It rarely means the battery itself is the faulty part.", "الدينمو وقف عن الشحن والسيارة عم تشتغل على البطارية بس — عادة من 20 لـ 40 دقيقة وبعدها تطفى. ونادراً تكون البطارية نفسها هي الخربانة."),
     action: L("Switch off the AC, screen and heated seats and drive straight to a garage without stopping the engine.", "طفّي المكيف والشاشة وأي شي زيادة، وروح مباشرة للورشة بدون ما تطفي المحرك."),
   },
   {
@@ -121,7 +121,7 @@ export const DASHLIGHT_LIBRARY: LibraryEntry[] = [
     title: L("Tyre Pressure", "ضغط الإطارات"),
     subtitle: "Tyre Pressure Monitoring (TPMS)",
     severity: "warning",
-    summary: L("At least one tyre is roughly 25% below its correct pressure, or the monitoring system itself has failed. Under-inflated tyres overheat, wear at the shoulders and can fail at speed.", "في إطار على الأقل ضغطه أقل بحوالي ٢٥٪ من اللازم، أو النظام نفسه خربان. الإطار الناقص هوا يسخن ويتآكل من الأطراف وممكن ينفجر بالسرعة."),
+    summary: L("At least one tyre is roughly 25% below its correct pressure, or the monitoring system itself has failed. Under-inflated tyres overheat, wear at the shoulders and can fail at speed.", "في إطار على الأقل ضغطه أقل بحوالي 25٪ من اللازم، أو النظام نفسه خربان. الإطار الناقص هوا يسخن ويتآكل من الأطراف وممكن ينفجر بالسرعة."),
     action: L("Check all four pressures cold against the sticker in the driver's door frame and inflate to spec.", "قِس ضغط الأربع إطارات وهي باردة حسب الملصق على إطار باب السائق وعبّيهم للرقم المكتوب."),
   },
   {
@@ -167,7 +167,7 @@ export const DASHLIGHT_LIBRARY: LibraryEntry[] = [
     subtitle: "Diesel Particulate Filter (DPF)",
     severity: "warning",
     summary: L("The soot filter in the exhaust is full because the car has done too many short, cold trips to burn it clear. Left alone it blocks solid and needs forced cleaning or replacement.", "فلتر السخام اللي بالشكمان امتلأ لأن السيارة تمشي مشاوير قصيرة وباردة وما تقدر تحرقه. وإذا تركته ينسد كلياً ويحتاج تنظيف إجباري أو تغيير."),
-    action: L("Drive 15–20 minutes at a steady main-road speed in a lower gear to let it regenerate.", "سوق ١٥–٢٠ دقيقة بسرعة ثابتة على طريق سريع وبغيار أوطى شوي حتى يحرق السخام."),
+    action: L("Drive 15–20 minutes at a steady main-road speed in a lower gear to let it regenerate.", "سوق 15–20 دقيقة بسرعة ثابتة على طريق سريع وبغيار أوطى شوي حتى يحرق السخام."),
   },
   {
     id: "adblue",
@@ -298,11 +298,11 @@ export const DASHLIGHT_LIBRARY: LibraryEntry[] = [
   {
     id: "ev-12v-battery",
     glyph: "battery",
-    title: L("12V Battery", "بطارية ١٢ فولت"),
+    title: L("12V Battery", "بطارية 12 فولت"),
     subtitle: "12V Battery (EV/Hybrid)",
     severity: "warning",
-    summary: L("The small 12-volt battery that wakes the car and runs its computers is weak, even with the main traction battery full. A flat 12V is the single most common reason an EV won't switch on at all.", "بطارية الـ ١٢ فولت الصغيرة اللي تشغّل كمبيوترات السيارة صارت ضعيفة، حتى لو البطارية الكبيرة مليانة. وأكثر سبب إن السيارة الكهربائية ما تفتح أبداً هو هالبطارية."),
-    action: L("Keep the car plugged in or driven daily until you can have the 12V battery tested and replaced.", "خلّي السيارة موصولة بالشاحن أو سوقها يومياً لين ما تفحص بطارية الـ ١٢ فولت وتبدّلها."),
+    summary: L("The small 12-volt battery that wakes the car and runs its computers is weak, even with the main traction battery full. A flat 12V is the single most common reason an EV won't switch on at all.", "بطارية الـ 12 فولت الصغيرة اللي تشغّل كمبيوترات السيارة صارت ضعيفة، حتى لو البطارية الكبيرة مليانة. وأكثر سبب إن السيارة الكهربائية ما تفتح أبداً هو هالبطارية."),
+    action: L("Keep the car plugged in or driven daily until you can have the 12V battery tested and replaced.", "خلّي السيارة موصولة بالشاحن أو سوقها يومياً لين ما تفحص بطارية الـ 12 فولت وتبدّلها."),
   },
   {
     id: "master-caution-amber",
@@ -364,7 +364,7 @@ export const DASHLIGHT_LIBRARY: LibraryEntry[] = [
     title: L("Low Fuel", "الوقود قارب على الانتهاء"),
     subtitle: "Low Fuel",
     severity: "info",
-    summary: L("There's usually 50–80 km of range left, and that shrinks fast in traffic or at motorway speed. Running a modern car dry can overheat the fuel pump that sits inside the tank.", "عادة يضل من ٥٠ لـ ٨٠ كم، وهالرقم ينزل بسرعة بالزحمة أو بالسرعات العالية. وتفضية الخزان كلياً تسخّن طرمبة البنزين اللي جوّاه."),
+    summary: L("There's usually 50–80 km of range left, and that shrinks fast in traffic or at motorway speed. Running a modern car dry can overheat the fuel pump that sits inside the tank.", "عادة يضل من 50 لـ 80 كم، وهالرقم ينزل بسرعة بالزحمة أو بالسرعات العالية. وتفضية الخزان كلياً تسخّن طرمبة البنزين اللي جوّاه."),
     action: L("Fill up at the next station rather than the cheaper one two exits away.", "عبّي من أول محطة، مو من الأرخص اللي على بعد مخرجين."),
   },
   {
@@ -418,7 +418,7 @@ export const DASHLIGHT_LIBRARY: LibraryEntry[] = [
     title: L("Ice Warning", "تحذير من الجليد"),
     subtitle: "Low Temperature / Ice Warning",
     severity: "info",
-    summary: L("Outside temperature has fallen to around 4°C or below, where bridges and shaded corners can already be icy. The car measures air, not road surface, so the tarmac may be worse than the number says.", "حرارة الجو نزلت لحدود ٤ درجات أو أقل، وبهالحرارة الجسور والمنعطفات المظللة ممكن تكون متجمدة. والسيارة تقيس حرارة الهوا مو الأسفلت، فالطريق ممكن يكون أسوأ من الرقم."),
+    summary: L("Outside temperature has fallen to around 4°C or below, where bridges and shaded corners can already be icy. The car measures air, not road surface, so the tarmac may be worse than the number says.", "حرارة الجو نزلت لحدود 4 درجات أو أقل، وبهالحرارة الجسور والمنعطفات المظللة ممكن تكون متجمدة. والسيارة تقيس حرارة الهوا مو الأسفلت، فالطريق ممكن يكون أسوأ من الرقم."),
     action: L("Slow down, brake and steer gently, and leave extra distance on bridges and flyovers.", "خفف السرعة، افرمل ولف بهدوء، وخلّي مسافة أكبر على الجسور."),
   },
   {

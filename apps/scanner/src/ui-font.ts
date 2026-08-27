@@ -19,10 +19,10 @@ const AUDIO = {
 } as const;
 
 const SCANNER = {
-  bold: isRTL ? "Cairo_700Bold" : "Inter_700Bold",
-  semibold: isRTL ? "Cairo_600SemiBold" : "Inter_600SemiBold",
-  medium: isRTL ? "Cairo_500Medium" : "Inter_500Medium",
-  regular: isRTL ? "Cairo_400Regular" : "Inter_400Regular",
+  bold: isRTL ? "IBMPlexSansArabic_700Bold" : "Inter_700Bold",
+  semibold: isRTL ? "IBMPlexSansArabic_600SemiBold" : "Inter_600SemiBold",
+  medium: isRTL ? "IBMPlexSansArabic_500Medium" : "Inter_500Medium",
+  regular: isRTL ? "IBMPlexSansArabic_400Regular" : "Inter_400Regular",
 } as const;
 
 export const UI_FONT: { bold: string; semibold: string; medium: string; regular: string } =

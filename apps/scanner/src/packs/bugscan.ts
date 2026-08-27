@@ -64,7 +64,7 @@ export const bugscan: ScannerPack = {
       L("Instant ID for insects and bites", "تعرّف فوري على الحشرات واللدغات"),
       L("A straight answer on whether it's dangerous", "جواب واضح: خطيرة ولا عادية"),
       L("First-aid steps you can follow now", "خطوات إسعاف أولي مباشرة"),
-      L("A guide to 40 species worldwide, offline", "دليل ٤٠ نوع عالمي بدون إنترنت"),
+      L("A guide to 40 species worldwide, offline", "دليل 40 نوع عالمي بدون إنترنت"),
     ],
   },
   pricing: {

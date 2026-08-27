@@ -68,7 +68,7 @@ export const goldscan: ScannerPack = {
       L("Instant hallmark and karat reading", "قراءة فورية للدمغة والعيار"),
       L("Spots plated and gold-filled markings", "بيكشف الذهب المطلي والمغطى"),
       L("What you'd actually get selling it back", "قديش فعلاً بتاخذ لو بعتها"),
-      L("A guide to 38 hallmarks worldwide, offline", "دليل ٣٨ دمغة عالمية بدون إنترنت"),
+      L("A guide to 38 hallmarks worldwide, offline", "دليل 38 دمغة عالمية بدون إنترنت"),
     ],
   },
   pricing: {

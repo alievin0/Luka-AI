@@ -268,7 +268,7 @@ export const ui = {
      only in a linked document. Missing this is a routine rejection. */
   renewalTerms: L(
     "Payment is charged to your account at confirmation. The subscription renews automatically unless you turn off auto-renewal at least 24 hours before the period ends, and your account is charged for renewal within 24 hours before that. Manage or cancel it any time in your account settings.",
-    "بينخصم المبلغ من حسابك عند التأكيد. الاشتراك بيتجدّد تلقائياً إلا إذا أوقفت التجديد قبل ٢٤ ساعة على الأقل من نهاية المدة، وبينخصم التجديد خلال الـ٢٤ ساعة اللي قبلها. تقدر تدير الاشتراك أو تلغيه أي وقت من إعدادات حسابك.",
+    "بينخصم المبلغ من حسابك عند التأكيد. الاشتراك بيتجدّد تلقائياً إلا إذا أوقفت التجديد قبل 24 ساعة على الأقل من نهاية المدة، وبينخصم التجديد خلال الـ24 ساعة اللي قبلها. تقدر تدير الاشتراك أو تلغيه أي وقت من إعدادات حسابك.",
   ),
   linkFailed: L("Couldn't open", "ما فتحت"),
 
@@ -325,7 +325,7 @@ export const ui = {
   // gold assistant
   priceCheck: L("Price check", "فحص السعر"),
   todaysRate: L("Today's gold rate", "سعر الذهب اليوم"),
-  perGram24k: L("per gram, 24K", "للغرام، عيار ٢٤"),
+  perGram24k: L("per gram, 24K", "للغرام، عيار 24"),
   rateStale: L("Rate is over a day old — update it", "السعر أقدم من يوم — حدّثه"),
   setRate: L("Set rate", "حدّد السعر"),
   weightGrams: L("Weight in grams", "الوزن بالغرام"),
@@ -599,7 +599,7 @@ export const ui = {
   scanQuotaNone: L("No free scans left", "ما ضل فحص مجاني"),
   scanQuotaOne: L("1 free scan left", "ضل فحص مجاني واحد"),
   // Arabic counts two as its own grammatical form, and two is now where every
-  // driver starts — so "٢ فحوصات" would be wrong on the first screen they see.
+  // driver starts — so "2 فحوصات" would be wrong on the first screen they see.
   scanQuotaTwo: L("2 free scans left", "ضل فحصين مجانيين"),
   scanQuotaMany: L("{n} free scans left", "ضل {n} فحوصات مجانية"),
   // The grade of a light, as a word. Colour alone is not a signal a

@@ -21,6 +21,7 @@
     "@anthropic-ai/sdk": "^0.109.1",
     "@expo-google-fonts/amiri": "^0.4.1",
     "@expo-google-fonts/cairo": "^0.4.2",
+    "@expo-google-fonts/ibm-plex-sans-arabic": "^0.4.2",
     "@expo-google-fonts/inter": "^0.4.2",
     "@expo-google-fonts/readex-pro": "^0.4.1",
     "@expo/vector-icons": "^15.1.1",

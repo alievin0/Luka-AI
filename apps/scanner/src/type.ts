@@ -15,11 +15,11 @@ import {
   Inter_700Bold,
 } from "@expo-google-fonts/inter";
 import {
-  Cairo_400Regular,
-  Cairo_500Medium,
-  Cairo_600SemiBold,
-  Cairo_700Bold,
-} from "@expo-google-fonts/cairo";
+  IBMPlexSansArabic_400Regular,
+  IBMPlexSansArabic_500Medium,
+  IBMPlexSansArabic_600SemiBold,
+  IBMPlexSansArabic_700Bold,
+} from "@expo-google-fonts/ibm-plex-sans-arabic";
 
 /**
  * The typefaces.
@@ -92,9 +92,9 @@ export const SCALE = {
  * of the app and safe to hand a hook. Loading all of them regardless would
  * put a megabyte of Arabic outlines into a scanner that never draws one.
  *
- * The scanner apps use Inter for Latin and Cairo for Arabic: no single family
- * draws both this well at the size a driver reads a warning from, and
- * legibility beats tidiness on that screen. Mahdar keeps Readex Pro, a real
+ * The scanner apps use Inter for Latin and IBM Plex Sans Arabic for Arabic —
+ * two faces drawn to the same brief, so a bilingual screen keeps one voice
+ * while each script gets a face made for it. Mahdar keeps Readex Pro, a real
  * superfamily, because a bilingual lecture transcript wants one voice.
  */
 const AUDIO_FACES = {
@@ -113,10 +113,10 @@ const SCANNER_FACES = {
   Inter_500Medium,
   Inter_600SemiBold,
   Inter_700Bold,
-  Cairo_400Regular,
-  Cairo_500Medium,
-  Cairo_600SemiBold,
-  Cairo_700Bold,
+  IBMPlexSansArabic_400Regular,
+  IBMPlexSansArabic_500Medium,
+  IBMPlexSansArabic_600SemiBold,
+  IBMPlexSansArabic_700Bold,
 };
 
 export function useAppFonts() {

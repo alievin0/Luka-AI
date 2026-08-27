@@ -61,7 +61,7 @@ export const GOLDSCAN_LIBRARY: LibraryEntry[] = [
     subtitle: "375",
     severity: "info",
     summary: L("37.5% gold — the UK's entry-level standard, legal to sell as gold there but not in the US, where 10K is the floor. More base metal than gold, so it can dull slightly and is worth far less by weight than it looks.", "ذهب 37.5%، وهذا أدنى عيار مسموح ببريطانيا، وممنوع يتباع كذهب بأمريكا لأن الحد عندهم عيار 10. المعادن الثانية فيه أكثر من الذهب، فممكن يبهت لونه، وقيمته بالوزن أقل بكثير من شكله."),
-    action: L("Expect roughly 40% of the gold value of a 22K piece of the same weight, and negotiate on that basis. It is a sensible buy for durable everyday jewellery and a poor one as a store of value.", "توقع تقريباً حوالي ٤٠٪ من قيمة قطعة عيار ٢٢ بنفس الوزن، واحسبه على هالأساس. حلو كذهب للبس اليومي، بس ما ينفع كاستثمار."),
+    action: L("Expect roughly 40% of the gold value of a 22K piece of the same weight, and negotiate on that basis. It is a sensible buy for durable everyday jewellery and a poor one as a store of value.", "توقع تقريباً حوالي 40٪ من قيمة قطعة عيار 22 بنفس الوزن، واحسبه على هالأساس. حلو كذهب للبس اليومي، بس ما ينفع كاستثمار."),
   },
   {
     id: "karat-24k",
@@ -117,7 +117,7 @@ export const GOLDSCAN_LIBRARY: LibraryEntry[] = [
     subtitle: "9K",
     severity: "info",
     summary: L("Equal to 375 and common in the UK, Australia and South Africa. It is genuinely solid gold, but under 40% of it is gold, so resale value is low compared with the ticket price.", "تساوي 375، ومنتشرة ببريطانيا وأستراليا وجنوب أفريقيا. هو ذهب كامل فعلاً، بس أقل من 40% منه ذهب، فقيمته لما تبيعه تطلع قليلة مقارنة بسعر الشرا."),
-    action: L("On a British piece it should sit alongside a full hallmark with 375 and an assay office mark; a lone '9K' with no hallmark is worth checking. Price it at about 40% of a 22K piece of the same weight.", "ببريطانيا لازم تكون جنبها دمغة رسمية فيها 375 وختم مكتب الفحص؛ وإذا القطعة بريطانية ومكتوب عليها 9K بس بدون دمغة، تستاهل فحص. واحسب قيمتها حوالي ٤٠٪ من قطعة عيار ٢٢ بنفس الوزن."),
+    action: L("On a British piece it should sit alongside a full hallmark with 375 and an assay office mark; a lone '9K' with no hallmark is worth checking. Price it at about 40% of a 22K piece of the same weight.", "ببريطانيا لازم تكون جنبها دمغة رسمية فيها 375 وختم مكتب الفحص؛ وإذا القطعة بريطانية ومكتوب عليها 9K بس بدون دمغة، تستاهل فحص. واحسب قيمتها حوالي 40٪ من قطعة عيار 22 بنفس الوزن."),
   },
   {
     id: "plated-gp",
@@ -140,7 +140,7 @@ export const GOLDSCAN_LIBRARY: LibraryEntry[] = [
     title: L("Heavy Gold Electroplate", "طلاء ذهب ثقيل"),
     subtitle: "HGE",
     severity: "critical",
-    summary: L("'Heavy' sounds reassuring but US FTC rules require a 2.5 micron minimum, ten times plain plating — HGE is still electroplating, just a slightly thicker layer, usually over a brass core. Very common on 1980s and 90s chains and on marketplace listings that read '18K HGE'.", "كلمة «ثقيل» تطمّن بس قوانين FTC الأمريكية بتفرض ٢٫٥ ميكرون كحد أدنى، عشر أضعاف الطلي العادي — HGE برضه طلاء بالكهرباء، بس طبقته أسمك شوي وغالباً فوق نحاس أصفر. منتشرة بسلاسل الثمانينات والتسعينات وبإعلانات النت المكتوب فيها «18K HGE»."),
+    summary: L("'Heavy' sounds reassuring but US FTC rules require a 2.5 micron minimum, ten times plain plating — HGE is still electroplating, just a slightly thicker layer, usually over a brass core. Very common on 1980s and 90s chains and on marketplace listings that read '18K HGE'.", "كلمة «ثقيل» تطمّن بس قوانين FTC الأمريكية بتفرض 2٫5 ميكرون كحد أدنى، عشر أضعاف الطلي العادي — HGE برضه طلاء بالكهرباء، بس طبقته أسمك شوي وغالباً فوق نحاس أصفر. منتشرة بسلاسل الثمانينات والتسعينات وبإعلانات النت المكتوب فيها «18K HGE»."),
     action: L("Price it as costume jewellery. If a seller quotes it as '18K', point at the HGE letters and walk away — when the plating wears through you will see yellow-brown brass at the high points.", "سعّرها إكسسوار. وإذا البايع قال لك «عيار 18»، أشّر له على حروف HGE وامشِ؛ لأن الطلا لما يروح بيبين النحاس الأصفر من الأطراف."),
   },
   {

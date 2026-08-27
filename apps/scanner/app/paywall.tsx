@@ -11,24 +11,23 @@ import {
 } from "react-native";
 import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { LinearGradient } from "expo-linear-gradient";
 import Feather from "@expo/vector-icons/Feather";
 import { pack, bulletText, bulletDetail, bulletIcon, bulletGlyph } from "../src/packs";
 import { t, fill } from "../src/i18n";
 import { ui } from "../src/i18n/ui";
 import { UI_FONT } from "../src/ui-font";
-import { theme } from "../src/theme";
-import { GRADE, READ, BACK } from "../src/scanner-ui";
+import { BG, SURFACE, BORDER, TEXT, TEXT_SOFT, TEXT_FAINT, GRADE, READ } from "../src/scanner-ui";
 import { privacyUrl, supportUrl, termsUrl } from "../src/legal";
 import { getOffers, purchase, purchasesAvailable, restore, type Offer } from "../src/purchases";
 
 /**
  * The purchase screen.
  *
- * Its job is to answer the same question the app answers, one level up: a
- * driver is deciding whether this is worth carrying before the next time a
- * light comes on. So it opens with the fear, shows the three answers the
- * product gives, and only then asks for money.
+ * Flat, dark, and deliberately undecorated. It is selling an instrument, and
+ * an instrument that arrives wrapped in atmosphere is not one anybody trusts
+ * at a roadside — so there is no photograph behind it, no gradient, no glow
+ * and nothing floating. Separation comes from a hairline border and a surface
+ * a shade off the ground, and from space.
  *
  * The one rule enforced in code rather than copy: a trial is only ever
  * offered for a plan that has one. An annual plan sitting under "start your
@@ -36,6 +35,10 @@ import { getOffers, purchase, purchasesAvailable, restore, type Offer } from "..
  * a purchase screen — the kind App Review rejects and, worse, the kind a
  * buyer discovers on their statement.
  */
+
+/** Wide margins are part of the design, not slack. */
+const GUTTER = 28;
+
 export default function Paywall() {
   const router = useRouter();
   const [offers, setOffers] = useState<Offer[]>([]);
@@ -45,8 +48,8 @@ export default function Paywall() {
   useEffect(() => {
     (async () => {
       const live = await getOffers();
-      // Fall back to the pack's configured pricing so the paywall is always
-      // a real screen — in dev, and if offerings fail to load on a bad network.
+      // Fall back to the pack's configured pricing so the paywall is always a
+      // real screen — in dev, and if offerings fail to load on a bad network.
       const shown: Offer[] = live.length
         ? live
         : pack.pricing.products.map((product) => ({
@@ -77,16 +80,10 @@ export default function Paywall() {
     if (done) router.back();
   };
 
+  const benefits = pack.paywall.bullets;
+
   return (
     <View style={styles.root}>
-      {/* A night road, drawn rather than photographed. A stock photo of
-          someone else's car would be decoration pretending to be evidence. */}
-      <LinearGradient
-        colors={["#1A1206", "#12131A", theme.bg]}
-        locations={[0, 0.45, 1]}
-        style={StyleSheet.absoluteFill}
-      />
-
       <SafeAreaView style={styles.safe} edges={["top", "bottom"]}>
         <Pressable
           style={styles.close}
@@ -95,7 +92,7 @@ export default function Paywall() {
           accessibilityRole="button"
           accessibilityLabel={t(ui.cancel)}
         >
-          <Feather name="x" size={22} color={theme.textSoft} />
+          <Feather name="x" size={24} color={TEXT_SOFT} />
         </Pressable>
 
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
@@ -103,47 +100,40 @@ export default function Paywall() {
           <Text style={styles.sub}>{t(ui.paywallSub)}</Text>
 
           {/* The severity language, met here first rather than at the
-              roadside. Three cards, three colours, three sentences. */}
+              roadside. Three equal cards, line-art, no effects. */}
           <View style={styles.grades}>
-            <GradeCard
-              tone="critical"
-              icon="octagon"
-              title={t(ui.cardStopTitle)}
-              line={t(ui.cardStopLine)}
-            />
-            <GradeCard
-              tone="warning"
-              icon="alert-triangle"
-              title={t(ui.cardCautionTitle)}
-              line={t(ui.cardCautionLine)}
-            />
-            <GradeCard
-              tone="info"
-              icon="check-circle"
-              title={t(ui.cardOkTitle)}
-              line={t(ui.cardOkLine)}
-            />
+            <GradeCard tone="critical" icon="octagon" title={t(ui.cardStopTitle)} line={t(ui.cardStopLine)} />
+            <GradeCard tone="warning" icon="alert-triangle" title={t(ui.cardCautionTitle)} line={t(ui.cardCautionLine)} />
+            <GradeCard tone="info" icon="check-circle" title={t(ui.cardOkTitle)} line={t(ui.cardOkLine)} />
           </View>
 
-          <View style={styles.benefits}>
-            <Text style={styles.benefitsTitle}>{t(ui.youGet)}</Text>
-            <View style={styles.benefitRow}>
-              {pack.paywall.bullets.map((bullet) => {
+          {/* One card, one grid. Hairlines rather than boxes inside boxes. */}
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>{t(ui.youGet)}</Text>
+            <View style={styles.grid}>
+              {benefits.map((bullet, index) => {
                 const icon = bulletIcon(bullet);
                 const detail = bulletDetail(bullet);
                 return (
-                  <View key={t(bulletText(bullet))} style={styles.benefit}>
+                  <View
+                    key={t(bulletText(bullet))}
+                    style={[
+                      styles.cell,
+                      index % 2 === 0 && index < benefits.length - 1 && styles.cellDivided,
+                      index >= 2 && styles.cellRow,
+                    ]}
+                  >
                     {icon ? (
                       <Feather
                         name={icon as React.ComponentProps<typeof Feather>["name"]}
-                        size={20}
-                        color={theme.accent}
+                        size={18}
+                        color={TEXT_SOFT}
                       />
                     ) : (
-                      <Text style={styles.benefitGlyph}>{bulletGlyph(bullet)}</Text>
+                      <Text style={styles.cellGlyph}>{bulletGlyph(bullet)}</Text>
                     )}
-                    <Text style={styles.benefitTitle}>{t(bulletText(bullet))}</Text>
-                    {detail ? <Text style={styles.benefitDetail}>{t(detail)}</Text> : null}
+                    <Text style={styles.cellTitle}>{t(bulletText(bullet))}</Text>
+                    {detail ? <Text style={styles.cellDetail}>{t(detail)}</Text> : null}
                   </View>
                 );
               })}
@@ -151,7 +141,7 @@ export default function Paywall() {
           </View>
 
           {offers.length === 0 ? (
-            <ActivityIndicator color={theme.textSoft} style={styles.loading} />
+            <ActivityIndicator color={TEXT_SOFT} style={styles.loading} />
           ) : (
             <View style={styles.offers}>
               {offers.map((offer) => {
@@ -183,8 +173,8 @@ export default function Paywall() {
                     </View>
 
                     {configured?.badge ? (
-                      <View style={styles.ribbon}>
-                        <Text style={styles.ribbonText}>{t(configured.badge)}</Text>
+                      <View style={styles.badge}>
+                        <Text style={styles.badgeText}>{t(configured.badge)}</Text>
                       </View>
                     ) : null}
                   </Pressable>
@@ -196,16 +186,17 @@ export default function Paywall() {
           {/* Shown only when the selected plan actually has a trial. */}
           {trialDays ? (
             <View style={styles.reassure}>
-              <Feather name="shield" size={20} color={GRADE.info.fg} />
+              <Feather name="shield" size={18} color={GRADE.info.fg} />
               <View style={styles.reassureBody}>
-                <Text style={styles.reassureTitle}>
-                  {fill(ui.trialSafeTitle, { n: trialDays })}
-                </Text>
+                <Text style={styles.reassureTitle}>{fill(ui.trialSafeTitle, { n: trialDays })}</Text>
                 <Text style={styles.reassureLine}>{t(ui.trialSafeBody)}</Text>
               </View>
             </View>
           ) : null}
 
+          {/* Off-white rather than amber: amber is the caution grade three
+              cards up this same screen, and a button that wears the warning
+              colour is the one confusion this app cannot afford. */}
           <Pressable
             style={({ pressed }) => [
               styles.cta,
@@ -217,20 +208,17 @@ export default function Paywall() {
             accessibilityRole="button"
           >
             {working ? (
-              <ActivityIndicator color={theme.bg} />
+              <ActivityIndicator color={BG} />
             ) : (
-              <>
-                <Text style={styles.ctaText}>
-                  {trialDays ? fill(ui.startTrialDays, { n: trialDays }) : t(ui.subscribeNow)}
-                </Text>
-                <Text style={styles.ctaChevron}>{BACK === "‹" ? "›" : "‹"}</Text>
-              </>
+              <Text style={styles.ctaText}>
+                {trialDays ? fill(ui.startTrialDays, { n: trialDays }) : t(ui.subscribeNow)}
+              </Text>
             )}
           </Pressable>
 
           <View style={styles.trust}>
             <Trust icon="rotate-ccw" label={t(ui.trustCancel)} />
-            <Trust icon="headphones" label={t(ui.trustArabic)} />
+            <Trust icon="globe" label={t(ui.trustArabic)} />
             <Trust icon="lock" label={t(ui.trustPrivate)} />
           </View>
 
@@ -254,7 +242,6 @@ export default function Paywall() {
   );
 }
 
-/** One of the three answers the product gives, in its own colour. */
 function GradeCard({
   tone,
   icon,
@@ -272,12 +259,7 @@ function GradeCard({
       <Text style={[styles.gradeTitle, { color: grade.fg }]} numberOfLines={2}>
         {title}
       </Text>
-      <View style={styles.gradeMark}>
-        <Feather name={icon} size={34} color={grade.fg} />
-        {tone === "critical" ? (
-          <Text style={[styles.gradeStop, { color: grade.fg }]}>STOP</Text>
-        ) : null}
-      </View>
+      <Feather name={icon} size={24} color={grade.fg} />
       <Text style={styles.gradeLine} numberOfLines={2}>
         {line}
       </Text>
@@ -294,7 +276,7 @@ function Trust({
 }) {
   return (
     <View style={styles.trustItem}>
-      <Feather name={icon} size={14} color={theme.textFaint} />
+      <Feather name={icon} size={14} color={TEXT_FAINT} />
       <Text style={styles.trustText} numberOfLines={2}>
         {label}
       </Text>
@@ -311,174 +293,153 @@ function Legal({ label, url }: { label: string; url: string }) {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: theme.bg },
+  root: { flex: 1, backgroundColor: BG },
   safe: { flex: 1 },
-  close: { alignSelf: "flex-start", padding: 16 },
-  content: { paddingHorizontal: 20, paddingBottom: 32, gap: 20 },
+  close: { alignSelf: "flex-start", padding: 20 },
+  content: { paddingHorizontal: GUTTER, paddingBottom: 40, gap: 26 },
 
   headline: {
-    color: theme.text,
-    fontSize: 30,
-    lineHeight: 46,
+    color: TEXT,
+    fontSize: 34,
+    lineHeight: 50,
     fontFamily: UI_FONT.bold,
     textAlign: "center",
   },
   sub: {
-    color: theme.textSoft,
-    fontSize: 15,
-    lineHeight: 26,
+    color: TEXT_SOFT,
+    fontSize: 17,
+    lineHeight: 29,
     fontFamily: UI_FONT.regular,
     textAlign: "center",
   },
 
-  grades: { flexDirection: "row", gap: 8 },
+  grades: { flexDirection: "row", gap: 10 },
   grade: {
     flex: 1,
     alignItems: "center",
-    gap: 10,
-    borderWidth: 1,
-    borderRadius: 14,
-    paddingVertical: 16,
+    gap: 12,
+    borderWidth: 1.5,
+    borderRadius: 20,
+    paddingVertical: 18,
     paddingHorizontal: 8,
   },
-  gradeTitle: { fontSize: 12, lineHeight: 17, fontFamily: UI_FONT.bold, textAlign: "center" },
-  gradeMark: { alignItems: "center", justifyContent: "center" },
-  gradeStop: { position: "absolute", fontSize: 9, fontFamily: UI_FONT.bold, letterSpacing: 0.2 },
-  gradeLine: {
-    color: theme.text,
-    fontSize: 12,
-    lineHeight: 20,
-    fontFamily: UI_FONT.medium,
-    textAlign: "center",
-  },
+  gradeTitle: { fontSize: 13, lineHeight: 19, fontFamily: UI_FONT.bold, textAlign: "center" },
+  gradeLine: { color: TEXT, fontSize: 13, lineHeight: 20, fontFamily: UI_FONT.regular, textAlign: "center" },
 
-  benefits: {
-    backgroundColor: theme.surface,
-    borderWidth: 1,
-    borderColor: theme.border,
-    borderRadius: 16,
-    padding: 16,
-    gap: 14,
+  card: {
+    backgroundColor: SURFACE,
+    borderWidth: 1.5,
+    borderColor: BORDER,
+    borderRadius: 26,
+    paddingVertical: 24,
+    paddingHorizontal: 20,
+    gap: 20,
   },
-  benefitsTitle: {
-    color: theme.text,
-    fontSize: 16,
-    fontFamily: UI_FONT.bold,
-    textAlign: READ,
-  },
-  /* Wraps rather than squeezing: five items across a small phone would give
-     each about sixty points, and a benefit nobody can read is not one. */
-  benefitRow: { flexDirection: "row", flexWrap: "wrap", rowGap: 18, columnGap: 8 },
-  benefit: { flexGrow: 1, flexBasis: "28%", minWidth: 92, alignItems: "center", gap: 6 },
-  benefitGlyph: { color: theme.accent, fontSize: 18 },
-  benefitTitle: {
-    color: theme.text,
+  cardTitle: { color: TEXT, fontSize: 19, fontFamily: UI_FONT.bold, textAlign: READ },
+
+  /* Two columns rather than five: five across a phone gives each about sixty
+     points, and a benefit nobody can read is not one. */
+  grid: { flexDirection: "row", flexWrap: "wrap" },
+  cell: { width: "50%", gap: 7, paddingVertical: 14, paddingHorizontal: 10, alignItems: "center" },
+  cellDivided: { borderRightWidth: 1, borderRightColor: BORDER },
+  cellRow: { borderTopWidth: 1, borderTopColor: BORDER },
+  cellGlyph: { color: TEXT_SOFT, fontSize: 17 },
+  cellTitle: { color: TEXT, fontSize: 14.5, fontFamily: UI_FONT.bold, textAlign: "center" },
+  cellDetail: {
+    color: TEXT_FAINT,
     fontSize: 12.5,
-    fontFamily: UI_FONT.bold,
-    textAlign: "center",
-  },
-  benefitDetail: {
-    color: theme.textFaint,
-    fontSize: 11,
-    lineHeight: 17,
+    lineHeight: 19,
     fontFamily: UI_FONT.regular,
     textAlign: "center",
   },
 
-  loading: { marginVertical: 24 },
-  offers: { gap: 10 },
+  loading: { marginVertical: 28 },
+  offers: { gap: 12 },
   offer: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 14,
-    minHeight: 76,
-    backgroundColor: theme.surface,
-    borderRadius: 16,
+    gap: 16,
+    minHeight: 82,
+    backgroundColor: SURFACE,
+    borderRadius: 22,
     borderWidth: 1.5,
-    borderColor: theme.border,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    borderColor: BORDER,
+    paddingHorizontal: 18,
+    paddingVertical: 16,
   },
-  offerActive: { borderColor: theme.accent, backgroundColor: theme.surfaceAlt },
+  offerActive: { borderColor: "#F2A33C" },
   radio: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    borderWidth: 2,
-    borderColor: theme.border,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: BORDER,
     alignItems: "center",
     justifyContent: "center",
   },
-  radioOn: { borderColor: theme.accent },
-  radioDot: { width: 12, height: 12, borderRadius: 6, backgroundColor: theme.accent },
+  radioOn: { borderColor: "#F2A33C" },
+  radioDot: { width: 11, height: 11, borderRadius: 6, backgroundColor: "#F2A33C" },
   offerBody: { flex: 1, gap: 3 },
-  offerTitle: { color: theme.text, fontSize: 18, fontFamily: UI_FONT.bold },
-  offerNote: { color: theme.textFaint, fontSize: 12, fontFamily: UI_FONT.regular },
+  offerTitle: { color: TEXT, fontSize: 19, fontFamily: UI_FONT.bold, textAlign: READ },
+  offerNote: { color: TEXT_FAINT, fontSize: 12.5, fontFamily: UI_FONT.regular, textAlign: READ },
   offerPriceWrap: { alignItems: "flex-end", gap: 2 },
-  offerPrice: { color: theme.text, fontSize: 22, fontFamily: UI_FONT.bold },
-  offerPeriod: { color: theme.textFaint, fontSize: 11, fontFamily: UI_FONT.regular },
-  ribbon: {
+  offerPrice: { color: TEXT, fontSize: 22, fontFamily: UI_FONT.bold },
+  offerPeriod: { color: TEXT_FAINT, fontSize: 11.5, fontFamily: UI_FONT.regular },
+  badge: {
     position: "absolute",
-    top: -9,
-    [READ === "right" ? "right" : "left"]: 16,
-    backgroundColor: theme.accent,
-    borderRadius: 6,
-    paddingVertical: 2,
-    paddingHorizontal: 8,
+    top: -10,
+    [READ === "right" ? "right" : "left"]: 20,
+    backgroundColor: "#F2A33C",
+    borderRadius: 7,
+    paddingVertical: 3,
+    paddingHorizontal: 9,
   },
-  ribbonText: { color: theme.bg, fontSize: 10.5, fontFamily: UI_FONT.bold },
+  badgeText: { color: BG, fontSize: 11, fontFamily: UI_FONT.bold },
 
   reassure: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    backgroundColor: GRADE.info.bg,
-    borderWidth: 1,
+    backgroundColor: SURFACE,
+    borderWidth: 1.5,
     borderColor: GRADE.info.line,
-    borderRadius: 14,
-    padding: 14,
+    borderRadius: 20,
+    paddingVertical: 16,
+    paddingHorizontal: 18,
   },
   reassureBody: { flex: 1, gap: 3 },
-  reassureTitle: { color: theme.text, fontSize: 14.5, fontFamily: UI_FONT.bold, textAlign: READ },
+  reassureTitle: { color: TEXT, fontSize: 15, fontFamily: UI_FONT.bold, textAlign: READ },
   reassureLine: {
-    color: theme.textSoft,
-    fontSize: 12.5,
+    color: TEXT_SOFT,
+    fontSize: 13,
     lineHeight: 21,
     fontFamily: UI_FONT.regular,
     textAlign: READ,
   },
 
   cta: {
-    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 10,
-    backgroundColor: theme.accent,
-    borderRadius: 16,
-    minHeight: 60,
+    backgroundColor: "#E8EDF2",
+    borderRadius: 20,
+    minHeight: 62,
   },
-  ctaOff: { opacity: 0.45 },
-  ctaText: { color: theme.bg, fontSize: 18, fontFamily: UI_FONT.bold },
-  ctaChevron: { color: theme.bg, fontSize: 20, fontFamily: UI_FONT.bold },
+  ctaOff: { opacity: 0.4 },
+  ctaText: { color: BG, fontSize: 18, fontFamily: UI_FONT.bold },
 
-  trust: { flexDirection: "row", justifyContent: "space-between", gap: 8 },
-  trustItem: { flex: 1, alignItems: "center", gap: 5 },
+  trust: { flexDirection: "row", justifyContent: "space-between", gap: 10 },
+  trustItem: { flex: 1, alignItems: "center", gap: 6 },
   trustText: {
-    color: theme.textFaint,
-    fontSize: 11,
-    lineHeight: 16,
+    color: TEXT_FAINT,
+    fontSize: 11.5,
+    lineHeight: 17,
     fontFamily: UI_FONT.regular,
     textAlign: "center",
   },
 
-  restore: {
-    color: theme.textSoft,
-    fontSize: 13,
-    fontFamily: UI_FONT.medium,
-    textAlign: "center",
-  },
+  restore: { color: TEXT_SOFT, fontSize: 13.5, fontFamily: UI_FONT.medium, textAlign: "center" },
   renewal: {
-    color: theme.textFaint,
+    color: TEXT_FAINT,
     fontSize: 11,
     lineHeight: 19,
     fontFamily: UI_FONT.regular,
@@ -486,10 +447,10 @@ const styles = StyleSheet.create({
   },
   legalRow: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 8 },
   legalLink: {
-    color: theme.textSoft,
+    color: TEXT_SOFT,
     fontSize: 12,
     fontFamily: UI_FONT.regular,
     textDecorationLine: "underline",
   },
-  legalDot: { color: theme.textFaint, fontSize: 12 },
+  legalDot: { color: TEXT_FAINT, fontSize: 12 },
 });

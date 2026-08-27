@@ -18,8 +18,8 @@ const accent = (Constants.expoConfig?.extra?.accent as string) || "#F2A33C";
 export const theme = {
   accent,
   bg: "#0C0E13",
-  surface: "#141B20",
-  surfaceAlt: "#1B2229",
+  surface: "#182028",
+  surfaceAlt: "#1F2831",
   border: "#2A3039",
   text: "#F2F4F8",
   textSoft: "#9AA3B2",
@@ -42,7 +42,7 @@ export const theme = {
    */
   action: pack.kind === "audio" ? accent : "#E8EDF2",
   onAction: "#0C0E13",
-  radius: 16,
+  radius: 20,
   space: (n: number) => n * 4,
 } as const;
 
