@@ -13,8 +13,16 @@ const KEYS = {
   history: k("history"),
 };
 
-/** How many scans a user gets before the paywall. */
-export const FREE_SCANS = 1;
+/**
+ * How many scans a user gets before the paywall.
+ *
+ * Two rather than one: the first scan is often a test — a driver pointing the
+ * camera at a dashboard that is not lit, or a photo too dark to read — and
+ * spending someone's only free scan on their trial run means they hit the
+ * paywall having never seen the app work. The second is the one that answers
+ * a real question, and that is what they are being asked to pay for.
+ */
+export const FREE_SCANS = 2;
 
 export type HistoryEntry = {
   id: string;

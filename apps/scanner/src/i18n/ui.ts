@@ -53,7 +53,6 @@ export const ui = {
   guide: L("Guide", "الدليل"),
   gallery: L("Gallery", "المعرض"),
   analysing: L("Analysing…", "عم نحلل الصورة…"),
-  scansLeft: L("free scan left", "فحص مجاني"),
   upgrade: L("Upgrade", "ترقية"),
   cameraNeeded: L("Camera access needed", "بدنا إذن الكاميرا"),
   allowCamera: L("Allow camera", "اسمح بالوصول"),
@@ -575,6 +574,9 @@ export const ui = {
   // kind of line that makes an app look unfinished on the first screen.
   scanQuotaNone: L("No free scans left", "ما ضل فحص مجاني"),
   scanQuotaOne: L("1 free scan left", "ضل فحص مجاني واحد"),
+  // Arabic counts two as its own grammatical form, and two is now where every
+  // driver starts — so "٢ فحوصات" would be wrong on the first screen they see.
+  scanQuotaTwo: L("2 free scans left", "ضل فحصين مجانيين"),
   scanQuotaMany: L("{n} free scans left", "ضل {n} فحوصات مجانية"),
   // The grade of a light, as a word. Colour alone is not a signal a
   // colour-blind driver can read, and this is the screen where being misread

@@ -234,7 +234,9 @@ export function ScannerHome({ pack }: { pack: ScannerPack }) {
                   ? t(ui.scanQuotaNone)
                   : scansLeft === 1
                     ? t(ui.scanQuotaOne)
-                    : fill(ui.scanQuotaMany, { n: scansLeft })}
+                    : scansLeft === 2
+                      ? t(ui.scanQuotaTwo)
+                      : fill(ui.scanQuotaMany, { n: scansLeft })}
               </Text>
             </Pressable>
           ) : null}
