@@ -80,6 +80,18 @@ export default function RootLayout() {
         <Stack.Screen name="session" options={{ headerShown: false, presentation: "fullScreenModal" }} />
         <Stack.Screen name="price-check" options={{ title: t(ui.priceCheck) }} />
         <Stack.Screen name="plan" options={{ title: isProgram(pack) ? t(pack.nouns.plan) : t(ui.noPlan) }} />
+        {/* The lecture screens paint their own chrome on a near-black ground;
+            a stack header over it would break the design in two. */}
+        <Stack.Screen
+          name="record"
+          options={{ headerShown: false, presentation: "fullScreenModal", gestureEnabled: false }}
+        />
+        <Stack.Screen
+          name="analyzing"
+          options={{ headerShown: false, presentation: "fullScreenModal", gestureEnabled: false }}
+        />
+        <Stack.Screen name="lecture" options={{ headerShown: false }} />
+        <Stack.Screen name="paste" options={{ headerShown: false }} />
       </Stack>
     </SafeAreaProvider>
   );

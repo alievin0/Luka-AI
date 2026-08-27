@@ -12,7 +12,7 @@ import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Haptics from "expo-haptics";
-import { pack, activePackId, isScanner } from "../src/packs";
+import { pack, activePackId, isScanner, optionLabel, optionValue } from "../src/packs";
 import { t } from "../src/i18n";
 import { ui } from "../src/i18n/ui";
 import { theme, withAlpha } from "../src/theme";
@@ -96,11 +96,13 @@ export default function Onboarding() {
             <View style={styles.options}>
               {questions[step - 1].options.map((option) => (
                 <Pressable
-                  key={t(option)}
+                  key={t(optionLabel(option))}
                   style={({ pressed }) => [styles.option, pressed && styles.optionPressed]}
-                  onPress={() => answer(questions[step - 1].key, t(option))}
+                  onPress={() =>
+                    answer(questions[step - 1].key, optionValue(option, t))
+                  }
                 >
-                  <Text style={styles.optionText}>{t(option)}</Text>
+                  <Text style={styles.optionText}>{t(optionLabel(option))}</Text>
                   <Text style={styles.chevron}>‹</Text>
                 </Pressable>
               ))}

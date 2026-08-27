@@ -219,6 +219,88 @@ export const ui = {
     "الصورة ما بتقدر تثبت إن الذهب خالص مش مطلي — بس فحص الحمض أو XRF أو الكثافة بيقدر. هذا بيقرا الدمغة وبيفحص حساب السعر.",
   ),
 
+  // ---------------------------------------------------------------- lectures
+  recording: L("Recording", "بيسجّل"),
+  processing: L("Studying", "بيذاكر"),
+  failed: L("Failed", "فشل"),
+  endLecture: L("End the lecture", "إنهاء المحاضرة"),
+  markImportant: L("Mark this important", "علّمها مهمة"),
+  importantMoments: L("Important moments", "اللقطات المهمة"),
+  markedByYou: L("you marked it", "علّمتها إنت"),
+  newLecture: L("New lecture", "محاضرة جديدة"),
+  lectureTitle: L("Lecture title", "عنوان المحاضرة"),
+  untitledLecture: L("Untitled lecture", "محاضرة بدون عنوان"),
+  pasteTitle: L("Paste lecture text", "لصق نص محاضرة"),
+  pasteHint: L(
+    "Paste a transcript you already have and Mahdar will study it the same way — minus the tone of voice, which only recording can hear.",
+    "الصق نص محاضرة عندك ومَحضَر بيذاكرها بنفس الطريقة — بدون النبرة، لأن النبرة بس التسجيل بيسمعها.",
+  ),
+  pasteHere: L("Paste the lecture text here…", "الصق نص المحاضرة هون..."),
+  study: L("Study it", "ذاكرها"),
+  needMoreText: L("That's too short to study. Paste more of the lecture.", "النص قصير كتير. الصق مقطع أطول من المحاضرة."),
+  micDenied: L(
+    "Mahdar needs the microphone to record the lecture. Allow it in Settings and come back.",
+    "مَحضَر محتاج المايك عشان يسجل المحاضرة. اسمح فيه من الإعدادات وارجع.",
+  ),
+
+  // review screen
+  home: L("Home", "الرئيسية"),
+  copyAll: L("Copy all", "نسخ الكل"),
+  downloadMd: L("Download .md", "تحميل .md"),
+  retranscribe: L("Re-transcribe from the recording", "أعد التفريغ من التسجيل"),
+  reanalyse: L("Re-analyse", "أعد التحليل"),
+  deleteLecture: L("Delete", "حذف"),
+  deleteLectureConfirm: L(
+    "Delete this lecture and its recording? This can't be undone.",
+    "نحذف المحاضرة وتسجيلها؟ ما في رجعة.",
+  ),
+  copied: L("Copied", "اننسخ"),
+  playerHint: L(
+    "The lecture recording — tap any moment of emphasis to hear it again",
+    "تسجيل المحاضرة — اضغط أي لحظة نبرة ترجع تسمعها",
+  ),
+  minShort: L("min", "د"),
+  tasksCount: L("tasks", "المهام"),
+  termsCount: L("concepts", "المفاهيم"),
+
+  // tabs
+  tabSummary: L("Summary", "الملخص"),
+  tabTasks: L("Tasks", "المهام"),
+  tabTerms: L("Concepts", "المفاهيم"),
+  tabExam: L("Exam predictions", "توقعات الامتحان"),
+  tabMap: L("Lecture map", "خريطة المحاضرة"),
+  tabTone: L("Tone", "النبرة"),
+  tabTranscript: L("Full text", "النص الكامل"),
+
+  downloadIcs: L("Download calendar (.ics)", "تحميل التقويم (.ics)"),
+  enableReminders: L("Turn on reminders", "فعّل التذكيرات"),
+  remindersOn: L("Reminders on", "التذكيرات شغالة"),
+  easy: L("Easy", "بسيط"),
+  medium: L("Medium", "متوسط"),
+  hard: L("Hard", "صعب"),
+  confHigh: L("High", "عالية"),
+  confMedium: L("Medium", "متوسطة"),
+  confLow: L("Low", "منخفضة"),
+  noTasks: L("The lecturer didn't set anything.", "الدكتور ما حط إشي."),
+  noTerms: L("No new terms were introduced.", "ما في مصطلحات جديدة."),
+  noExam: L(
+    "The lecturer never signalled what would be examined — nothing to predict from.",
+    "الدكتور ما أشّر على إشي للامتحان — ما في من وين نتوقع.",
+  ),
+  noTone: L(
+    "Nothing stood out in the lecturer's voice this time.",
+    "ما في إشي برز بصوت الدكتور هالمرة.",
+  ),
+  keyPoints: L("Key points", "النقاط الأساسية"),
+  transcribeFailed: L(
+    "We couldn't transcribe the recording. The audio is kept — you can try again.",
+    "ما قدرنا نفرّغ التسجيل. الصوت محفوظ — فيك تجرّب كمان مرة.",
+  ),
+  freeLectureUsed: L(
+    "You've used your free lecture. Subscribe to keep recording.",
+    "استعملت محاضرتك المجانية. اشترك عشان تكمّل تسجيل.",
+  ),
+
   // errors
   rateLimited: L(
     "Too many scans in a short time. Try again shortly.",

@@ -337,12 +337,59 @@ def build_dogtrain(size, scale=1.0, background=(14, 20, 32)):
     return shapes
 
 
+def build_mahdar(size, scale=1.0, background=(14, 13, 11)):
+    """A voice becoming notes.
+
+    The left half is a waveform — bars rising and falling around the centre
+    line. The right half is the same bars laid flat into lines of text. Read
+    right-to-left, the way the app's own language runs, it is the lecture
+    turning into something you can study from, and at 40px it still reads as
+    "audio, and writing" rather than as a generic microphone."""
+    gold = (217, 190, 131)
+    c = size / 2
+    s = size * scale * 0.86
+
+    shapes = []
+
+    # Waveform: five bars, tallest in the middle, centred on the axis.
+    heights = [0.13, 0.26, 0.38, 0.24, 0.11]
+    bar_w = s * 0.038
+    for i, h in enumerate(heights):
+        x = c - s * 0.40 + i * s * 0.085
+        shapes.append(
+            (
+                lambda px, py, x=x, h=h: sd_capsule(
+                    px, py, x, c - s * h, x, c + s * h, bar_w
+                ),
+                gold,
+            )
+        )
+
+    # Text lines: three, ragged on the left the way a real line of type ends.
+    for i, (width, y) in enumerate(
+        [(0.28, -0.19), (0.32, 0.0), (0.18, 0.19)]
+    ):
+        x_end = c + s * 0.38
+        x_start = x_end - s * width
+        shapes.append(
+            (
+                lambda px, py, a=x_start, b=x_end, y=y: sd_capsule(
+                    px, py, a, c + s * y, b, c + s * y, s * 0.036
+                ),
+                gold,
+            )
+        )
+
+    return shapes
+
+
 PACKS = {
     "dashlight": {"bg": (20, 23, 31), "build": build_dashlight},
     "bugscan": {"bg": (15, 23, 20), "build": build_bugscan},
     "goldscan": {"bg": (26, 21, 9), "build": build_goldscan},
     "womensfit": {"bg": (23, 16, 20), "build": build_womensfit},
     "dogtrain": {"bg": (14, 20, 32), "build": build_dogtrain},
+    "mahdar": {"bg": (14, 13, 11), "build": build_mahdar},
 }
 
 

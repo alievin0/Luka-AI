@@ -1,0 +1,172 @@
+import * as Notifications from "expo-notifications";
+import { t } from "./i18n";
+import { ui } from "./i18n/ui";
+import type { Lecture } from "./packs";
+import { clock, transcriptOfSegments } from "./lectures";
+
+/** Markdown, calendar files and reminders — the three ways a lecture leaves
+ *  the app and lands somewhere the student actually works. */
+
+export function toMarkdown(lecture: Lecture): string {
+  const a = lecture.analysis;
+  const date = new Date(lecture.at).toLocaleDateString();
+  const lines: string[] = [`# ${lecture.title || t(ui.untitledLecture)}`, "", `_${date}_`, ""];
+
+  if (a) {
+    lines.push("## " + t(ui.tabSummary), "", a.summary, "");
+
+    if (a.keyPoints.length) {
+      lines.push("## " + t(ui.keyPoints), "", ...a.keyPoints.map((p) => `- ${p}`), "");
+    }
+    if (a.tasks.length) {
+      lines.push(
+        "## " + t(ui.tabTasks),
+        "",
+        ...a.tasks.map((task) => `- [ ] ${task.text}${task.due ? ` — ${task.due}` : ""}`),
+        "",
+      );
+    }
+    if (a.examPredictions.length) {
+      lines.push(
+        "## " + t(ui.tabExam),
+        "",
+        ...a.examPredictions.map((p) => `- **${p.topic}** (${p.confidence}) — ${p.why}`),
+        "",
+      );
+    }
+    if (a.emphasised.length) {
+      lines.push(
+        "## " + t(ui.tabTone),
+        "",
+        ...a.emphasised.map((e) => `- \`${clock(e.atSeconds)}\` ${e.text} — _${e.reason}_`),
+        "",
+      );
+    }
+    if (a.terms.length) {
+      lines.push("## " + t(ui.tabTerms), "", ...a.terms.map((x) => `- **${x.term}** — ${x.definition}`), "");
+    }
+    if (a.chapters.length) {
+      lines.push("## " + t(ui.tabMap), "");
+      for (const chapter of a.chapters) {
+        lines.push(`### ${clock(chapter.atSeconds)} — ${chapter.title}`, "");
+        lines.push(...chapter.points.map((p) => `- ${p}`), "");
+      }
+    }
+  }
+
+  lines.push("## " + t(ui.tabTranscript), "", transcriptOfSegments(lecture.segments), "");
+  return lines.join("\n");
+}
+
+/** RFC 5545 escaping: commas, semicolons and backslashes are separators, and
+ *  a raw newline ends the property. Getting this wrong silently corrupts the
+ *  whole file in most calendar apps rather than failing loudly. */
+const esc = (value: string) =>
+  value.replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\r?\n/g, "\\n");
+
+const stamp = (date: Date) => date.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+
+/** Tasks the lecturer dated precisely enough to put in a calendar. */
+export const datedTasks = (lecture: Lecture) =>
+  (lecture.analysis?.tasks ?? [])
+    .map((task, index) => ({ task, index }))
+    .filter(({ task }) => {
+      if (!task.dueISO) return false;
+      const time = Date.parse(task.dueISO);
+      return Number.isFinite(time);
+    });
+
+export function toIcs(lecture: Lecture): string | null {
+  const dated = datedTasks(lecture);
+  if (dated.length === 0) return null;
+
+  const lines = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//Mahdar//Lecture tasks//EN",
+    "CALSCALE:GREGORIAN",
+  ];
+
+  for (const { task, index } of dated) {
+    const due = new Date(task.dueISO!);
+    lines.push(
+      "BEGIN:VEVENT",
+      `UID:${lecture.id}-${index}@mahdar`,
+      `DTSTAMP:${stamp(new Date(lecture.at))}`,
+      `DTSTART:${stamp(due)}`,
+      `DTEND:${stamp(new Date(due.getTime() + 30 * 60 * 1000))}`,
+      `SUMMARY:${esc(task.text)}`,
+      `DESCRIPTION:${esc(`${lecture.title}${task.due ? ` — ${task.due}` : ""}`)}`,
+      "BEGIN:VALARM",
+      "TRIGGER:-PT12H",
+      "ACTION:DISPLAY",
+      `DESCRIPTION:${esc(task.text)}`,
+      "END:VALARM",
+      "END:VEVENT",
+    );
+  }
+
+  lines.push("END:VCALENDAR");
+  // RFC 5545 wants CRLF; some calendar apps reject LF-only files.
+  return lines.join("\r\n");
+}
+
+/**
+ * Schedules one local notification per dated task, twelve hours ahead.
+ *
+ * Only tasks with a resolved date get one: a reminder that fires at the wrong
+ * time trains someone to ignore every future reminder. Returns how many were
+ * actually scheduled so the UI can say so instead of claiming success.
+ */
+export async function scheduleTaskReminders(lecture: Lecture): Promise<number> {
+  const permission = await Notifications.getPermissionsAsync();
+  if (!permission.granted) {
+    const asked = await Notifications.requestPermissionsAsync();
+    if (!asked.granted) return 0;
+  }
+
+  let scheduled = 0;
+  for (const { task, index } of datedTasks(lecture)) {
+    const when = new Date(Date.parse(task.dueISO!) - 12 * 60 * 60 * 1000);
+    if (when.getTime() <= Date.now()) continue;
+    try {
+      await Notifications.scheduleNotificationAsync({
+        identifier: `${lecture.id}-task-${index}`,
+        content: { title: lecture.title || t(ui.untitledLecture), body: task.text },
+        trigger: {
+          type: Notifications.SchedulableTriggerInputTypes.DATE,
+          date: when,
+        },
+      });
+      scheduled += 1;
+    } catch {
+      // One bad date shouldn't cost the student the other reminders.
+    }
+  }
+  return scheduled;
+}
+
+export async function cancelTaskReminders(lecture: Lecture) {
+  const scheduled = await Notifications.getAllScheduledNotificationsAsync();
+  await Promise.all(
+    scheduled
+      .filter((n) => n.identifier.startsWith(`${lecture.id}-task-`))
+      .map((n) => Notifications.cancelScheduledNotificationAsync(n.identifier)),
+  );
+}
+
+/** Writes a file into cache and hands it to the OS share sheet. Cache is
+ *  right here: the file only has to survive long enough to be shared. */
+export async function shareFile(name: string, contents: string, mimeType: string) {
+  const { File, Paths } = require("expo-file-system") as typeof import("expo-file-system");
+  const Sharing = require("expo-sharing") as typeof import("expo-sharing");
+
+  const file = new File(Paths.cache, name);
+  if (file.exists) file.delete();
+  file.create();
+  file.write(contents);
+
+  if (!(await Sharing.isAvailableAsync())) return false;
+  await Sharing.shareAsync(file.uri, { mimeType, UTI: mimeType });
+  return true;
+}

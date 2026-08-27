@@ -13,6 +13,9 @@
 
 const WINDOW_MS = 60 * 60 * 1000; // 1 hour
 const MAX_PER_WINDOW = 30;
+/** Transcribing an hour of audio costs orders of magnitude more than one
+ *  image, so the lecture endpoints get their own, much tighter allowance. */
+export const LECTURE_MAX_PER_WINDOW = 6;
 /** Stop the map growing without bound if traffic is spread over many IPs. */
 const MAX_TRACKED_CLIENTS = 10_000;
 
@@ -41,17 +44,17 @@ export type RateVerdict =
   | { allowed: true; remaining: number }
   | { allowed: false; retryAfterSeconds: number };
 
-export function checkRateLimit(key: string): RateVerdict {
+export function checkRateLimit(key: string, max = MAX_PER_WINDOW): RateVerdict {
   const now = Date.now();
   if (buckets.size > MAX_TRACKED_CLIENTS) sweep(now);
 
   const bucket = buckets.get(key);
   if (!bucket || bucket.resetAt <= now) {
     buckets.set(key, { count: 1, resetAt: now + WINDOW_MS });
-    return { allowed: true, remaining: MAX_PER_WINDOW - 1 };
+    return { allowed: true, remaining: max - 1 };
   }
 
-  if (bucket.count >= MAX_PER_WINDOW) {
+  if (bucket.count >= max) {
     return {
       allowed: false,
       retryAfterSeconds: Math.max(1, Math.ceil((bucket.resetAt - now) / 1000)),
@@ -59,5 +62,5 @@ export function checkRateLimit(key: string): RateVerdict {
   }
 
   bucket.count += 1;
-  return { allowed: true, remaining: MAX_PER_WINDOW - bucket.count };
+  return { allowed: true, remaining: max - bucket.count };
 }

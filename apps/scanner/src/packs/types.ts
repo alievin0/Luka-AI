@@ -15,11 +15,33 @@ export type VerdictLevel = "stop" | "caution" | "ok";
 export type Confidence = "high" | "medium" | "low";
 export type Locale = "en" | "ar";
 
+/**
+ * An onboarding answer.
+ *
+ * Most answers only ever reach the model as prose, so a plain `Text` is
+ * enough and what gets stored is the translated label. When the app has to
+ * *branch* on the answer — picking a speech recogniser, say — the label is
+ * the wrong thing to store, because it changes with the device language.
+ * Those options carry an explicit, stable `value`.
+ */
+export type OnboardingOption = Text | { label: Text; value: string };
+
 export type OnboardingStep = {
   key: string;
   question: Text;
-  options: Text[];
+  options: OnboardingOption[];
 };
+
+const hasLabel = (option: OnboardingOption): option is { label: Text; value: string } =>
+  "label" in option;
+
+export const optionLabel = (option: OnboardingOption): Text =>
+  hasLabel(option) ? option.label : option;
+
+/** What gets written to the profile: the stable value where one is given,
+ *  and otherwise the label, which is what every existing pack expects. */
+export const optionValue = (option: OnboardingOption, resolve: (text: Text) => string) =>
+  hasLabel(option) ? option.value : resolve(option);
 
 /** An entry in a pack's offline reference library. */
 export type LibraryEntry = {
@@ -141,7 +163,104 @@ export type ProgramPack = {
   tips: Text[];
 };
 
-export type Pack = ScannerPack | ProgramPack;
+/* ------------------------------------------------------------------- audio */
+
+/** One captured lecture and everything derived from it. */
+export type Segment = {
+  /** Seconds from the start of the lecture. */
+  at: number;
+  text: string;
+  /** Loudness against this speaker's own baseline, 0–1. Drives "النبرة". */
+  energy?: number;
+  /** The student pressed "mark this important" while this was being said. */
+  marked?: boolean;
+  /** Diarisation label from the accurate pass. Lets a student's question be
+   *  told apart from the lecturer emphasising something. */
+  speaker?: string;
+};
+
+export type Lecture = {
+  id: string;
+  title: string;
+  /** When the lecture was recorded (epoch ms). */
+  at: number;
+  /** Seconds of recorded audio. */
+  duration: number;
+  audioUri?: string;
+  /** The transcript in timestamped pieces, so tapping a line seeks the audio. */
+  segments: Segment[];
+  analysis?: LectureAnalysis;
+  /** Indices into analysis.tasks the student has ticked off. */
+  done?: number[];
+  status: "recording" | "processing" | "ready" | "failed";
+  error?: string;
+};
+
+export type LectureTask = {
+  text: string;
+  /** The due date exactly as the lecturer said it, not a parsed one. */
+  due?: string;
+  /** The same date resolved against the lecture's own date, ISO 8601, when
+   *  the lecturer was specific enough to resolve it. Drives the calendar
+   *  export and the reminders; absent means "don't guess". */
+  dueISO?: string;
+  difficulty?: "easy" | "medium" | "hard";
+};
+
+export type LectureAnalysis = {
+  summary: string;
+  keyPoints: string[];
+  /** Homework, deadlines and anything the lecturer told students to do. */
+  tasks: LectureTask[];
+  /** What the lecturer emphasised — the app's whole reason to exist. */
+  emphasised: { text: string; atSeconds: number; reason: string }[];
+  /** What is likely to appear on the exam, and why. */
+  examPredictions: { topic: string; confidence: "high" | "medium" | "low"; why: string }[];
+  terms: { term: string; definition: string }[];
+  /** خريطة المحاضرة — the lecture in chapters, each anchored to a timestamp. */
+  chapters: { title: string; atSeconds: number; points: string[] }[];
+  /** How much of the transcript the model could actually rely on, 0–100.
+   *  Shown to the student so a bad recording reads as a bad recording. */
+  confidence: number;
+};
+
+export type AudioPack = {
+  kind: "audio";
+  id: string;
+  appName: Text;
+  /** Second word of the wordmark, shown beside appName. */
+  wordmark: string;
+  tagline: Text;
+  accent: string;
+  badge: Text;
+  headline: Text;
+  intro: Text;
+  primaryAction: Text;
+  secondaryAction: Text;
+  emptyTitle: Text;
+  emptyBody: Text;
+  disclaimer: Text;
+  onboarding: OnboardingStep[];
+  paywall: { headline: Text; bullets: Text[] };
+  pricing: Pricing;
+  /** How many lectures a free user gets before the paywall. */
+  freeLectures: number;
+  /** The lines carrying the product's voice on the recording and analysing
+   *  screens. They live on the pack because they name the app by hand. */
+  voice: {
+    liveWriterReady: Text;
+    micWeak: Text;
+    listening: Text;
+    analysing: Text;
+    /** Cycled underneath `analysing` while the lecture is being processed. */
+    analysingSteps: Text[];
+    footer: Text;
+  };
+  systemPrompt: (ctx: { locale: Locale; profile: string }) => string;
+};
+
+export type Pack = ScannerPack | ProgramPack | AudioPack;
 
 export const isScanner = (p: Pack): p is ScannerPack => p.kind === "scanner";
 export const isProgram = (p: Pack): p is ProgramPack => p.kind === "program";
+export const isAudio = (p: Pack): p is AudioPack => p.kind === "audio";
