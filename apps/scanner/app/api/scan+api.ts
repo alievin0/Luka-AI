@@ -7,6 +7,21 @@ import { apiError } from "../../src/i18n/errors";
 const MODEL = process.env.DASHLIGHT_MODEL || "claude-opus-5";
 
 /**
+ * How hard the model thinks about one photo.
+ *
+ * The route never set this, which on Claude Opus 5 means adaptive thinking at
+ * the default effort — the most expensive setting there is, chosen by
+ * omission rather than on purpose. That may well be right: this is the answer
+ * a driver acts on at the roadside, and reasoning is what separates "amber,
+ * drive on" from "amber, stop now".
+ *
+ * So it stays at the default and becomes a dial instead of a silence. Lower it
+ * only against measured results — `low` and `medium` are real savings on a
+ * constrained classification, and a wrong verdict costs more than either.
+ */
+const EFFORT = (process.env.SCAN_EFFORT || "high") as "low" | "medium" | "high" | "xhigh" | "max";
+
+/**
  * JSON schema for the vision response. Structured outputs guarantee the shape,
  * so the client never has to defend against a half-parsed answer.
  */
@@ -190,6 +205,7 @@ export async function POST(request: Request) {
         locale,
       }),
       output_config: {
+        effort: EFFORT,
         format: {
           type: "json_schema",
           schema: RESULT_SCHEMA as unknown as Record<string, unknown>,
@@ -233,6 +249,21 @@ export async function POST(request: Request) {
         { status: 502 },
       );
     }
+
+    // One line per scan, so what a scan costs is a number someone can read off
+    // the logs rather than a guess. Nothing here identifies a user: it is the
+    // pack, the settings the request ran under, and the token counts.
+    const usage = response.usage;
+    console.log(
+      JSON.stringify({
+        scan: body.packId,
+        model: MODEL,
+        effort: EFFORT,
+        inputTokens: usage.input_tokens,
+        outputTokens: usage.output_tokens,
+        cacheReadTokens: usage.cache_read_input_tokens ?? 0,
+      }),
+    );
 
     const parsed = JSON.parse(text.text) as ScanResult;
     return Response.json(clampForSafety(parsed));
