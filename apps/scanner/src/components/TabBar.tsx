@@ -2,6 +2,8 @@ import { View, Text, StyleSheet, Pressable } from "react-native";
 import { useRouter, usePathname } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
+import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
+import { lectureAllowed } from "../lectures";
 import { t } from "../i18n";
 import { ui } from "../i18n/ui";
 import { FONTS, SCALE } from "../type";
@@ -21,30 +23,55 @@ import { GOLD, GOLD_BRIGHT, GOLD_DEEP, INK, TEXT_FAINT, SP, RADIUS, glow } from 
  * fourth tab.
  */
 
-type Tab = { path: string; label: string; glyph: string };
+type Tab = { name: string; path: string; label: string; glyph: string };
 
-export function TabBar({ onRecord }: { onRecord: () => void }) {
+/**
+ * Drawn by the tab navigator, so a press activates a screen that is already
+ * mounted instead of rebuilding it. The record button is not a tab — it opens
+ * a full-screen session — so it does its own paywall check here rather than
+ * being handed down from whichever screen happens to be showing.
+ */
+export function TabBar(props: Partial<BottomTabBarProps>) {
   const router = useRouter();
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
+  const { state, navigation } = props;
+
+  const onRecord = async () => {
+    if (await lectureAllowed()) router.push("/record");
+    else router.push("/paywall");
+  };
 
   const tabs: Tab[] = [
-    { path: "/", label: t(ui.tabHome), glyph: "⌂" },
-    { path: "/lectures", label: t(ui.tabLibrary), glyph: "▤" },
-    { path: "/tasks", label: t(ui.navTasks), glyph: "☑" },
-    { path: "/search", label: t(ui.tabSearch), glyph: "⌕" },
+    { name: "index", path: "/", label: t(ui.tabHome), glyph: "⌂" },
+    { name: "lectures", path: "/lectures", label: t(ui.tabLibrary), glyph: "▤" },
+    { name: "tasks", path: "/tasks", label: t(ui.navTasks), glyph: "☑" },
+    { name: "search", path: "/search", label: t(ui.tabSearch), glyph: "⌕" },
   ];
+
+  const current = state ? state.routes[state.index]?.name : null;
+
+  const go = (tab: Tab) => {
+    if (state && navigation) {
+      const route = state.routes.find((r) => r.name === tab.name);
+      const focused = current === tab.name;
+      const event = navigation.emit({ type: "tabPress", target: route?.key, canPreventDefault: true });
+      if (!focused && !event.defaultPrevented) navigation.navigate(tab.name);
+      return;
+    }
+    router.navigate(tab.path as never);
+  };
 
   const left = tabs.slice(0, 2);
   const right = tabs.slice(2);
 
   const item = (tab: Tab) => {
-    const active = pathname === tab.path;
+    const active = current ? current === tab.name : pathname === tab.path;
     return (
       <Pressable
-        key={tab.path}
+        key={tab.name}
         style={styles.item}
-        onPress={() => router.replace(tab.path as never)}
+        onPress={() => go(tab)}
         accessibilityRole="button"
         accessibilityState={{ selected: active }}
         accessibilityLabel={tab.label}
@@ -74,7 +101,7 @@ export function TabBar({ onRecord }: { onRecord: () => void }) {
 
         <Pressable
           style={({ pressed }) => [styles.recordWrap, pressed && { transform: [{ scale: 0.94 }] }]}
-          onPress={onRecord}
+          onPress={() => void onRecord()}
           accessibilityRole="button"
           accessibilityLabel={t(ui.tabRecord)}
         >

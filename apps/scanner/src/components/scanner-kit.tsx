@@ -1,4 +1,5 @@
 import { type ReactNode } from "react";
+import Feather from "@expo/vector-icons/Feather";
 import {
   View,
   Text,
@@ -136,20 +137,31 @@ export function SeverityDot({ severity, size = 8 }: { severity: Severity; size?:
  * never allowed to disagree with the severity: both colours come from the
  * same resolver.
  */
-export function VerdictBand({ level, text }: { level: VerdictLevel; text: string }) {
+export function VerdictBand({
+  level,
+  text,
+  reason,
+}: {
+  level: VerdictLevel;
+  text: string;
+  /** One line, under the judgement. Not the summary — the shortest possible
+   *  answer to "why", for someone who has already read the verdict. */
+  reason?: string;
+}) {
   const grade = verdictGrade(level);
+  const icon = level === "stop" ? "alert-octagon" : level === "caution" ? "alert-triangle" : "check-circle";
+
   return (
     <View
       style={[k.verdict, { backgroundColor: grade.bg, borderColor: grade.fg }]}
       accessibilityRole="alert"
-      accessibilityLabel={text}
+      accessibilityLabel={reason ? `${text}. ${reason}` : text}
     >
-      <View style={[k.verdictMark, { borderColor: grade.fg }]}>
-        <Text style={[k.verdictGlyph, { color: grade.fg }]}>{grade.glyph}</Text>
+      <View style={k.verdictTop}>
+        <Feather name={icon} size={30} color={grade.fg} />
+        <Text style={[k.verdictText, { color: grade.fg }]}>{text}</Text>
       </View>
-      <Text style={[k.verdictText, { color: grade.fg }]} numberOfLines={3}>
-        {text}
-      </Text>
+      {reason ? <Text style={k.verdictReason}>{reason}</Text> : null}
     </View>
   );
 }
@@ -427,24 +439,15 @@ const k = StyleSheet.create({
   badgeText: { ...TYPE.small, fontFamily: FONT.bold, letterSpacing: 0.6 },
 
   verdict: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: SP.lg,
     borderWidth: 1.5,
     borderRadius: RADIUS.lg,
     paddingVertical: SP.xl,
     paddingHorizontal: SP.lg,
+    gap: SP.sm,
   },
-  verdictMark: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    borderWidth: 2,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  verdictGlyph: { fontSize: 18, fontFamily: FONT.bold },
+  verdictTop: { flexDirection: "row", alignItems: "center", gap: SP.md },
   verdictText: { flex: 1, ...TYPE.verdict, fontFamily: FONT.bold, textAlign: READ },
+  verdictReason: { color: TEXT, ...TYPE.body, fontFamily: FONT.regular, textAlign: READ },
 
   confidence: { flexDirection: "row", alignItems: "center", gap: SP.md },
   confidenceLabel: { color: TEXT_SOFT, ...TYPE.caption, fontFamily: FONT.medium },

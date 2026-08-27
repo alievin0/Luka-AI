@@ -1,11 +1,11 @@
 import { useCallback, useMemo, useState } from "react";
 import { View, Text, StyleSheet, ScrollView } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
-import { pack, isAudio, type Lecture } from "../src/packs";
-import { t } from "../src/i18n";
-import { ui } from "../src/i18n/ui";
-import { FONTS, SCALE } from "../src/type";
-import { useLayout } from "../src/layout";
+import { pack, isAudio, type Lecture } from "../../src/packs";
+import { t } from "../../src/i18n";
+import { ui } from "../../src/i18n/ui";
+import { FONTS, SCALE } from "../../src/type";
+import { useLayout } from "../../src/layout";
 import {
   GOLD,
   TEXT,
@@ -14,11 +14,11 @@ import {
   STATE,
   SP,
   READ,
-} from "../src/components/audio-theme";
-import { Shell, useContentPad } from "../src/components/Shell";
-import { Card, PageTitle, SearchField, EmptyState, Chip } from "../src/components/kit";
-import { clock, getLectures } from "../src/lectures";
-import { normalise } from "../src/countries";
+} from "../../src/components/audio-theme";
+import { Shell, useContentPad } from "../../src/components/Shell";
+import { Card, PageTitle, SearchField, EmptyState, Chip } from "../../src/components/kit";
+import { clock, getLectures } from "../../src/lectures";
+import { normalise } from "../../src/countries";
 
 /**
  * Search across the semester.

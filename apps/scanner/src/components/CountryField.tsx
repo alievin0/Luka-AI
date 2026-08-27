@@ -12,6 +12,7 @@ import * as Haptics from "expo-haptics";
 import { t } from "../i18n";
 import { ui } from "../i18n/ui";
 import { theme } from "../theme";
+import { READ } from "../scanner-ui";
 import { searchCountries, type Country } from "../countries";
 
 /**
@@ -45,6 +46,7 @@ export function CountryField({
           placeholderTextColor={theme.textFaint}
           autoCorrect={false}
           returnKeyType="search"
+          textAlign={READ}
           onSubmitEditing={() => results[0] && choose(results[0])}
         />
         {query.length > 0 && (
@@ -96,7 +98,7 @@ const styles = StyleSheet.create({
     color: theme.text,
     fontSize: 17,
     paddingVertical: 16,
-    textAlign: "right",
+    textAlign: READ,
   },
   clear: { color: theme.textFaint, fontSize: 15, paddingHorizontal: 4 },
   list: { marginTop: 12 },

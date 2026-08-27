@@ -1,11 +1,11 @@
 import { useCallback, useMemo, useState } from "react";
 import { View, Text, StyleSheet, ScrollView } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
-import { pack, isAudio, type Lecture } from "../src/packs";
-import { t, locale } from "../src/i18n";
-import { ui } from "../src/i18n/ui";
-import { FONTS, SCALE } from "../src/type";
-import { useLayout } from "../src/layout";
+import { pack, isAudio, type Lecture } from "../../src/packs";
+import { t, locale } from "../../src/i18n";
+import { ui } from "../../src/i18n/ui";
+import { FONTS, SCALE } from "../../src/type";
+import { useLayout } from "../../src/layout";
 import {
   GOLD,
   TEXT,
@@ -15,8 +15,8 @@ import {
   STATE,
   SP,
   READ,
-} from "../src/components/audio-theme";
-import { Shell, useContentPad } from "../src/components/Shell";
+} from "../../src/components/audio-theme";
+import { Shell, useContentPad } from "../../src/components/Shell";
 import {
   Card,
   Chip,
@@ -26,7 +26,7 @@ import {
   EmptyState,
   Meta,
   Waveform,
-} from "../src/components/kit";
+} from "../../src/components/kit";
 import {
   clock,
   getLectures,
@@ -35,8 +35,8 @@ import {
   scoreEnergy,
   transcriptOfSegments,
   waveformOf,
-} from "../src/lectures";
-import { normalise } from "../src/countries";
+} from "../../src/lectures";
+import { normalise } from "../../src/countries";
 
 /**
  * The lecture library, built for finding one again.

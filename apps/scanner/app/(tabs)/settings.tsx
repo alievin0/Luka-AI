@@ -2,21 +2,21 @@ import { useCallback, useState } from "react";
 import { View, Text, StyleSheet, Pressable, Alert, ScrollView, Linking } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import Constants from "expo-constants";
-import { pack, activePackId, isAudio, isProgram, isScanner } from "../src/packs";
-import { privacyUrl, supportUrl, termsUrl } from "../src/legal";
-import { switchLanguage, otherLocale } from "../src/language";
-import { t, locale } from "../src/i18n";
-import { ui } from "../src/i18n/ui";
-import { UI_FONT } from "../src/ui-font";
-import { theme } from "../src/theme";
-import { clearHistory, getProfile, updateProfile, type Profile } from "../src/storage";
-import { resetProgress } from "../src/progress";
-import { DEFAULT_HOUR, cancelReminder, getReminderHour, scheduleReminder } from "../src/reminders";
-import { purchasesAvailable, restore } from "../src/purchases";
-import { CountryField } from "../src/components/CountryField";
+import { pack, activePackId, isAudio, isProgram, isScanner } from "../../src/packs";
+import { privacyUrl, supportUrl, termsUrl } from "../../src/legal";
+import { switchLanguage, otherLocale } from "../../src/language";
+import { t, locale } from "../../src/i18n";
+import { ui } from "../../src/i18n/ui";
+import { UI_FONT } from "../../src/ui-font";
+import { theme } from "../../src/theme";
+import { clearHistory, getProfile, updateProfile, type Profile } from "../../src/storage";
+import { resetProgress } from "../../src/progress";
+import { DEFAULT_HOUR, cancelReminder, getReminderHour, scheduleReminder } from "../../src/reminders";
+import { purchasesAvailable, restore } from "../../src/purchases";
+import { CountryField } from "../../src/components/CountryField";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { ScannerNav, NAV_CLEARANCE } from "../src/components/ScannerNav";
-import { READ } from "../src/scanner-ui";
+import { NAV_CLEARANCE } from "../../src/components/ScannerNav";
+import { READ } from "../../src/scanner-ui";
 
 function Row({
   label,
@@ -47,7 +47,6 @@ const scanner = isScanner(pack);
 export default function Settings() {
   const router = useRouter();
   const [profile, setProfile] = useState<Profile>({});
-  const [editingCountry, setEditingCountry] = useState(false);
   const [reminderHour, setReminderHour] = useState<number | null>(null);
 
   useFocusEffect(
@@ -117,26 +116,6 @@ export default function Settings() {
     );
   };
 
-  if (editingCountry) {
-    return (
-      <View style={styles.screen}>
-        <View style={styles.pickerHead}>
-          <Text style={styles.pickerTitle}>غيّر بلدك</Text>
-          <Pressable onPress={() => setEditingCountry(false)} hitSlop={10}>
-            <Text style={styles.cancel}>إلغاء</Text>
-          </Pressable>
-        </View>
-        <View style={styles.pickerBody}>
-          <CountryField
-            onSelect={async (country) => {
-              setProfile(await updateProfile({ region: country.name }));
-              setEditingCountry(false);
-            }}
-          />
-        </View>
-      </View>
-    );
-  }
 
   return (
     <View style={styles.screen}>
@@ -151,7 +130,7 @@ export default function Settings() {
         <Row
           label={t(ui.yourCountry)}
           value={profile.region || t(ui.notSet)}
-          onPress={() => setEditingCountry(true)}
+          onPress={() => router.push("/change-country")}
         />
         {isScanner(pack) && pack.library ? (
           <Row label={pack.libraryTitle ? t(pack.libraryTitle) : t(ui.guide)} onPress={() => router.push("/library")} />
@@ -249,7 +228,6 @@ export default function Settings() {
       <Text style={styles.disclaimer}>{t(pack.disclaimer)}</Text>
         </ScrollView>
       </SafeAreaView>
-      {scanner ? <ScannerNav /> : null}
     </View>
   );
 }

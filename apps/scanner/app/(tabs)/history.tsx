@@ -2,10 +2,10 @@ import { useCallback, useState } from "react";
 import { View, Text, StyleSheet, FlatList, Pressable, Image, Alert } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { pack } from "../src/packs";
-import { locale, t } from "../src/i18n";
-import { ui } from "../src/i18n/ui";
-import { getHistory, removeFromHistory, type HistoryEntry } from "../src/storage";
+import { pack } from "../../src/packs";
+import { locale, t } from "../../src/i18n";
+import { ui } from "../../src/i18n/ui";
+import { getHistory, removeFromHistory, type HistoryEntry } from "../../src/storage";
 import {
   BG,
   SURFACE,
@@ -18,9 +18,9 @@ import {
   SP,
   RADIUS,
   READ,
-} from "../src/scanner-ui";
-import { SeverityDot, EmptyState, Caption } from "../src/components/scanner-kit";
-import { ScannerNav, NAV_CLEARANCE } from "../src/components/ScannerNav";
+} from "../../src/scanner-ui";
+import { SeverityDot, EmptyState, Caption } from "../../src/components/scanner-kit";
+import { NAV_CLEARANCE } from "../../src/components/ScannerNav";
 
 /**
  * Every scan the driver has made.
@@ -100,7 +100,6 @@ export default function History() {
           />
         )}
       </SafeAreaView>
-      <ScannerNav />
     </View>
   );
 }

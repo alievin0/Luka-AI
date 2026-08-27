@@ -89,11 +89,7 @@ export default function Paywall() {
           ))}
         </View>
 
-        {!purchasesAvailable() ? (
-          <Text style={styles.devNote}>
-            {t(ui.devModeBody)}
-          </Text>
-        ) : null}
+
       </ScrollView>
 
       {/* The plan choice and the button that acts on it stay together and
@@ -218,7 +214,6 @@ const styles = StyleSheet.create({
     textAlign: "center",
     lineHeight: 22,
   },
-  devNote: { color: theme.textFaint, fontSize: 12, fontFamily: UI_FONT.regular, textAlign: "center", marginTop: 10 },
   offerPrice: { color: theme.text, fontSize: 17, fontFamily: UI_FONT.bold },
   notice: {
     marginTop: 32,

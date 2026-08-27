@@ -1,6 +1,8 @@
 import { View, Text, StyleSheet, Pressable } from "react-native";
 import { useRouter, usePathname } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import Feather from "@expo/vector-icons/Feather";
+import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
 import { pack, isScanner } from "../packs";
 import { t } from "../i18n";
 import { ui } from "../i18n/ui";
@@ -11,47 +13,68 @@ import { BG, BORDER, TEXT, TEXT_FAINT, ACCENT, FONT, TYPE, SP, TAP } from "../sc
  *
  * The camera screen does not carry this bar — it is full-bleed and its only
  * job is framing a symbol. Everywhere else does, because the guide, the
- * history and the settings are places a driver browses between emergencies,
- * and from any of them the fastest route back to scanning should be one tap
- * rather than a chain of back gestures.
+ * history and the settings are places a driver browses between emergencies.
+ *
+ * Rendered as the tab navigator's own bar, so a press activates a screen that
+ * is already mounted rather than rebuilding it. The router fallback is for the
+ * one case where the bar is drawn outside the navigator.
  */
 
-type Item = { path: string; label: string; glyph: string };
+type Item = { name: string; path: string; label: string; icon: React.ComponentProps<typeof Feather>["name"] };
 
-export function ScannerNav() {
+export function ScannerNav(props: Partial<BottomTabBarProps>) {
   const router = useRouter();
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
+  const { state, navigation } = props;
 
   const items: Item[] = [
-    { path: "/", label: t(ui.scanTab), glyph: "◎" },
+    { name: "index", path: "/", label: t(ui.scanTab), icon: "camera" },
     ...(isScanner(pack) && pack.library?.length
       ? [
           {
+            name: "library",
             path: "/library",
             label: pack.libraryTitle ? t(pack.libraryTitle) : t(ui.guide),
-            glyph: "▤",
+            icon: "book-open" as const,
           },
         ]
       : []),
-    { path: "/history", label: t(ui.history), glyph: "◷" },
-    { path: "/settings", label: t(ui.settings), glyph: "⚙" },
+    { name: "history", path: "/history", label: t(ui.history), icon: "clock" },
+    { name: "settings", path: "/settings", label: t(ui.settings), icon: "settings" },
   ];
+
+  const current = state ? state.routes[state.index]?.name : null;
+
+  const go = (item: Item) => {
+    if (state && navigation) {
+      const route = state.routes.find((r) => r.name === item.name);
+      const focused = current === item.name;
+      const event = navigation.emit({ type: "tabPress", target: route?.key, canPreventDefault: true });
+      if (!focused && !event.defaultPrevented) navigation.navigate(item.name);
+      return;
+    }
+    router.navigate(item.path as never);
+  };
 
   return (
     <View style={[styles.bar, { paddingBottom: Math.max(insets.bottom, SP.sm) }]}>
       {items.map((item) => {
-        const active = pathname === item.path;
+        const active = current ? current === item.name : pathname === item.path;
         return (
           <Pressable
-            key={item.path}
-            onPress={() => router.replace(item.path as never)}
+            key={item.name}
+            onPress={() => go(item)}
             accessibilityRole="button"
             accessibilityState={{ selected: active }}
             accessibilityLabel={item.label}
             style={styles.item}
           >
-            <Text style={[styles.glyph, active && { color: ACCENT }]}>{item.glyph}</Text>
+            {/* The active tab is marked by a rule above it as well as by
+                colour, so which one you are on survives a colour-blind eye
+                and a sunlit screen. */}
+            <View style={[styles.mark, active && styles.markOn]} />
+            <Feather name={item.icon} size={20} color={active ? ACCENT : TEXT_FAINT} />
             <Text style={[styles.label, active && styles.labelActive]} numberOfLines={1}>
               {item.label}
             </Text>
@@ -63,7 +86,7 @@ export function ScannerNav() {
 }
 
 /** What scrolling content must clear so the bar never covers the last row. */
-export const NAV_CLEARANCE = 84;
+export const NAV_CLEARANCE = 88;
 
 const styles = StyleSheet.create({
   bar: {
@@ -71,10 +94,17 @@ const styles = StyleSheet.create({
     backgroundColor: BG,
     borderTopWidth: 1,
     borderTopColor: BORDER,
-    paddingTop: SP.sm,
   },
-  item: { flex: 1, minHeight: TAP, alignItems: "center", justifyContent: "center", gap: 3 },
-  glyph: { color: TEXT_FAINT, fontSize: 19 },
+  item: { flex: 1, minHeight: TAP + 8, alignItems: "center", justifyContent: "center", gap: 4 },
+  mark: {
+    position: "absolute",
+    top: 0,
+    height: 2,
+    width: 28,
+    borderRadius: 1,
+    backgroundColor: "transparent",
+  },
+  markOn: { backgroundColor: ACCENT },
   label: { color: TEXT_FAINT, ...TYPE.small, fontFamily: FONT.regular },
   labelActive: { color: TEXT, fontFamily: FONT.medium },
 });

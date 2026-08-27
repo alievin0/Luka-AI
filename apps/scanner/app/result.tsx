@@ -180,23 +180,33 @@ export default function Result() {
         </View>
 
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-          {/* What was found, tinted to its own grade so the symbol, the name
-              and the badge all say the same thing at a glance. */}
+          {/* The judgement, first and largest.
+              A driver stopped on the hard shoulder is not reading — they are
+              looking for one answer. Putting the light's name above this made
+              them find the verdict instead of being told it, which is the
+              difference between an emergency tool and a reference app. */}
+          {result.verdict ? (
+            <VerdictBand
+              level={result.verdictLevel}
+              text={result.verdict}
+              reason={result.summary}
+            />
+          ) : null}
+
+          {/* Only then: what it was. The symbol is large because matching a
+              shape is faster than reading a name. */}
           <Card tone={result.severity} style={styles.head}>
             <View style={styles.headRow}>
               {result.glyph ? (
-                <SymbolBadge glyph={result.glyph} colour={grade.fg} background="transparent" size={48} />
+                <SymbolBadge glyph={result.glyph} colour={grade.fg} background="transparent" size={56} />
               ) : null}
               <View style={styles.headText}>
                 <Title>{result.title}</Title>
                 {result.subtitle ? <Subtitle>{result.subtitle}</Subtitle> : null}
               </View>
+              <SeverityBadge severity={result.severity} label={t(severityWord(result.severity))} />
             </View>
-            <SeverityBadge severity={result.severity} label={t(severityWord(result.severity))} />
           </Card>
-
-          {/* The whole reason the app exists. */}
-          {result.verdict ? <VerdictBand level={result.verdictLevel} text={result.verdict} /> : null}
 
           <ConfidenceMeter level={result.confidence} label={t(CONFIDENCE_LABEL[result.confidence])} />
 
@@ -206,8 +216,6 @@ export default function Result() {
 
           {active === "summary" ? (
             <View style={styles.stack}>
-              {result.summary ? <Body style={styles.lede}>{result.summary}</Body> : null}
-
               {/* Consequence, in the grade's own colour. This is what turns a
                   warning into a decision. */}
               {result.ifIgnored ? (
@@ -366,10 +374,9 @@ const styles = StyleSheet.create({
   stack: { gap: SP.lg },
 
   head: { gap: SP.lg },
-  headRow: { flexDirection: "row", alignItems: "center", gap: SP.lg },
-  headText: { flex: 1, gap: 2 },
+  headRow: { flexDirection: "row", alignItems: "center", gap: SP.lg, flexWrap: "wrap" },
+  headText: { flex: 1, gap: 2, minWidth: 140 },
 
-  lede: { color: TEXT },
 
   consequenceLabel: { ...TYPE.caption, fontFamily: FONT.bold, textAlign: READ },
 

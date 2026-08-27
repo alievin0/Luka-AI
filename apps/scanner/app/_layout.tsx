@@ -11,6 +11,7 @@ import { ui } from "../src/i18n/ui";
 import { initPurchases } from "../src/purchases";
 import { useAppFonts } from "../src/type";
 import { recoverInterruptedLectures } from "../src/lectures";
+import { useReducedMotion } from "../src/motion";
 
 // Layout direction follows the device language, not the app. Forcing RTL
 // unconditionally would mirror the entire English UI.
@@ -24,6 +25,7 @@ export default function RootLayout() {
   const segments = useSegments();
   const [ready, setReady] = useState(false);
   const fontsReady = useAppFonts();
+  const stillness = useReducedMotion();
 
   useEffect(() => {
     initPurchases();
@@ -68,10 +70,19 @@ export default function RootLayout() {
           headerTitleStyle: { fontWeight: "600" },
           headerShadowVisible: false,
           contentStyle: { backgroundColor: theme.bg },
+          /* A push that appears instantly reads as the screen having been
+             replaced rather than entered. Someone who has asked for less
+             movement gets a fade instead of nothing. */
+          animation: stillness ? "fade" : "slide_from_right",
         }}
       >
-        <Stack.Screen name="index" options={{ headerShown: false }} />
+        {/* The tab destinations live in the (tabs) group and are drawn by
+            their own navigator; everything below is pushed over them. */}
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="onboarding" options={{ headerShown: false }} />
+        <Stack.Screen name="result" options={{ headerShown: false }} />
+        <Stack.Screen name="change-country" options={{ headerShown: false }} />
+        <Stack.Screen name="light/[id]" options={{ headerShown: false }} />
         <Stack.Screen
           name="paywall"
           options={{ presentation: "modal", headerShown: false }}
@@ -79,13 +90,6 @@ export default function RootLayout() {
         {/* The scanner screens paint their own header and their own bottom
             bar, so a stack header over them would be a second, competing set
             of chrome. Mahdar's shell does the same. */}
-        <Stack.Screen name="result" options={{ headerShown: false }} />
-        <Stack.Screen name="history" options={{ headerShown: false }} />
-        <Stack.Screen name="library" options={{ headerShown: false }} />
-        <Stack.Screen
-          name="settings"
-          options={isScanner(pack) ? { headerShown: false } : { title: t(ui.settings) }}
-        />
         <Stack.Screen name="session" options={{ headerShown: false, presentation: "fullScreenModal" }} />
         <Stack.Screen name="price-check" options={{ title: t(ui.priceCheck) }} />
         <Stack.Screen name="plan" options={{ title: isProgram(pack) ? t(pack.nouns.plan) : t(ui.noPlan) }} />
@@ -100,10 +104,6 @@ export default function RootLayout() {
           options={{ headerShown: false, presentation: "fullScreenModal", gestureEnabled: false }}
         />
         <Stack.Screen name="lecture" options={{ headerShown: false }} />
-        <Stack.Screen name="lectures" options={{ headerShown: false }} />
-        <Stack.Screen name="tasks" options={{ headerShown: false }} />
-        <Stack.Screen name="search" options={{ headerShown: false }} />
-        <Stack.Screen name="study" options={{ headerShown: false }} />
         <Stack.Screen name="paste" options={{ headerShown: false }} />
       </Stack>
     </SafeAreaProvider>

@@ -121,8 +121,8 @@ export const ui = {
   // settings
   general: L("General", "عام"),
   yourCountry: L("Your country", "بلدك"),
-  notSet: L("Not set", "غير محدد"),
   changeCountry: L("Change your country", "غيّر بلدك"),
+  notSet: L("Not set", "غير محدد"),
   cancel: L("Cancel", "إلغاء"),
   subscription: L("Subscription", "الاشتراك"),
   restorePurchase: L("Restore a purchase", "استعادة عملية شراء"),
@@ -283,10 +283,6 @@ export const ui = {
     "انلغى الشراء أو صار خطأ.",
   ),
   devMode: L("Test mode", "وضع تجريبي"),
-  devModeBody: L(
-    "Add RevenueCat keys and make a dev build to enable real purchases.",
-    "ضيف مفاتيح RevenueCat واعمل dev build عشان يشتغل الشراء فعلياً.",
-  ),
   purchaseOffBody: L("Purchases aren't enabled in this build.", "الشراء مش مفعّل بهالنسخة."),
 
   reminderBody: L(

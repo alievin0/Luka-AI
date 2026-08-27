@@ -26,7 +26,7 @@ import {
   glow,
   audio as s,
 } from "./audio-theme";
-import { TabBar, TAB_CLEARANCE } from "./TabBar";
+import { TAB_CLEARANCE } from "./TabBar";
 
 /**
  * The application shell.
@@ -114,7 +114,6 @@ export function Shell({
       <SafeAreaView style={s.safe} edges={["top"]}>
         {children}
       </SafeAreaView>
-      <TabBar onRecord={onRecord} />
     </View>
   );
 }
@@ -178,7 +177,7 @@ function Sidebar({ compact, onRecord }: { compact: boolean; onRecord: () => void
           return (
             <Pressable
               key={item.path}
-              onPress={() => router.replace(item.path as never)}
+              onPress={() => router.navigate(item.path as never)}
               accessibilityRole="link"
               accessibilityState={{ selected: active }}
               accessibilityLabel={item.label}

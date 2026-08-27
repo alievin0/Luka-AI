@@ -132,14 +132,29 @@ export function AudioHome({ pack }: { pack: AudioPack }) {
             <Text style={s.wordmarkDot}>·</Text>
             <Text style={s.wordmarkLatin}>MAHDAR</Text>
           </View>
-          <Pressable
-            onPress={askSwitchLanguage}
-            style={s.langPill}
-            accessibilityRole="button"
-            accessibilityLabel={t(ui.language)}
-          >
-            <Text style={s.langText}>{locale === "ar" ? "EN" : "ع"}</Text>
-          </Pressable>
+          <View style={styles.topActions}>
+            <Pressable
+              onPress={askSwitchLanguage}
+              style={s.langPill}
+              accessibilityRole="button"
+              accessibilityLabel={t(ui.language)}
+            >
+              <Text style={s.langText}>{locale === "ar" ? "EN" : "ع"}</Text>
+            </Pressable>
+            {/* The sidebar carries the only other link to settings and it
+                renders on tablet and desktop widths only, so on a phone
+                restore-purchase, the policies and the language switch were
+                all unreachable. */}
+            <Pressable
+              onPress={() => router.push("/settings")}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel={t(ui.settings)}
+              style={styles.gear}
+            >
+              <Text style={styles.gearGlyph}>⚙</Text>
+            </Pressable>
+          </View>
         </View>
 
         <View style={styles.hero}>
@@ -565,6 +580,17 @@ const styles = StyleSheet.create({
   content: { paddingTop: SP.md, gap: SP.xl },
 
   top: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: SP.md },
+  topActions: { flexDirection: "row", alignItems: "center", gap: SP.sm },
+  gear: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "#3B3324",
+  },
+  gearGlyph: { color: TEXT_SOFT, fontSize: 15 },
 
   hero: { gap: SP.xs, marginTop: SP.md },
   greeting: {

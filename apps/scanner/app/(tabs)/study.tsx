@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { View, Text, StyleSheet, Pressable, ScrollView, TextInput } from "react-native";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import { pack, isAudio, type Lecture } from "../src/packs";
-import { t, fill } from "../src/i18n";
-import { ui } from "../src/i18n/ui";
-import { FONTS, SCALE } from "../src/type";
-import { useLayout, MAX_READING } from "../src/layout";
+import { pack, isAudio, type Lecture } from "../../src/packs";
+import { t, fill } from "../../src/i18n";
+import { ui } from "../../src/i18n/ui";
+import { FONTS, SCALE } from "../../src/type";
+import { useLayout, MAX_READING } from "../../src/layout";
 import {
   GOLD,
   INK,
@@ -19,13 +19,13 @@ import {
   SP,
   RADIUS,
   READ,
-} from "../src/components/audio-theme";
-import { Shell, useContentPad } from "../src/components/Shell";
-import { Card, Chip, PageTitle, EmptyState, LoadingState, ErrorState, Meta } from "../src/components/kit";
-import { clock, getLectures } from "../src/lectures";
-import { contextFor, suggestionsFor } from "../src/study";
-import { askLectures, LectureError, type StudyAnswer } from "../src/lecture-api";
-import { activePackId } from "../src/packs";
+} from "../../src/components/audio-theme";
+import { Shell, useContentPad } from "../../src/components/Shell";
+import { Card, Chip, PageTitle, EmptyState, LoadingState, ErrorState, Meta } from "../../src/components/kit";
+import { clock, getLectures } from "../../src/lectures";
+import { contextFor, suggestionsFor } from "../../src/study";
+import { askLectures, LectureError, type StudyAnswer } from "../../src/lecture-api";
+import { activePackId } from "../../src/packs";
 
 /**
  * Ask Mahdar.

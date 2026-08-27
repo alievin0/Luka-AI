@@ -2,11 +2,11 @@ import { useCallback, useMemo, useState } from "react";
 import { View, Text, StyleSheet, Pressable, ScrollView } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
-import { pack, isAudio } from "../src/packs";
-import { t } from "../src/i18n";
-import { ui } from "../src/i18n/ui";
-import { FONTS, SCALE } from "../src/type";
-import { useLayout } from "../src/layout";
+import { pack, isAudio } from "../../src/packs";
+import { t } from "../../src/i18n";
+import { ui } from "../../src/i18n/ui";
+import { FONTS, SCALE } from "../../src/type";
+import { useLayout } from "../../src/layout";
 import {
   GOLD,
   INK,
@@ -18,10 +18,10 @@ import {
   SP,
   RADIUS,
   READ,
-} from "../src/components/audio-theme";
-import { Shell, useContentPad } from "../src/components/Shell";
-import { Card, Button, Chip, PageTitle, SectionTitle, Tabs, EmptyState, Meta } from "../src/components/kit";
-import { clock, decideTask, getLectures, updateLecture } from "../src/lectures";
+} from "../../src/components/audio-theme";
+import { Shell, useContentPad } from "../../src/components/Shell";
+import { Card, Button, Chip, PageTitle, SectionTitle, Tabs, EmptyState, Meta } from "../../src/components/kit";
+import { clock, decideTask, getLectures, updateLecture } from "../../src/lectures";
 import {
   bucketOf,
   candidatesOf,
@@ -29,7 +29,7 @@ import {
   tasksOf,
   type SourcedTask,
   type TaskBucket,
-} from "../src/tasks";
+} from "../../src/tasks";
 
 /**
  * Everything the lecturers asked for, in one place.

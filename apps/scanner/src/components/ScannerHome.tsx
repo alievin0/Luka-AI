@@ -14,6 +14,7 @@ import { CameraView, useCameraPermissions } from "expo-camera";
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as Haptics from "expo-haptics";
+import Feather from "@expo/vector-icons/Feather";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { activePackId, type ScannerPack } from "../packs";
@@ -45,7 +46,7 @@ import {
   RADIUS,
   TAP,
 } from "../scanner-ui";
-import { Pill, Button } from "./scanner-kit";
+import { Button } from "./scanner-kit";
 
 /**
  * The camera is the app.
@@ -208,22 +209,26 @@ export function ScannerHome({ pack }: { pack: ScannerPack }) {
       <CameraView ref={cameraRef} style={StyleSheet.absoluteFill} facing="back" enableTorch={torch} />
 
       <SafeAreaView style={styles.overlay} pointerEvents="box-none" edges={["top", "bottom"]}>
+        {/* One control up here, and the quota only when there is one to
+            report. The history and the guide are a tab away at the bottom;
+            repeating them across the viewfinder made the camera read as a
+            menu with a picture behind it rather than as the interface. */}
         <View style={styles.topBar} pointerEvents="box-none">
-          <View style={styles.pills}>
-            <Pill label={t(ui.history)} onPress={() => router.push("/history")} />
-            {pack.library?.length ? (
-              <Pill
-                label={pack.libraryTitle ? t(pack.libraryTitle) : t(ui.guide)}
-                onPress={() => router.push("/library")}
-              />
-            ) : null}
-            {pack.id === "goldscan" ? (
-              <Pill label={t(ui.priceCheck)} onPress={() => router.push("/price-check")} />
-            ) : null}
-            <Pill label="⚙" onPress={() => router.push("/settings")} />
-          </View>
+          <Pressable
+            onPress={() => router.push("/settings")}
+            hitSlop={10}
+            accessibilityRole="button"
+            accessibilityLabel={t(ui.settings)}
+            style={styles.topBtn}
+          >
+            <Feather name="settings" size={20} color={TEXT} />
+          </Pressable>
           {scansLeft !== null && scansLeft !== Infinity ? (
-            <Pressable onPress={() => router.push("/paywall")} accessibilityRole="button">
+            <Pressable
+              onPress={() => router.push("/paywall")}
+              accessibilityRole="button"
+              style={styles.quotaWrap}
+            >
               <Text style={styles.quota}>
                 {scansLeft === 0
                   ? t(ui.scanQuotaNone)
@@ -256,7 +261,7 @@ export function ScannerHome({ pack }: { pack: ScannerPack }) {
             accessibilityLabel={t(ui.gallery)}
             style={styles.side}
           >
-            <Text style={styles.sideText}>{t(ui.gallery)}</Text>
+            <Feather name="image" size={22} color={TEXT} />
           </Pressable>
 
           <Pressable
@@ -280,7 +285,7 @@ export function ScannerHome({ pack }: { pack: ScannerPack }) {
             accessibilityLabel={t(torch ? ui.torchOn : ui.torchOff)}
             style={styles.side}
           >
-            <Text style={[styles.torch, torch && { color: ACCENT }]}>{torch ? "☀" : "☼"}</Text>
+            <Feather name={torch ? "zap" : "zap-off"} size={22} color={torch ? ACCENT : TEXT} />
           </Pressable>
         </View>
       </SafeAreaView>
@@ -357,7 +362,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: SP.md,
     paddingTop: SP.sm,
   },
-  pills: { flexDirection: "row", gap: SP.sm, flexShrink: 1 },
   quota: { color: TEXT, ...TYPE.small, fontFamily: FONT.medium },
 
   reticleWrap: { alignItems: "center", gap: SP.xl },
@@ -389,26 +393,40 @@ const styles = StyleSheet.create({
     paddingHorizontal: SP.xl,
     paddingBottom: SP.lg,
   },
-  side: { minWidth: 72, minHeight: TAP, alignItems: "center", justifyContent: "center" },
-  sideText: {
-    color: TEXT,
-    ...TYPE.caption,
-    fontFamily: FONT.medium,
-    textShadowColor: "rgba(0,0,0,0.85)",
-    textShadowRadius: 6,
+  side: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(12,14,19,0.45)",
   },
-  torch: { color: TEXT, fontSize: 24 },
+  topBtn: {
+    width: TAP,
+    height: TAP,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: RADIUS.pill,
+    backgroundColor: "rgba(12,14,19,0.45)",
+  },
+  quotaWrap: {
+    minHeight: 34,
+    justifyContent: "center",
+    paddingHorizontal: SP.md,
+    borderRadius: RADIUS.pill,
+    backgroundColor: "rgba(12,14,19,0.45)",
+  },
+  shutterInner: { width: 70, height: 70, borderRadius: 35, backgroundColor: ACTION },
 
   shutter: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
+    width: 88,
+    height: 88,
+    borderRadius: 44,
     borderWidth: 4,
-    borderColor: "rgba(242,244,248,0.55)",
+    borderColor: "rgba(242,244,248,0.65)",
     alignItems: "center",
     justifyContent: "center",
   },
-  shutterInner: { width: 58, height: 58, borderRadius: 29, backgroundColor: ACTION },
 
   analysing: { ...StyleSheet.absoluteFillObject, backgroundColor: BG },
   scrim: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(12,14,19,0.82)" },
