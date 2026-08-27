@@ -1,4 +1,5 @@
 import type { ScannerPack } from "./types";
+import { DASHLIGHT_LIBRARY } from "./dashlight-library";
 
 export const dashlight: ScannerPack = {
   id: "dashlight",
@@ -15,6 +16,8 @@ export const dashlight: ScannerPack = {
   showCost: true,
   disclaimer:
     "هذا تقدير استرشادي مبني على صورة، وليس تشخيصاً فنياً. لا يغني عن فحص ميكانيكي مختص، ولا تعتمد عليه وحده في قرار متعلق بالسلامة.",
+  library: DASHLIGHT_LIBRARY,
+  libraryTitle: "دليل اللمبات",
   onboarding: [
     {
       key: "brand",

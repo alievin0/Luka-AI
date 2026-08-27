@@ -1,9 +1,9 @@
 import { useCallback, useState } from "react";
-import { View, Text, StyleSheet, FlatList, Pressable, Image } from "react-native";
+import { View, Text, StyleSheet, FlatList, Pressable, Image, Alert } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { theme, severityStyle } from "../src/theme";
 import { pack } from "../src/scanners";
-import { getHistory, type HistoryEntry } from "../src/storage";
+import { getHistory, removeFromHistory, type HistoryEntry } from "../src/storage";
 
 export default function History() {
   const router = useRouter();
@@ -30,12 +30,25 @@ export default function History() {
       contentContainerStyle={styles.content}
       data={entries}
       keyExtractor={(item) => item.id}
+      ListHeaderComponent={
+        <Text style={styles.hint}>اضغط مطوّلاً على أي فحص لمسحه</Text>
+      }
       renderItem={({ item }) => {
         const sev = severityStyle(item.result.severity);
         return (
           <Pressable
             style={styles.row}
             onPress={() => router.push({ params: { id: item.id }, pathname: "/result" })}
+            onLongPress={() =>
+              Alert.alert("امسح هذا الفحص؟", item.result.title, [
+                { text: "إلغاء", style: "cancel" },
+                {
+                  text: "امسح",
+                  style: "destructive",
+                  onPress: async () => setEntries(await removeFromHistory(item.id)),
+                },
+              ])
+            }
           >
             <Image source={{ uri: item.imageUri }} style={styles.thumb} />
             <View style={styles.rowBody}>
@@ -82,4 +95,5 @@ const styles = StyleSheet.create({
   rowTitle: { color: theme.text, fontSize: 16, fontWeight: "600" },
   rowMeta: { color: theme.textFaint, fontSize: 13 },
   dot: { width: 10, height: 10, borderRadius: 5, marginLeft: 4 },
+  hint: { color: theme.textFaint, fontSize: 12, textAlign: "center", marginBottom: 6 },
 });

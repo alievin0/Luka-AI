@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { PACKS } from "../../src/scanners/registry";
+import { checkRateLimit, clientKey } from "../../src/rate-limit";
 import type { ScanResult } from "../../src/scanners/types";
 
 const MODEL = process.env.DASHLIGHT_MODEL || "claude-opus-5";
@@ -76,7 +77,18 @@ function clampForSafety(result: ScanResult): ScanResult {
   return result;
 }
 
+/** Roughly 1024px of JPEG at q0.7, base64 — well above what the app sends. */
+const MAX_IMAGE_BYTES = 4_000_000;
+
 export async function POST(request: Request) {
+  const limit = checkRateLimit(clientKey(request));
+  if (!limit.allowed) {
+    return Response.json(
+      { error: "كترت الفحوصات بوقت قصير. جرّب بعد شوي." },
+      { status: 429, headers: { "Retry-After": String(limit.retryAfterSeconds) } },
+    );
+  }
+
   if (!process.env.ANTHROPIC_API_KEY) {
     return Response.json(
       { error: "الخادم غير مهيأ: مفتاح ANTHROPIC_API_KEY مفقود." },
@@ -97,6 +109,9 @@ export async function POST(request: Request) {
   }
   if (!body?.base64) {
     return Response.json({ error: "ما وصلتنا صورة." }, { status: 400 });
+  }
+  if (body.base64.length > MAX_IMAGE_BYTES) {
+    return Response.json({ error: "الصورة كبيرة كتير." }, { status: 413 });
   }
 
   const client = new Anthropic();

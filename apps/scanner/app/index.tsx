@@ -160,13 +160,19 @@ export default function Scanner() {
 
       <SafeAreaView style={styles.overlay} pointerEvents="box-none">
         <View style={styles.topBar}>
-          <Pressable
-            style={styles.pill}
-            onPress={() => router.push("/history")}
-            hitSlop={8}
-          >
-            <Text style={styles.pillText}>السجل</Text>
-          </Pressable>
+          <View style={styles.topLeft}>
+            <Pressable style={styles.pill} onPress={() => router.push("/history")} hitSlop={8}>
+              <Text style={styles.pillText}>السجل</Text>
+            </Pressable>
+            {pack.library ? (
+              <Pressable style={styles.pill} onPress={() => router.push("/library")} hitSlop={8}>
+                <Text style={styles.pillText}>{pack.libraryTitle ?? "الدليل"}</Text>
+              </Pressable>
+            ) : null}
+            <Pressable style={styles.pill} onPress={() => router.push("/settings")} hitSlop={8}>
+              <Text style={styles.pillText}>⚙</Text>
+            </Pressable>
+          </View>
           {scansLeft !== null && scansLeft !== Infinity && (
             <Pressable style={styles.pill} onPress={() => router.push("/paywall")}>
               <Text style={styles.pillText}>
@@ -222,9 +228,11 @@ const styles = StyleSheet.create({
   topBar: {
     flexDirection: "row",
     justifyContent: "space-between",
+    alignItems: "flex-start",
     padding: 16,
     gap: 10,
   },
+  topLeft: { flexDirection: "row", gap: 8, flexShrink: 1, flexWrap: "wrap" },
   pill: {
     backgroundColor: "rgba(12,14,19,0.72)",
     borderRadius: 999,

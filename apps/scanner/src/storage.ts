@@ -81,6 +81,18 @@ export async function addToHistory(entry: HistoryEntry) {
   await AsyncStorage.setItem(KEYS.history, JSON.stringify(history));
 }
 
+export async function removeFromHistory(id: string) {
+  const history = (await getHistory()).filter((entry) => entry.id !== id);
+  await AsyncStorage.setItem(KEYS.history, JSON.stringify(history));
+  return history;
+}
+
+export async function updateProfile(patch: Profile) {
+  const next = { ...(await getProfile()), ...patch };
+  await AsyncStorage.setItem(KEYS.profile, JSON.stringify(next));
+  return next;
+}
+
 export async function clearHistory() {
   await AsyncStorage.removeItem(KEYS.history);
 }

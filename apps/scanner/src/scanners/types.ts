@@ -37,6 +37,16 @@ export type OnboardingStep = {
   options: string[];
 };
 
+/** An entry in a pack's offline reference library. */
+export type LibraryEntry = {
+  id: string;
+  title: string;
+  subtitle: string;
+  severity: Severity;
+  summary: string;
+  action: string;
+};
+
 export type ScannerPack = {
   id: string;
   appName: string;
@@ -51,6 +61,9 @@ export type ScannerPack = {
   /** Permanent disclaimer pinned under every result. */
   disclaimer: string;
   onboarding: OnboardingStep[];
+  /** Browsable reference, shown when the pack has one. Free — costs no scan. */
+  library?: LibraryEntry[];
+  libraryTitle?: string;
   paywall: { headline: string; bullets: string[] };
   /** System prompt for the vision call. */
   systemPrompt: (ctx: { currency: string; profile: string }) => string;

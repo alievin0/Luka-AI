@@ -1,6 +1,15 @@
 import { useEffect, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, Image, ActivityIndicator } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  Image,
+  ActivityIndicator,
+  Pressable,
+  Share,
+} from "react-native";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { pack } from "../src/scanners";
 import { theme, severityStyle, verdictStyle } from "../src/theme";
 import { getHistory, type HistoryEntry } from "../src/storage";
@@ -27,6 +36,7 @@ function Section({ title, items }: { title: string; items: string[] }) {
 }
 
 export default function Result() {
+  const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [entry, setEntry] = useState<HistoryEntry | null>(null);
   const [loading, setLoading] = useState(true);
@@ -105,6 +115,33 @@ export default function Result() {
       <Section title={pack.labels.actions} items={result.actions} />
       <Section title={pack.labels.seekHelp} items={result.seekHelpIf} />
 
+      <View style={styles.actions}>
+        <Pressable
+          style={styles.primaryAction}
+          onPress={() => router.replace("/")}
+        >
+          <Text style={styles.primaryActionText}>افحص كمان مرة</Text>
+        </Pressable>
+        <Pressable
+          style={styles.secondaryAction}
+          onPress={() =>
+            Share.share({
+              message: [
+                `${result.title} (${result.subtitle})`,
+                result.verdict,
+                "",
+                result.summary,
+                "",
+                `${pack.labels.actions}:`,
+                ...result.actions.map((a, i) => `${i + 1}. ${a}`),
+              ].join("\n"),
+            })
+          }
+        >
+          <Text style={styles.secondaryActionText}>مشاركة</Text>
+        </Pressable>
+      </View>
+
       <Text style={styles.confidence}>{CONFIDENCE_LABEL[result.confidence]}</Text>
       <Text style={styles.disclaimer}>{pack.disclaimer}</Text>
     </ScrollView>
@@ -155,6 +192,25 @@ const styles = StyleSheet.create({
   factValue: { color: theme.text, fontSize: 15, fontWeight: "600", marginTop: 4 },
   cost: { color: theme.accent, fontSize: 26, fontWeight: "800" },
   costNote: { color: theme.textFaint, fontSize: 13, lineHeight: 22 },
+  actions: { flexDirection: "row", gap: 10, marginTop: 6 },
+  primaryAction: {
+    flex: 2,
+    backgroundColor: theme.accent,
+    borderRadius: theme.radius,
+    paddingVertical: 16,
+    alignItems: "center",
+  },
+  primaryActionText: { color: theme.bg, fontSize: 16, fontWeight: "800" },
+  secondaryAction: {
+    flex: 1,
+    backgroundColor: theme.surface,
+    borderWidth: 1,
+    borderColor: theme.border,
+    borderRadius: theme.radius,
+    paddingVertical: 16,
+    alignItems: "center",
+  },
+  secondaryActionText: { color: theme.text, fontSize: 16, fontWeight: "600" },
   confidence: { color: theme.textFaint, fontSize: 13, textAlign: "center", marginTop: 6 },
   disclaimer: {
     color: theme.textFaint,
