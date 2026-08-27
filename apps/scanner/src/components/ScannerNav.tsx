@@ -6,7 +6,7 @@ import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
 import { pack, isScanner } from "../packs";
 import { t } from "../i18n";
 import { ui } from "../i18n/ui";
-import { BG, BORDER, TEXT, TEXT_FAINT, ACCENT, FONT, TYPE, SP, TAP } from "../scanner-ui";
+import { SURFACE, BORDER, TEXT_FAINT, ACCENT, FONT, TYPE, TAP } from "../scanner-ui";
 
 /**
  * The way back to the camera.
@@ -58,53 +58,80 @@ export function ScannerNav(props: Partial<BottomTabBarProps>) {
   };
 
   return (
-    <View style={[styles.bar, { paddingBottom: Math.max(insets.bottom, SP.sm) }]}>
-      {items.map((item) => {
-        const active = current ? current === item.name : pathname === item.path;
-        return (
-          <Pressable
-            key={item.name}
-            onPress={() => go(item)}
-            accessibilityRole="button"
-            accessibilityState={{ selected: active }}
-            accessibilityLabel={item.label}
-            style={styles.item}
-          >
-            {/* The active tab is marked by a rule above it as well as by
-                colour, so which one you are on survives a colour-blind eye
-                and a sunlit screen. */}
-            <View style={[styles.mark, active && styles.markOn]} />
-            <Feather name={item.icon} size={20} color={active ? ACCENT : TEXT_FAINT} />
-            <Text style={[styles.label, active && styles.labelActive]} numberOfLines={1}>
-              {item.label}
-            </Text>
-          </Pressable>
-        );
-      })}
+    <View style={[styles.wrap, { paddingBottom: Math.max(insets.bottom, 10) }]}>
+      <View style={styles.pill}>
+        {items.map((item) => {
+          const active = current ? current === item.name : pathname === item.path;
+          const scan = item.name === "index";
+          return (
+            <Pressable
+              key={item.name}
+              onPress={() => go(item)}
+              accessibilityRole="button"
+              accessibilityState={{ selected: active }}
+              accessibilityLabel={item.label}
+              style={styles.item}
+            >
+              {scan ? (
+                /* Amber, deliberately, and the one place in these apps where
+                   it is. The rule everywhere else is that amber is the caution
+                   grade and may not double as an action, because a driver who
+                   mistakes a button for a warning is the failure this app
+                   cannot afford. A navigation affordance carries no severity,
+                   so the rule does not reach it — do not "correct" this. */
+                <View style={styles.ring}>
+                  <Feather name="maximize" size={20} color={ACCENT} />
+                </View>
+              ) : (
+                <Feather name={item.icon} size={20} color={active ? ACCENT : TEXT_FAINT} />
+              )}
+              <Text
+                style={[styles.label, (active || scan) && styles.labelOn]}
+                numberOfLines={1}
+              >
+                {item.label}
+              </Text>
+              {/* Which tab you are on, marked by shape as well as by colour so
+                  it survives a colour-blind eye and a sunlit screen. */}
+              <View style={[styles.dot, active && styles.dotOn]} />
+            </Pressable>
+          );
+        })}
+      </View>
     </View>
   );
 }
 
 /** What scrolling content must clear so the bar never covers the last row. */
-export const NAV_CLEARANCE = 88;
+export const NAV_CLEARANCE = 112;
 
 const styles = StyleSheet.create({
-  bar: {
+  /* The bar floats. Its own view is padding and nothing else, so the ground
+     and whatever is scrolling over it show through around the pill. */
+  wrap: { paddingHorizontal: 32, paddingTop: 4, backgroundColor: "transparent" },
+  pill: {
     flexDirection: "row",
-    backgroundColor: BG,
-    borderTopWidth: 1,
-    borderTopColor: BORDER,
+    backgroundColor: SURFACE,
+    borderWidth: 1,
+    borderColor: BORDER,
+    borderRadius: 30,
+    paddingVertical: 8,
+    /* Bottom-aligned, which is what puts all four labels on one line while
+       the taller scan ring rises above the other three. */
+    alignItems: "flex-end",
   },
-  item: { flex: 1, minHeight: TAP + 8, alignItems: "center", justifyContent: "center", gap: 4 },
-  mark: {
-    position: "absolute",
-    top: 0,
-    height: 2,
-    width: 28,
-    borderRadius: 1,
-    backgroundColor: "transparent",
+  item: { flex: 1, minHeight: TAP, alignItems: "center", gap: 3 },
+  ring: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    borderWidth: 2,
+    borderColor: ACCENT,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  markOn: { backgroundColor: ACCENT },
   label: { color: TEXT_FAINT, ...TYPE.small, fontFamily: FONT.regular },
-  labelActive: { color: TEXT, fontFamily: FONT.medium },
+  labelOn: { color: ACCENT, fontFamily: FONT.medium },
+  dot: { width: 4, height: 4, borderRadius: 2, backgroundColor: "transparent" },
+  dotOn: { backgroundColor: ACCENT },
 });
