@@ -1,42 +1,70 @@
-import { useEffect, useState } from "react";
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  Image,
-  ActivityIndicator,
-  Pressable,
-  Share,
-} from "react-native";
+import { useEffect, useMemo, useState } from "react";
+import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator, Share } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { pack, isScanner } from "../src/packs";
-import { theme, severityStyle, verdictStyle } from "../src/theme";
 import { SymbolBadge } from "../src/components/SymbolBadge";
 import { getHistory, type HistoryEntry } from "../src/storage";
-import { t } from "../src/i18n";
+import { t, fill } from "../src/i18n";
 import { ui } from "../src/i18n/ui";
+import {
+  BG,
+  BORDER,
+  SURFACE,
+  TEXT,
+  TEXT_SOFT,
+  TEXT_FAINT,
+  GRADE,
+  gradeOf,
+  verdictGrade,
+  FONT,
+  TYPE,
+  SP,
+  RADIUS,
+  TAP,
+  READ,
+  BACK,
+} from "../src/scanner-ui";
+import {
+  Card,
+  Title,
+  Subtitle,
+  SectionTitle,
+  Body,
+  Caption,
+  SeverityBadge,
+  SeverityDot,
+  VerdictBand,
+  ConfidenceMeter,
+  Button,
+  Segmented,
+  Step,
+  Bullet,
+  Fact,
+  EmptyState,
+} from "../src/components/scanner-kit";
+
+/**
+ * The answer.
+ *
+ * A driver has stopped on the hard shoulder and wants one thing before
+ * anything else: can I keep driving? So the verdict sits at the top, at the
+ * largest size on the screen, and everything that explains it is filed behind
+ * four views they can reach when they are ready to read rather than to act.
+ *
+ * The severity of the light and the verdict about driving come from one
+ * resolver, so the two can never contradict each other in the markup — the
+ * failure that would matter most here is a red warning above the words "safe
+ * to continue".
+ */
+
+type View4 = "summary" | "causes" | "actions" | "also";
 
 const CONFIDENCE_LABEL = {
   high: ui.confidenceHigh,
   medium: ui.confidenceMedium,
   low: ui.confidenceLow,
 } as const;
-
-function Section({ title, items }: { title: string; items: string[] }) {
-  if (!items?.length) return null;
-  return (
-    <View style={styles.card}>
-      <Text style={styles.cardTitle}>{title}</Text>
-      {items.map((item, i) => (
-        <View key={`${item}-${i}`} style={styles.row}>
-          <Text style={styles.bullet}>{i + 1}</Text>
-          <Text style={styles.rowText}>{item}</Text>
-        </View>
-      ))}
-    </View>
-  );
-}
 
 const scannerPack = isScanner(pack) ? pack : null;
 
@@ -45,6 +73,7 @@ export default function Result() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [entry, setEntry] = useState<HistoryEntry | null>(null);
   const [loading, setLoading] = useState(true);
+  const [view, setView] = useState<View4>("summary");
 
   useEffect(() => {
     (async () => {
@@ -54,242 +83,335 @@ export default function Result() {
     })();
   }, [id]);
 
+  const result = entry?.result;
+
+  /** Only the views that have something in them. A tab that opens on an empty
+   *  panel teaches the driver the tabs are not worth pressing. */
+  const views = useMemo(() => {
+    if (!result) return [];
+    const out: { key: View4; label: string }[] = [{ key: "summary", label: t(ui.resTabSummary) }];
+    if (result.causes?.length) out.push({ key: "causes", label: t(ui.resTabCauses) });
+    if (result.actions?.length || result.seekHelpIf?.length)
+      out.push({ key: "actions", label: t(ui.resTabActions) });
+    if (result.alsoDetected?.length) out.push({ key: "also", label: t(ui.resTabAlso) });
+    return out;
+  }, [result]);
+
   if (loading) {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator color={theme.accent} />
+      <View style={styles.centre}>
+        <ActivityIndicator color={TEXT_SOFT} />
       </View>
     );
   }
 
-  if (!entry) {
+  if (!entry || !result) {
     return (
-      <View style={styles.center}>
-        <Text style={styles.muted}>{t(ui.notFound)}</Text>
-      </View>
+      <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
+        <EmptyState
+          glyph="⌕"
+          title={t(ui.notFound)}
+          action={t(ui.scanAgain)}
+          onAction={() => router.replace("/")}
+        />
+      </SafeAreaView>
     );
   }
 
-  const { result, imageUri } = entry;
-  const labels = scannerPack?.labels ?? {
-    facts: ui.result,
-    causes: ui.result,
-    actions: ui.result,
-    seekHelp: ui.result,
-  };
+  /* Nothing readable in the photo. This is its own screen, not a result with
+   * empty fields — and it never blames the driver for the light being dim. */
+  if (!result.detected) {
+    return (
+      <NotDetected
+        reason={result.notDetectedReason}
+        onRetake={() => router.replace("/")}
+        // Retaking at the roadside is not always possible — it may be raining,
+        // or the car may already be on a truck. A photo taken earlier is often
+        // the better one, so the camera screen opens straight into the picker.
+        onGallery={() => router.replace({ pathname: "/", params: { pick: "1" } })}
+      />
+    );
+  }
+
+  const labels = scannerPack?.labels;
   const showCost = scannerPack?.showCost ?? false;
-  const sev = severityStyle(result.severity);
-  const ver = verdictStyle(result.verdictLevel);
+  const grade = gradeOf(result.severity);
+  const verdict = verdictGrade(result.verdictLevel);
+  const active = views.some((v) => v.key === view) ? view : "summary";
+
+  const share = () =>
+    Share.share({
+      message: [
+        `${result.title}${result.subtitle ? ` (${result.subtitle})` : ""}`,
+        result.verdict,
+        "",
+        result.summary,
+        ...(result.actions?.length
+          ? ["", `${labels ? t(labels.actions) : t(ui.resTabActions)}:`, ...result.actions.map((a, i) => `${i + 1}. ${a}`)]
+          : []),
+      ].join("\n"),
+    });
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
-      <Image source={{ uri: imageUri }} style={styles.photo} resizeMode="cover" />
-
-      <View style={styles.headline}>
-        <View style={styles.headlineTop}>
-          {result.glyph ? (
-            <SymbolBadge
-              glyph={result.glyph}
-              colour={sev.color}
-              background={sev.bg}
-              size={44}
-            />
-          ) : null}
-          <View style={[styles.badge, { backgroundColor: sev.bg }]}>
-            <Text style={[styles.badgeText, { color: sev.color }]}>{sev.label}</Text>
-          </View>
-        </View>
-        <Text style={styles.title}>{result.title}</Text>
-        <Text style={styles.subtitle}>{result.subtitle}</Text>
-      </View>
-
-      <View style={[styles.verdict, { backgroundColor: ver.bg, borderColor: ver.color }]}>
-        <Text style={[styles.verdictText, { color: ver.color }]}>{result.verdict}</Text>
-      </View>
-
-      <Text style={styles.summary}>{result.summary}</Text>
-
-      {result.ifIgnored ? (
-        <View style={[styles.consequence, { borderColor: ver.color }]}>
-          <Text style={[styles.consequenceLabel, { color: ver.color }]}>
-            {t(ui.ifIgnored)}
-          </Text>
-          <Text style={styles.consequenceText}>{result.ifIgnored}</Text>
-        </View>
-      ) : null}
-
-      {result.carContext ? (
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>{t(ui.onYourCar)}</Text>
-          <Text style={styles.summary}>{result.carContext}</Text>
-        </View>
-      ) : null}
-
-      {result.alsoDetected && result.alsoDetected.length > 0 ? (
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>{t(ui.alsoDetected)}</Text>
-          {result.alsoDetected.map((other, i) => {
-            const s2 = severityStyle(other.severity);
-            return (
-              <View key={`${other.title}-${i}`} style={styles.alsoRow}>
-                <View style={[styles.alsoDot, { backgroundColor: s2.color }]} />
-                <Text style={styles.rowText}>{other.title}</Text>
-              </View>
-            );
-          })}
-        </View>
-      ) : null}
-
-      {result.facts?.length > 0 && (
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>{t(labels.facts)}</Text>
-          <View style={styles.factGrid}>
-            {result.facts.map((fact, i) => (
-              <View key={`${fact.label}-${i}`} style={styles.fact}>
-                <Text style={styles.factLabel}>{fact.label}</Text>
-                <Text style={styles.factValue}>{fact.value}</Text>
-              </View>
-            ))}
-          </View>
-        </View>
-      )}
-
-      {showCost && result.cost && (
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>{t(ui.estimatedCost)}</Text>
-          <Text style={styles.cost}>
-            {result.cost.min} – {result.cost.max} {result.cost.currency}
-          </Text>
-          <Text style={styles.costNote}>{result.cost.note}</Text>
-        </View>
-      )}
-
-      <Section title={t(labels.causes)} items={result.causes} />
-      <Section title={t(labels.actions)} items={result.actions} />
-      <Section title={t(labels.seekHelp)} items={result.seekHelpIf} />
-
-      <View style={styles.actions}>
-        <Pressable
-          style={styles.primaryAction}
-          onPress={() => router.replace("/")}
-        >
-          <Text style={styles.primaryActionText}>{t(ui.scanAgain)}</Text>
-        </Pressable>
-        {scannerPack?.id === "goldscan" ? (
+    <View style={styles.screen}>
+      <SafeAreaView style={styles.fill} edges={["top"]}>
+        {/* One line of chrome. The driver came here for the verdict, not to
+            navigate. */}
+        <View style={styles.bar}>
           <Pressable
-            style={styles.secondaryAction}
-            onPress={() => router.push("/price-check")}
+            onPress={() => (router.canGoBack() ? router.back() : router.replace("/"))}
+            hitSlop={12}
+            accessibilityRole="button"
+            accessibilityLabel={t(ui.scanAgain)}
+            style={styles.barBtn}
           >
-            <Text style={styles.secondaryActionText}>{t(ui.priceCheck)}</Text>
+            <Text style={styles.barGlyph}>{BACK}</Text>
           </Pressable>
-        ) : null}
-        <Pressable
-          style={styles.secondaryAction}
-          onPress={() =>
-            Share.share({
-              message: [
-                `${result.title} (${result.subtitle})`,
-                result.verdict,
-                "",
-                result.summary,
-                "",
-                `${t(labels.actions)}:`,
-                ...result.actions.map((a, i) => `${i + 1}. ${a}`),
-              ].join("\n"),
-            })
-          }
-        >
-          <Text style={styles.secondaryActionText}>{t(ui.share)}</Text>
-        </Pressable>
-      </View>
+          <Text style={styles.barTitle}>{t(ui.resultTitle)}</Text>
+          <Pressable
+            onPress={share}
+            hitSlop={12}
+            accessibilityRole="button"
+            accessibilityLabel={t(ui.share)}
+            style={styles.barBtn}
+          >
+            <Text style={styles.barGlyph}>↗</Text>
+          </Pressable>
+        </View>
 
-      <Text style={styles.confidence}>{t(CONFIDENCE_LABEL[result.confidence])}</Text>
-      <Text style={styles.disclaimer}>{t(pack.disclaimer)}</Text>
-    </ScrollView>
+        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+          {/* What was found, tinted to its own grade so the symbol, the name
+              and the badge all say the same thing at a glance. */}
+          <Card tone={result.severity} style={styles.head}>
+            <View style={styles.headRow}>
+              {result.glyph ? (
+                <SymbolBadge glyph={result.glyph} colour={grade.fg} background="transparent" size={48} />
+              ) : null}
+              <View style={styles.headText}>
+                <Title>{result.title}</Title>
+                {result.subtitle ? <Subtitle>{result.subtitle}</Subtitle> : null}
+              </View>
+            </View>
+            <SeverityBadge severity={result.severity} label={t(severityWord(result.severity))} />
+          </Card>
+
+          {/* The whole reason the app exists. */}
+          {result.verdict ? <VerdictBand level={result.verdictLevel} text={result.verdict} /> : null}
+
+          <ConfidenceMeter level={result.confidence} label={t(CONFIDENCE_LABEL[result.confidence])} />
+
+          {views.length > 1 ? (
+            <Segmented items={views} value={active} onChange={setView} style={styles.tabs} />
+          ) : null}
+
+          {active === "summary" ? (
+            <View style={styles.stack}>
+              {result.summary ? <Body style={styles.lede}>{result.summary}</Body> : null}
+
+              {/* Consequence, in the grade's own colour. This is what turns a
+                  warning into a decision. */}
+              {result.ifIgnored ? (
+                <Card tone={result.severity}>
+                  <Text style={[styles.consequenceLabel, { color: verdict.fg }]}>
+                    {t(ui.ifIgnored)}
+                  </Text>
+                  <Body style={{ color: TEXT }}>{result.ifIgnored}</Body>
+                </Card>
+              ) : null}
+
+              {result.facts?.length ? (
+                <Card>
+                  <SectionTitle>{labels ? t(labels.facts) : ""}</SectionTitle>
+                  <View style={styles.facts}>
+                    {result.facts.map((fact, i) => (
+                      <Fact key={`${fact.label}-${i}`} label={fact.label} value={fact.value} />
+                    ))}
+                  </View>
+                </Card>
+              ) : null}
+
+              {showCost && result.cost ? (
+                <Card>
+                  <SectionTitle>{t(ui.estimatedCost)}</SectionTitle>
+                  <Text style={styles.cost}>
+                    {result.cost.min} – {result.cost.max} {result.cost.currency}
+                  </Text>
+                  <Caption>{result.cost.note}</Caption>
+                </Card>
+              ) : null}
+
+              {result.carContext ? (
+                <Card>
+                  <SectionTitle>{t(ui.onYourCar)}</SectionTitle>
+                  <Body>{result.carContext}</Body>
+                </Card>
+              ) : null}
+            </View>
+          ) : null}
+
+          {active === "causes" ? (
+            <Card>
+              <SectionTitle>{labels ? t(labels.causes) : ""}</SectionTitle>
+              {result.causes.map((cause, i) => (
+                <Bullet key={`${cause}-${i}`} text={cause} />
+              ))}
+            </Card>
+          ) : null}
+
+          {active === "actions" ? (
+            <View style={styles.stack}>
+              {result.actions?.length ? (
+                <Card>
+                  <SectionTitle>{labels ? t(labels.actions) : t(ui.whatToDoNow)}</SectionTitle>
+                  {result.actions.map((action, i) => (
+                    <Step key={`${action}-${i}`} index={i + 1} text={action} />
+                  ))}
+                </Card>
+              ) : null}
+              {result.seekHelpIf?.length ? (
+                <Card>
+                  <SectionTitle>{labels ? t(labels.seekHelp) : ""}</SectionTitle>
+                  {result.seekHelpIf.map((line, i) => (
+                    <Bullet key={`${line}-${i}`} text={line} tone="warning" />
+                  ))}
+                </Card>
+              ) : null}
+            </View>
+          ) : null}
+
+          {active === "also" ? (
+            <Card>
+              <SectionTitle>{t(ui.alsoDetected)}</SectionTitle>
+              {(result.alsoDetected ?? []).map((other, i) => (
+                <View key={`${other.title}-${i}`} style={styles.alsoRow}>
+                  <SeverityDot severity={other.severity} />
+                  <Text style={styles.alsoText}>{other.title}</Text>
+                </View>
+              ))}
+            </Card>
+          ) : null}
+
+          {/* Said once, at the foot, in the smallest type on the screen —
+              present because it has to be, not competing with the verdict. */}
+          <Text style={styles.disclaimer}>{t(pack.disclaimer)}</Text>
+        </ScrollView>
+      </SafeAreaView>
+
+      <SafeAreaView edges={["bottom"]} style={styles.footer}>
+        <Button label={t(ui.scanAgain)} variant="primary" block onPress={() => router.replace("/")} />
+      </SafeAreaView>
+    </View>
+  );
+}
+
+const severityWord = (severity: "critical" | "warning" | "info") =>
+  severity === "critical" ? ui.gradeCritical : severity === "warning" ? ui.gradeWarning : ui.gradeInfo;
+
+/**
+ * The photo showed nothing we could read.
+ *
+ * Written as an instruction rather than an error. The dashboard was dim, or
+ * the phone moved — neither is something to make a frightened driver feel
+ * they got wrong.
+ */
+function NotDetected({
+  reason,
+  onRetake,
+  onGallery,
+}: {
+  reason?: string;
+  onRetake: () => void;
+  onGallery: () => void;
+}) {
+  return (
+    <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
+      <ScrollView contentContainerStyle={styles.notFoundContent}>
+        <View style={styles.reticle}>
+          <Text style={styles.reticleGlyph}>?</Text>
+        </View>
+
+        <Text style={styles.notFoundTitle}>{t(ui.notDetectedTitle)}</Text>
+
+        <Card style={styles.tips}>
+          <SectionTitle>{t(ui.tipsToTry)}</SectionTitle>
+          <Body style={{ color: TEXT }}>{reason || (scannerPack ? t(scannerPack.captureHint) : "")}</Body>
+        </Card>
+
+        <View style={styles.notFoundActions}>
+          <Button label={t(ui.retakePhoto)} variant="primary" block onPress={onRetake} />
+          <Button label={t(ui.chooseFromGallery)} block onPress={onGallery} />
+        </View>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: theme.bg },
-  content: { padding: 16, paddingBottom: 48, gap: 14 },
-  center: { flex: 1, backgroundColor: theme.bg, alignItems: "center", justifyContent: "center" },
-  muted: { color: theme.textSoft, fontSize: 16 },
-  photo: { width: "100%", height: 200, borderRadius: theme.radius, backgroundColor: theme.surface },
-  headlineTop: { flexDirection: "row", alignItems: "center", gap: 12 },
-  headline: { gap: 6 },
-  badge: { alignSelf: "flex-start", paddingVertical: 5, paddingHorizontal: 12, borderRadius: 999 },
-  badgeText: { fontSize: 12, fontWeight: "700" },
-  title: { color: theme.text, fontSize: 28, fontWeight: "800", lineHeight: 40 },
-  subtitle: { color: theme.textFaint, fontSize: 14, writingDirection: "ltr", textAlign: "right" },
-  verdict: { borderRadius: theme.radius, borderWidth: 1, padding: 16 },
-  verdictText: { fontSize: 19, fontWeight: "700", lineHeight: 30 },
-  summary: { color: theme.textSoft, fontSize: 16, lineHeight: 28 },
-  consequence: {
-    borderWidth: 1,
-    borderRadius: theme.radius,
-    padding: 16,
-    gap: 6,
-    backgroundColor: theme.surface,
-  },
-  consequenceLabel: { fontSize: 12, fontWeight: "800", letterSpacing: 0.4 },
-  consequenceText: { color: theme.text, fontSize: 16, lineHeight: 28 },
-  alsoRow: { flexDirection: "row", alignItems: "center", gap: 10 },
-  alsoDot: { width: 8, height: 8, borderRadius: 4 },
-  card: {
-    backgroundColor: theme.surface,
-    borderRadius: theme.radius,
-    borderWidth: 1,
-    borderColor: theme.border,
-    padding: 16,
-    gap: 10,
-  },
-  cardTitle: { color: theme.text, fontSize: 17, fontWeight: "700" },
-  row: { flexDirection: "row", gap: 10, alignItems: "flex-start" },
-  bullet: {
-    color: theme.accent,
-    fontSize: 13,
-    fontWeight: "700",
-    minWidth: 18,
-    lineHeight: 26,
-  },
-  rowText: { color: theme.textSoft, fontSize: 15, lineHeight: 26, flex: 1 },
-  factGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  fact: {
-    backgroundColor: theme.surfaceAlt,
-    borderRadius: 10,
-    padding: 12,
-    flexGrow: 1,
-    minWidth: "44%",
-  },
-  factLabel: { color: theme.textFaint, fontSize: 12 },
-  factValue: { color: theme.text, fontSize: 15, fontWeight: "600", marginTop: 4 },
-  cost: { color: theme.accent, fontSize: 26, fontWeight: "800" },
-  costNote: { color: theme.textFaint, fontSize: 13, lineHeight: 22 },
-  actions: { flexDirection: "row", gap: 10, marginTop: 6 },
-  primaryAction: {
-    flex: 2,
-    backgroundColor: theme.accent,
-    borderRadius: theme.radius,
-    paddingVertical: 16,
+  screen: { flex: 1, backgroundColor: BG },
+  fill: { flex: 1 },
+  centre: { flex: 1, backgroundColor: BG, alignItems: "center", justifyContent: "center" },
+
+  bar: {
+    flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: SP.md,
+    paddingBottom: SP.sm,
   },
-  primaryActionText: { color: theme.bg, fontSize: 16, fontWeight: "800" },
-  secondaryAction: {
-    flex: 1,
-    backgroundColor: theme.surface,
-    borderWidth: 1,
-    borderColor: theme.border,
-    borderRadius: theme.radius,
-    paddingVertical: 16,
-    alignItems: "center",
-  },
-  secondaryActionText: { color: theme.text, fontSize: 16, fontWeight: "600" },
-  confidence: { color: theme.textFaint, fontSize: 13, textAlign: "center", marginTop: 6 },
+  barBtn: { width: TAP, height: TAP, alignItems: "center", justifyContent: "center" },
+  barGlyph: { color: TEXT_SOFT, fontSize: 22 },
+  barTitle: { color: TEXT, ...TYPE.caption, fontFamily: FONT.semibold },
+
+  content: { paddingHorizontal: SP.lg, paddingBottom: SP.section, gap: SP.lg },
+  stack: { gap: SP.lg },
+
+  head: { gap: SP.lg },
+  headRow: { flexDirection: "row", alignItems: "center", gap: SP.lg },
+  headText: { flex: 1, gap: 2 },
+
+  lede: { color: TEXT },
+
+  consequenceLabel: { ...TYPE.caption, fontFamily: FONT.bold, textAlign: READ },
+
+  tabs: { marginTop: SP.xs },
+
+  facts: { flexDirection: "row", flexWrap: "wrap", gap: SP.lg },
+
+  cost: { color: TEXT, ...TYPE.title, fontFamily: FONT.bold, textAlign: READ, fontVariant: ["tabular-nums"] },
+
+  alsoRow: { flexDirection: "row", alignItems: "center", gap: SP.md, minHeight: 32 },
+  alsoText: { flex: 1, color: TEXT, ...TYPE.body, fontFamily: FONT.regular, textAlign: READ },
+
   disclaimer: {
-    color: theme.textFaint,
-    fontSize: 12,
-    lineHeight: 21,
-    textAlign: "center",
-    paddingHorizontal: 8,
+    color: TEXT_FAINT,
+    ...TYPE.small,
+    fontFamily: FONT.regular,
+    textAlign: READ,
+    marginTop: SP.sm,
   },
+
+  footer: {
+    paddingHorizontal: SP.lg,
+    paddingTop: SP.md,
+    paddingBottom: SP.sm,
+    backgroundColor: BG,
+    borderTopWidth: 1,
+    borderTopColor: BORDER,
+  },
+
+  notFoundContent: { padding: SP.xl, gap: SP.xl, alignItems: "center", flexGrow: 1, justifyContent: "center" },
+  reticle: {
+    width: 120,
+    height: 96,
+    borderRadius: RADIUS.lg,
+    borderWidth: 2,
+    borderStyle: "dashed",
+    borderColor: BORDER,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  reticleGlyph: { color: TEXT_FAINT, fontSize: 34, fontFamily: FONT.bold },
+  notFoundTitle: { color: TEXT, ...TYPE.title, fontFamily: FONT.bold, textAlign: "center" },
+  tips: { alignSelf: "stretch", backgroundColor: SURFACE },
+  notFoundActions: { alignSelf: "stretch", gap: SP.md },
 });

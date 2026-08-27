@@ -1,13 +1,35 @@
 import { useCallback, useState } from "react";
 import { View, Text, StyleSheet, FlatList, Pressable, Image, Alert } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
-import { theme, severityStyle } from "../src/theme";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { pack } from "../src/packs";
-import { locale } from "../src/i18n";
-import { getHistory, removeFromHistory, type HistoryEntry } from "../src/storage";
-import { t } from "../src/i18n";
+import { locale, t } from "../src/i18n";
 import { ui } from "../src/i18n/ui";
+import { getHistory, removeFromHistory, type HistoryEntry } from "../src/storage";
+import {
+  BG,
+  SURFACE,
+  SURFACE_HIGH,
+  BORDER,
+  TEXT,
+  TEXT_FAINT,
+  FONT,
+  TYPE,
+  SP,
+  RADIUS,
+  READ,
+} from "../src/scanner-ui";
+import { SeverityDot, EmptyState, Caption } from "../src/components/scanner-kit";
+import { ScannerNav, NAV_CLEARANCE } from "../src/components/ScannerNav";
 
+/**
+ * Every scan the driver has made.
+ *
+ * Photos that could not be read are kept here too. They cost nothing and they
+ * are the ones a driver most often wants to come back to — a light that was
+ * too dim to capture at the roadside can be photographed again in daylight,
+ * and having the first attempt to hand says what to do differently.
+ */
 export default function History() {
   const router = useRouter();
   const [entries, setEntries] = useState<HistoryEntry[]>([]);
@@ -18,85 +40,95 @@ export default function History() {
     }, []),
   );
 
-  if (entries.length === 0) {
-    return (
-      <View style={styles.empty}>
-        <Text style={styles.emptyTitle}>{t(ui.noScansYet)}</Text>
-        <Text style={styles.emptyBody}>{t(pack.tagline)}</Text>
-      </View>
-    );
-  }
-
   return (
-    <FlatList
-      style={styles.screen}
-      contentContainerStyle={styles.content}
-      data={entries}
-      keyExtractor={(item) => item.id}
-      ListHeaderComponent={
-        <Text style={styles.hint}>{t(ui.longPressDelete)}</Text>
-      }
-      renderItem={({ item }) => {
-        const sev = severityStyle(item.result.severity);
-        return (
-          <Pressable
-            style={styles.row}
-            onPress={() => router.push({ params: { id: item.id }, pathname: "/result" })}
-            onLongPress={() =>
-              Alert.alert(t(ui.deleteScan), item.result.title, [
-                { text: t(ui.cancel), style: "cancel" },
-                {
-                  text: t(ui.delete),
-                  style: "destructive",
-                  onPress: async () => setEntries(await removeFromHistory(item.id)),
-                },
-              ])
-            }
-          >
-            <Image source={{ uri: item.imageUri }} style={styles.thumb} />
-            <View style={styles.rowBody}>
-              <Text style={styles.rowTitle} numberOfLines={1}>
-                {item.result.title}
-              </Text>
-              <Text style={styles.rowMeta} numberOfLines={1}>
-                {new Date(item.at).toLocaleDateString(locale)}
-              </Text>
-            </View>
-            <View style={[styles.dot, { backgroundColor: sev.color }]} />
-          </Pressable>
-        );
-      }}
-    />
+    <View style={styles.screen}>
+      <SafeAreaView style={styles.fill} edges={["top"]}>
+        <Text style={styles.title}>{t(ui.history)}</Text>
+
+        {entries.length === 0 ? (
+          <EmptyState
+            glyph="◷"
+            title={t(ui.noScansYet)}
+            body={t(pack.tagline)}
+            action={t(ui.scanAgain)}
+            onAction={() => router.replace("/")}
+          />
+        ) : (
+          <FlatList
+            contentContainerStyle={styles.content}
+            data={entries}
+            keyExtractor={(item) => item.id}
+            ListHeaderComponent={<Caption>{t(ui.longPressDelete)}</Caption>}
+            showsVerticalScrollIndicator={false}
+            renderItem={({ item }) => {
+              const unread = !item.result.detected;
+              const name = unread ? t(ui.notDetectedTitle) : item.result.title;
+              return (
+                <Pressable
+                  style={({ pressed }) => [styles.row, pressed && { opacity: 0.85 }]}
+                  onPress={() => router.push({ params: { id: item.id }, pathname: "/result" })}
+                  accessibilityRole="button"
+                  accessibilityLabel={name}
+                  onLongPress={() =>
+                    Alert.alert(t(ui.deleteScan), name, [
+                      { text: t(ui.cancel), style: "cancel" },
+                      {
+                        text: t(ui.delete),
+                        style: "destructive",
+                        onPress: async () => setEntries(await removeFromHistory(item.id)),
+                      },
+                    ])
+                  }
+                >
+                  <Image source={{ uri: item.imageUri }} style={styles.thumb} />
+                  <View style={styles.rowBody}>
+                    <Text style={[styles.rowTitle, unread && { color: TEXT_FAINT }]} numberOfLines={1}>
+                      {name}
+                    </Text>
+                    <Text style={styles.rowMeta} numberOfLines={1}>
+                      {new Date(item.at).toLocaleDateString(locale, {
+                        day: "numeric",
+                        month: "short",
+                        year: "numeric",
+                      })}
+                    </Text>
+                  </View>
+                  {unread ? null : <SeverityDot severity={item.result.severity} size={10} />}
+                </Pressable>
+              );
+            }}
+          />
+        )}
+      </SafeAreaView>
+      <ScannerNav />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: theme.bg },
-  content: { padding: 16, gap: 10 },
-  empty: {
-    flex: 1,
-    backgroundColor: theme.bg,
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 32,
-    gap: 10,
+  screen: { flex: 1, backgroundColor: BG },
+  fill: { flex: 1 },
+  title: {
+    color: TEXT,
+    ...TYPE.title,
+    fontFamily: FONT.bold,
+    textAlign: READ,
+    paddingHorizontal: SP.lg,
+    paddingBottom: SP.md,
   },
-  emptyTitle: { color: theme.text, fontSize: 20, fontWeight: "700" },
-  emptyBody: { color: theme.textSoft, fontSize: 15, textAlign: "center", lineHeight: 26 },
+  content: { paddingHorizontal: SP.lg, paddingBottom: NAV_CLEARANCE, gap: SP.md },
   row: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
-    backgroundColor: theme.surface,
-    borderRadius: theme.radius,
+    gap: SP.md,
+    backgroundColor: SURFACE,
+    borderRadius: RADIUS.md,
     borderWidth: 1,
-    borderColor: theme.border,
-    padding: 10,
+    borderColor: BORDER,
+    padding: SP.md,
   },
-  thumb: { width: 54, height: 54, borderRadius: 10, backgroundColor: theme.surfaceAlt },
+  thumb: { width: 54, height: 54, borderRadius: RADIUS.sm, backgroundColor: SURFACE_HIGH },
   rowBody: { flex: 1, gap: 3 },
-  rowTitle: { color: theme.text, fontSize: 16, fontWeight: "600" },
-  rowMeta: { color: theme.textFaint, fontSize: 13 },
-  dot: { width: 10, height: 10, borderRadius: 5, marginLeft: 4 },
-  hint: { color: theme.textFaint, fontSize: 12, textAlign: "center", marginBottom: 6 },
+  rowTitle: { color: TEXT, ...TYPE.body, fontFamily: FONT.semibold, textAlign: READ },
+  rowMeta: { color: TEXT_FAINT, ...TYPE.small, fontFamily: FONT.regular, textAlign: READ },
 });

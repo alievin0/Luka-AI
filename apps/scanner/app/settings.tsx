@@ -7,13 +7,16 @@ import { privacyUrl, supportUrl, termsUrl } from "../src/legal";
 import { switchLanguage, otherLocale } from "../src/language";
 import { t, locale } from "../src/i18n";
 import { ui } from "../src/i18n/ui";
-import { FONTS } from "../src/type";
+import { UI_FONT } from "../src/ui-font";
 import { theme } from "../src/theme";
 import { clearHistory, getProfile, updateProfile, type Profile } from "../src/storage";
 import { resetProgress } from "../src/progress";
 import { DEFAULT_HOUR, cancelReminder, getReminderHour, scheduleReminder } from "../src/reminders";
 import { purchasesAvailable, restore } from "../src/purchases";
 import { CountryField } from "../src/components/CountryField";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { ScannerNav, NAV_CLEARANCE } from "../src/components/ScannerNav";
+import { READ } from "../src/scanner-ui";
 
 function Row({
   label,
@@ -38,6 +41,9 @@ function Row({
   );
 }
 
+/** Whether this build carries the scanner shell rather than a stack header. */
+const scanner = isScanner(pack);
+
 export default function Settings() {
   const router = useRouter();
   const [profile, setProfile] = useState<Profile>({});
@@ -61,8 +67,8 @@ export default function Settings() {
     setReminderHour(scheduled);
     if (scheduled === null) {
       Alert.alert(
-        "الإشعارات مقفولة",
-        "فعّل الإشعارات لهذا التطبيق من إعدادات جهازك عشان يشتغل التذكير.",
+        t(ui.notificationsBlocked),
+        t(ui.notificationsBlockedBody),
       );
     }
   };
@@ -74,40 +80,40 @@ export default function Settings() {
   };
 
   const confirmReset = () =>
-    Alert.alert("تصفير التقدّم؟", "رح يرجع كل شي للبداية، والسلسلة رح تنكسر.", [
-      { text: "إلغاء", style: "cancel" },
+    Alert.alert(t(ui.resetProgressQ), t(ui.resetProgressBody), [
+      { text: t(ui.cancel), style: "cancel" },
       {
-        text: "صفّر",
+        text: t(ui.resetDo),
         style: "destructive",
         onPress: async () => {
           await resetProgress();
-          Alert.alert("انصفّر", "رجعت للبداية.");
+          Alert.alert(t(ui.resetDone), t(ui.resetDoneBody));
         },
       },
     ]);
 
   const confirmClear = () =>
-    Alert.alert("مسح كل الفحوصات؟", "رح تنمسح كل الفحوصات المحفوظة على جهازك. ما في رجعة.", [
-      { text: "إلغاء", style: "cancel" },
+    Alert.alert(t(ui.clearScansQ), t(ui.clearScansBody), [
+      { text: t(ui.cancel), style: "cancel" },
       {
-        text: "امسح",
+        text: t(ui.clearDo),
         style: "destructive",
         onPress: async () => {
           await clearHistory();
-          Alert.alert("انمسحت", "ما ضل ولا فحص محفوظ.");
+          Alert.alert(t(ui.clearDone), t(ui.clearDoneBody));
         },
       },
     ]);
 
   const doRestore = async () => {
     if (!purchasesAvailable()) {
-      Alert.alert("غير متاح", "الاشتراكات مش مفعّلة بهالنسخة.");
+      Alert.alert(t(ui.unavailable), t(ui.purchasesOffBody));
       return;
     }
     const restored = await restore();
     Alert.alert(
-      restored ? "تمت الاستعادة" : "ما لقينا اشتراك",
-      restored ? "اشتراكك رجع فعّال." : "ما في اشتراك سابق على هذا الحساب.",
+      restored ? t(ui.restored) : t(ui.noPriorPurchase),
+      restored ? t(ui.restoredBody) : t(ui.noPriorPurchaseBody),
     );
   };
 
@@ -133,12 +139,18 @@ export default function Settings() {
   }
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
-      <Text style={styles.section}>عام</Text>
+    <View style={styles.screen}>
+      {/* The scanners hide the stack header and carry their own chrome, so
+          this screen supplies the title and the way back to the camera.
+          Mahdar keeps its stack header, and gets neither. */}
+      <SafeAreaView style={styles.screen} edges={scanner ? ["top"] : []}>
+        {scanner ? <Text style={styles.pageTitle}>{t(ui.settings)}</Text> : null}
+        <ScrollView contentContainerStyle={styles.content}>
+      <Text style={styles.section}>{t(ui.general)}</Text>
       <View style={styles.group}>
         <Row
-          label="بلدك"
-          value={profile.region || "غير محدد"}
+          label={t(ui.yourCountry)}
+          value={profile.region || t(ui.notSet)}
           onPress={() => setEditingCountry(true)}
         />
         {isScanner(pack) && pack.library ? (
@@ -151,28 +163,26 @@ export default function Settings() {
 
       {isProgram(pack) ? (
         <>
-          <Text style={styles.section}>التذكير اليومي</Text>
+          <Text style={styles.section}>{t(ui.dailyReminder)}</Text>
           <View style={styles.group}>
             <Row
-              label={reminderHour !== null ? "التذكير مفعّل" : "فعّل التذكير اليومي"}
-              value={reminderHour !== null ? `${reminderHour}:00` : "مطفي"}
+              label={t(reminderHour !== null ? ui.reminderOn : ui.reminderEnable)}
+              value={reminderHour !== null ? `${reminderHour}:00` : t(ui.reminderOff)}
               onPress={toggleReminder}
             />
             {reminderHour !== null ? (
-              <Row label="أخّر ساعة" onPress={shiftReminder} />
+              <Row label={t(ui.reminderLater)} onPress={shiftReminder} />
             ) : null}
           </View>
-          <Text style={styles.note}>
-            تذكير محلي على جهازك — ما بيمر على أي خادم.
-          </Text>
+          <Text style={styles.note}>{t(ui.reminderLocalNote)}</Text>
         </>
       ) : null}
 
       <Text style={styles.section}>{t(ui.language)}</Text>
       <View style={styles.group}>
         <Row
-          label={locale === "ar" ? "العربية" : "English"}
-          value={t(ui.language)}
+          label={t(ui.language)}
+          value={locale === "ar" ? "العربية" : "English"}
           onPress={() =>
             Alert.alert(t(ui.language), t(ui.confirmSwitchLanguage), [
               { text: t(ui.home), style: "cancel" },
@@ -237,17 +247,28 @@ export default function Settings() {
       </View>
 
       <Text style={styles.disclaimer}>{t(pack.disclaimer)}</Text>
-    </ScrollView>
+        </ScrollView>
+      </SafeAreaView>
+      {scanner ? <ScannerNav /> : null}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: theme.bg },
-  content: { padding: 16, paddingBottom: 48 },
+  content: { padding: 16, paddingBottom: NAV_CLEARANCE },
+  pageTitle: {
+    color: theme.text,
+    fontSize: 24,
+    fontFamily: UI_FONT.bold,
+    textAlign: READ,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+  },
   section: {
     color: theme.textFaint,
     fontSize: 12,
-    fontFamily: FONTS.displayBold,
+    fontFamily: UI_FONT.bold,
     marginTop: 22,
     marginBottom: 8,
     letterSpacing: 0.5,
@@ -272,10 +293,10 @@ const styles = StyleSheet.create({
   rowLabel: { color: theme.text, fontSize: 16 },
   rowValue: { color: theme.textFaint, fontSize: 15 },
   danger: { color: theme.critical },
-  note: { color: theme.textFaint, fontSize: 13, fontFamily: FONTS.body, lineHeight: 22, marginTop: 10, paddingHorizontal: 4 },
+  note: { color: theme.textFaint, fontSize: 13, fontFamily: UI_FONT.regular, lineHeight: 22, marginTop: 10, paddingHorizontal: 4 },
   disclaimer: {
     color: theme.textFaint,
-    fontSize: 12, fontFamily: FONTS.body,
+    fontSize: 12, fontFamily: UI_FONT.regular,
     lineHeight: 21,
     marginTop: 28,
     paddingHorizontal: 4,
@@ -286,7 +307,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     padding: 16,
   },
-  pickerTitle: { color: theme.text, fontSize: 20, fontFamily: FONTS.displayBold },
+  pickerTitle: { color: theme.text, fontSize: 20, fontFamily: UI_FONT.bold },
   cancel: { color: theme.accent, fontSize: 16 },
   pickerBody: { flex: 1, paddingHorizontal: 16 },
 });

@@ -20,6 +20,8 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.109.1",
     "@expo-google-fonts/amiri": "^0.4.1",
+    "@expo-google-fonts/cairo": "^0.4.2",
+    "@expo-google-fonts/inter": "^0.4.2",
     "@expo-google-fonts/readex-pro": "^0.4.1",
     "@react-native-async-storage/async-storage": "2.2.0",
     "expo": "~54.0.37",
@@ -50,6 +52,8 @@
   },
   "devDependencies": {
     "@types/react": "~19.1.0",
+    "playwright-core": "^1.62.1",
+    "react-native-web": "^0.21.2",
     "typescript": "~5.9.2"
   }
 }

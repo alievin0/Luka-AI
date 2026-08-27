@@ -14,9 +14,9 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Haptics from "expo-haptics";
 import { pack, activePackId, isAudio, isScanner, optionLabel, optionValue } from "../src/packs";
-import { t } from "../src/i18n";
+import { t, isRTL } from "../src/i18n";
 import { ui } from "../src/i18n/ui";
-import { FONTS } from "../src/type";
+import { UI_FONT } from "../src/ui-font";
 import { theme, withAlpha } from "../src/theme";
 import { completeOnboarding, type Profile } from "../src/storage";
 import { CountryField } from "../src/components/CountryField";
@@ -84,8 +84,12 @@ export default function Onboarding() {
       />
 
       <SafeAreaView style={styles.safe} edges={["top", "bottom"]}>
-        <View style={styles.progressTrack}>
-          <View style={[styles.progressFill, { width: `${(step / total) * 100}%` }]} />
+        {/* Dots rather than a bar: four questions is a countable number, and
+            seeing three left to go is more reassuring than a sliver of fill. */}
+        <View style={styles.dots}>
+          {Array.from({ length: total }, (_, i) => (
+            <View key={i} style={[styles.dot, i <= step && styles.dotOn]} />
+          ))}
         </View>
 
         {step === INTRO ? (
@@ -113,10 +117,17 @@ export default function Onboarding() {
                   }
                 >
                   <Text style={styles.optionText}>{t(optionLabel(option))}</Text>
-                  <Text style={styles.chevron}>‹</Text>
+                  <Text style={styles.chevron}>{isRTL ? "‹" : "›"}</Text>
                 </Pressable>
               ))}
             </View>
+
+            {/* Every answer improves the reading, none of them is required.
+                Forcing a choice from someone who genuinely does not know
+                their fuel type buys a wrong answer rather than a blank. */}
+            <Pressable onPress={next} hitSlop={10} accessibilityRole="button" style={styles.skip}>
+              <Text style={styles.skipText}>{t(ui.skipQuestion)}</Text>
+            </Pressable>
           </ScrollView>
         ) : step === COUNTRY ? (
           <View style={styles.body}>
@@ -160,7 +171,7 @@ export default function Onboarding() {
               disabled={saving}
             >
               {saving ? (
-                <ActivityIndicator color={theme.bg} />
+                <ActivityIndicator color={theme.onAction} />
               ) : (
                 <Text style={styles.ctaText}>
                   {step === INTRO ? t(ui.letsStart) : t(ui.agreeAndStart)}
@@ -177,53 +188,57 @@ export default function Onboarding() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: theme.bg },
   safe: { flex: 1 },
-  progressTrack: {
-    height: 3,
-    backgroundColor: theme.surfaceAlt,
+  dots: {
+    flexDirection: "row",
+    gap: 6,
+    justifyContent: "center",
+    marginTop: 14,
     marginHorizontal: 24,
-    borderRadius: 2,
-    marginTop: 10,
-    overflow: "hidden",
   },
-  progressFill: { height: 3, backgroundColor: theme.accent, borderRadius: 2 },
+  dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: theme.surfaceAlt },
+  dotOn: { backgroundColor: theme.accent },
 
   intro: { flex: 1, justifyContent: "center", alignItems: "center", padding: 32 },
   mark: { width: 116, height: 116, marginBottom: 32 },
-  appName: { color: theme.text, fontSize: 38, fontFamily: FONTS.displayBold, textAlign: "center" },
+  appName: { color: theme.text, fontSize: 38, fontFamily: UI_FONT.bold, textAlign: "center" },
   tagline: {
     color: theme.textSoft,
-    fontSize: 18, fontFamily: FONTS.body,
+    fontSize: 18, fontFamily: UI_FONT.regular,
     textAlign: "center",
     marginTop: 14,
     lineHeight: 31,
   },
-  introNote: { color: theme.textFaint, fontSize: 14, fontFamily: FONTS.body, textAlign: "center", marginTop: 26 },
+  introNote: { color: theme.textFaint, fontSize: 14, fontFamily: UI_FONT.regular, textAlign: "center", marginTop: 26 },
 
   body: { padding: 24, paddingTop: 36, flexGrow: 1 },
-  stepLabel: { color: theme.accent, fontSize: 13, fontFamily: FONTS.displayBold },
+  stepLabel: { color: theme.accent, fontSize: 13, fontFamily: UI_FONT.bold },
   question: {
     color: theme.text,
     fontSize: 27,
-    fontFamily: FONTS.displayBold,
+    fontFamily: UI_FONT.bold,
     marginTop: 10,
     lineHeight: 40,
   },
-  subQuestion: { color: theme.textSoft, fontSize: 15, fontFamily: FONTS.body, marginTop: 6, lineHeight: 26 },
+  subQuestion: { color: theme.textSoft, fontSize: 15, fontFamily: UI_FONT.regular, marginTop: 6, lineHeight: 26 },
   options: { marginTop: 26, gap: 10 },
   option: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    minHeight: 56,
     backgroundColor: theme.surface,
     borderWidth: 1,
     borderColor: theme.border,
     borderRadius: theme.radius,
-    paddingVertical: 18,
+    paddingVertical: 16,
     paddingHorizontal: 18,
   },
   optionPressed: { backgroundColor: theme.surfaceAlt, borderColor: theme.accent },
-  optionText: { color: theme.text, fontSize: 17, fontFamily: FONTS.body, flex: 1 },
-  chevron: { color: theme.textFaint, fontSize: 22, fontFamily: FONTS.body, marginRight: 6 },
+  optionText: { color: theme.text, fontSize: 17, fontFamily: UI_FONT.regular, flex: 1 },
+  chevron: { color: theme.textFaint, fontSize: 22, fontFamily: UI_FONT.regular },
+
+  skip: { alignSelf: "center", minHeight: 44, justifyContent: "center", marginTop: 18 },
+  skipText: { color: theme.textFaint, fontSize: 15, fontFamily: UI_FONT.medium },
 
   consentCard: {
     backgroundColor: theme.surface,
@@ -234,16 +249,16 @@ const styles = StyleSheet.create({
     marginTop: 24,
     gap: 14,
   },
-  consentText: { color: theme.textSoft, fontSize: 15, fontFamily: FONTS.body, lineHeight: 27 },
+  consentText: { color: theme.textSoft, fontSize: 15, fontFamily: UI_FONT.regular, lineHeight: 27 },
   consentLink: {
     color: theme.accent,
-    fontSize: 14, fontFamily: FONTS.body,
+    fontSize: 14, fontFamily: UI_FONT.regular,
     textDecorationLine: "underline",
     marginTop: 4,
   },
   consentWarn: {
     color: theme.textFaint,
-    fontSize: 13, fontFamily: FONTS.body,
+    fontSize: 13, fontFamily: UI_FONT.regular,
     lineHeight: 23,
     borderTopWidth: 1,
     borderTopColor: theme.border,
@@ -252,11 +267,12 @@ const styles = StyleSheet.create({
 
   footer: { padding: 24 },
   cta: {
-    backgroundColor: theme.accent,
+    backgroundColor: theme.action,
     borderRadius: theme.radius,
-    paddingVertical: 18,
+    minHeight: 56,
+    justifyContent: "center",
     alignItems: "center",
   },
   ctaPressed: { opacity: 0.85 },
-  ctaText: { color: theme.bg, fontSize: 17, fontFamily: FONTS.displayBold },
+  ctaText: { color: theme.onAction, fontSize: 17, fontFamily: UI_FONT.bold },
 });

@@ -1,159 +1,246 @@
-import { useMemo, useState } from "react";
-import { View, Text, StyleSheet, TextInput, Pressable, SectionList } from "react-native";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { View, Text, StyleSheet, FlatList, Pressable, ScrollView, BackHandler } from "react-native";
+import { useRouter } from "expo-router";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { SymbolBadge } from "../src/components/SymbolBadge";
-import { pack, isScanner } from "../src/packs";
-import { theme, severityStyle } from "../src/theme";
+import { pack, isScanner, type LibraryEntry } from "../src/packs";
 import { normalise } from "../src/countries";
-import type { LibraryEntry } from "../src/packs";
-import { t } from "../src/i18n";
+import { t, fill } from "../src/i18n";
 import { ui } from "../src/i18n/ui";
+import {
+  BG,
+  SURFACE,
+  BORDER,
+  TEXT,
+  TEXT_SOFT,
+  TEXT_FAINT,
+  gradeOf,
+  FONT,
+  TYPE,
+  SP,
+  RADIUS,
+  READ,
+  BACK,
+} from "../src/scanner-ui";
+import {
+  Card,
+  Title,
+  Subtitle,
+  SectionTitle,
+  Body,
+  SeverityBadge,
+  SeverityDot,
+  SearchField,
+  Button,
+  EmptyState,
+} from "../src/components/scanner-kit";
+import { ScannerNav, NAV_CLEARANCE } from "../src/components/ScannerNav";
 
-const SEVERITY_ORDER = ["critical", "warning", "info"] as const;
-const SEVERITY_TITLE = {
-  critical: ui.sevCritical,
-  warning: ui.sevWarning,
-  info: ui.sevInfo,
+/**
+ * The light guide.
+ *
+ * This is the screen that earns the subscription between emergencies: a
+ * driver who has already been frightened once comes back to learn what the
+ * other symbols mean before they see them lit. So it is a reference, not a
+ * feed — searchable, ordered by how much trouble each light means, and
+ * readable with no signal.
+ */
+
+const GRADE_WORD = {
+  critical: ui.gradeCritical,
+  warning: ui.gradeWarning,
+  info: ui.gradeInfo,
 } as const;
 
-export default function Library() {
-  const [query, setQuery] = useState("");
-  const [open, setOpen] = useState<string | null>(null);
-  const scannerPack = isScanner(pack) ? pack : null;
-  const entries = scannerPack?.library ?? [];
+/** Most dangerous first. A driver scanning this list is looking for the thing
+ *  that could strand them, not for alphabetical order. */
+const RANK = { critical: 0, warning: 1, info: 2 } as const;
 
-  const sections = useMemo(() => {
-    const q = normalise(query);
-    const matches = q
-      ? entries.filter((e: LibraryEntry) =>
-          [t(e.title), e.subtitle, t(e.summary)].some((field: string) =>
-            normalise(field).includes(q),
-          ),
+export default function Library() {
+  const router = useRouter();
+  const [query, setQuery] = useState("");
+  const [openId, setOpenId] = useState<string | null>(null);
+
+  const scannerPack = isScanner(pack) ? pack : null;
+  const entries = useMemo(() => scannerPack?.library ?? [], [scannerPack]);
+
+  const matches = useMemo(() => {
+    const q = normalise(query.trim());
+    const found = q
+      ? entries.filter((e) =>
+          [t(e.title), e.subtitle, t(e.summary)].some((field) => normalise(field).includes(q)),
         )
       : entries;
-
-    return SEVERITY_ORDER.map((severity) => ({
-      title: t(SEVERITY_TITLE[severity]),
-      severity,
-      data: matches.filter((e: LibraryEntry) => e.severity === severity),
-    })).filter((section) => section.data.length > 0);
+    return [...found].sort((a, b) => RANK[a.severity] - RANK[b.severity]);
   }, [query, entries]);
+
+  const open = useMemo(() => entries.find((e) => e.id === openId) ?? null, [entries, openId]);
+
+  /* Android's back gesture should close the entry, not leave the guide. */
+  useEffect(() => {
+    if (!open) return;
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      setOpenId(null);
+      return true;
+    });
+    return () => sub.remove();
+  }, [open]);
+
+  const close = useCallback(() => setOpenId(null), []);
 
   if (entries.length === 0) {
     return (
-      <View style={styles.empty}>
-        <Text style={styles.emptyText}>{t(ui.noMatch)}</Text>
+      <View style={styles.screen}>
+        <SafeAreaView style={styles.fill} edges={["top"]}>
+          <EmptyState glyph="▤" title={t(ui.noMatch)} />
+        </SafeAreaView>
+        <ScannerNav />
       </View>
     );
   }
 
-  const renderItem = ({ item }: { item: LibraryEntry }) => {
-    const sev = severityStyle(item.severity);
-    const expanded = open === item.id;
-    return (
-      <Pressable
-        style={styles.row}
-        onPress={() => setOpen(expanded ? null : item.id)}
-      >
-        <View style={styles.rowHead}>
-          <SymbolBadge glyph={item.glyph} colour={sev.color} background={sev.bg} />
-          <View style={styles.rowTitles}>
-            <Text style={styles.rowTitle}>{t(item.title)}</Text>
-            <Text style={styles.rowSubtitle}>{item.subtitle}</Text>
-          </View>
-          <Text style={styles.caret}>{expanded ? "−" : "+"}</Text>
-        </View>
-        {expanded && (
-          <View style={styles.detail}>
-            <Text style={styles.summary}>{t(item.summary)}</Text>
-            <View style={[styles.actionBox, { backgroundColor: sev.bg }]}>
-              <Text style={[styles.actionText, { color: sev.color }]}>{t(item.action)}</Text>
-            </View>
-          </View>
-        )}
-      </Pressable>
-    );
-  };
+  if (open) return <Entry entry={open} onBack={close} />;
 
   return (
     <View style={styles.screen}>
-      <View style={styles.searchRow}>
-        <Text style={styles.searchGlyph}>⌕</Text>
-        <TextInput
-          style={styles.search}
-          value={query}
-          onChangeText={setQuery}
-          placeholder={t(ui.searchGuide)}
-          placeholderTextColor={theme.textFaint}
-          autoCorrect={false}
-        />
-        {query.length > 0 && (
-          <Pressable onPress={() => setQuery("")} hitSlop={10}>
-            <Text style={styles.clear}>✕</Text>
-          </Pressable>
-        )}
-      </View>
+      <SafeAreaView style={styles.fill} edges={["top"]}>
+        <View style={styles.head}>
+          <Text style={styles.pageTitle}>
+            {scannerPack?.libraryTitle ? t(scannerPack.libraryTitle) : t(ui.guide)}
+          </Text>
+          <SearchField
+            value={query}
+            onChange={setQuery}
+            placeholder={fill(ui.searchLights, { n: entries.length })}
+          />
+        </View>
 
-      <SectionList
-        sections={sections}
-        keyExtractor={(item) => item.id}
-        renderItem={renderItem}
-        contentContainerStyle={styles.list}
-        keyboardShouldPersistTaps="handled"
-        stickySectionHeadersEnabled={false}
-        renderSectionHeader={({ section }) => (
-          <Text style={styles.sectionHeader}>{section.title}</Text>
-        )}
-        ListEmptyComponent={
-          <Text style={styles.emptyText}>{t(ui.noMatch)}</Text>
-        }
-      />
+        <FlatList
+          data={matches}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={styles.list}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          ListEmptyComponent={<EmptyState glyph="⌕" title={t(ui.noMatch)} />}
+          renderItem={({ item }) => (
+            <Pressable
+              style={({ pressed }) => [styles.row, pressed && { opacity: 0.85 }]}
+              onPress={() => setOpenId(item.id)}
+              accessibilityRole="button"
+              accessibilityLabel={`${t(item.title)} — ${t(GRADE_WORD[item.severity])}`}
+            >
+              <SymbolBadge
+                glyph={item.glyph}
+                colour={gradeOf(item.severity).fg}
+                background="transparent"
+                size={30}
+              />
+              <View style={styles.rowBody}>
+                <Text style={styles.rowTitle} numberOfLines={1}>
+                  {t(item.title)}
+                </Text>
+                <Text style={styles.rowSub} numberOfLines={1}>
+                  {item.subtitle}
+                </Text>
+              </View>
+              <SeverityDot severity={item.severity} />
+            </Pressable>
+          )}
+        />
+      </SafeAreaView>
+      <ScannerNav />
+    </View>
+  );
+}
+
+/**
+ * One light, in full.
+ *
+ * Two things only: what it means, and what to do. The guide deliberately does
+ * not carry likely causes — the app knows those from a photo of the actual
+ * car, and printing a generic list here would invite a driver to diagnose
+ * from a book instead of from their own dashboard.
+ */
+function Entry({ entry, onBack }: { entry: LibraryEntry; onBack: () => void }) {
+  const grade = gradeOf(entry.severity);
+  return (
+    <View style={styles.screen}>
+      <SafeAreaView style={styles.fill} edges={["top"]}>
+        <View style={styles.bar}>
+          <Pressable
+            onPress={onBack}
+            hitSlop={12}
+            accessibilityRole="button"
+            accessibilityLabel={t(ui.backToList)}
+            style={styles.barBtn}
+          >
+            <Text style={styles.barGlyph}>{BACK}</Text>
+          </Pressable>
+        </View>
+
+        <ScrollView contentContainerStyle={styles.entry} showsVerticalScrollIndicator={false}>
+          <View style={styles.entryHead}>
+            <SymbolBadge
+              glyph={entry.glyph}
+              colour={grade.fg}
+              background={grade.bg}
+              size={64}
+            />
+            <Title>{t(entry.title)}</Title>
+            <Subtitle>{entry.subtitle}</Subtitle>
+            <SeverityBadge severity={entry.severity} label={t(GRADE_WORD[entry.severity])} />
+          </View>
+
+          <Card>
+            <SectionTitle>{t(ui.whatItMeans)}</SectionTitle>
+            <Body>{t(entry.summary)}</Body>
+          </Card>
+
+          {/* The instruction carries the grade's colour, because what to do
+              about a red light and what to do about an amber one are different
+              kinds of urgency and the colour says so before the words do. */}
+          <Card tone={entry.severity}>
+            <SectionTitle>{t(ui.whatToDoNow)}</SectionTitle>
+            <Text style={[styles.action, { color: grade.fg }]}>{t(entry.action)}</Text>
+          </Card>
+
+          <Button label={t(ui.backToList)} block onPress={onBack} />
+        </ScrollView>
+      </SafeAreaView>
+      <ScannerNav />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: theme.bg },
-  searchRow: {
+  screen: { flex: 1, backgroundColor: BG },
+  fill: { flex: 1 },
+
+  head: { paddingHorizontal: SP.lg, paddingBottom: SP.md, gap: SP.md },
+  pageTitle: { color: TEXT, ...TYPE.title, fontFamily: FONT.bold, textAlign: READ },
+
+  list: { paddingHorizontal: SP.lg, paddingBottom: NAV_CLEARANCE, gap: SP.sm },
+  row: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-    backgroundColor: theme.surface,
+    gap: SP.md,
+    minHeight: 62,
+    backgroundColor: SURFACE,
     borderWidth: 1,
-    borderColor: theme.border,
-    borderRadius: theme.radius,
-    paddingHorizontal: 14,
-    margin: 16,
-    marginBottom: 4,
+    borderColor: BORDER,
+    borderRadius: RADIUS.md,
+    paddingHorizontal: SP.md,
+    paddingVertical: SP.sm,
   },
-  searchGlyph: { color: theme.textFaint, fontSize: 19 },
-  search: { flex: 1, color: theme.text, fontSize: 16, paddingVertical: 13, textAlign: "right" },
-  clear: { color: theme.textFaint, fontSize: 14 },
-  list: { padding: 16, paddingTop: 8, gap: 8 },
-  sectionHeader: {
-    color: theme.textFaint,
-    fontSize: 12,
-    fontWeight: "700",
-    letterSpacing: 0.5,
-    marginTop: 18,
-    marginBottom: 8,
-  },
-  row: {
-    backgroundColor: theme.surface,
-    borderRadius: theme.radius,
-    borderWidth: 1,
-    borderColor: theme.border,
-    padding: 14,
-    marginBottom: 8,
-  },
-  rowHead: { flexDirection: "row", alignItems: "center", gap: 12 },
-  rowTitles: { flex: 1, gap: 2 },
-  rowTitle: { color: theme.text, fontSize: 16, fontWeight: "600" },
-  rowSubtitle: { color: theme.textFaint, fontSize: 12, writingDirection: "ltr", textAlign: "right" },
-  caret: { color: theme.textFaint, fontSize: 20, width: 20, textAlign: "center" },
-  detail: { marginTop: 12, gap: 10 },
-  summary: { color: theme.textSoft, fontSize: 15, lineHeight: 26 },
-  actionBox: { borderRadius: 10, padding: 12 },
-  actionText: { fontSize: 15, lineHeight: 25, fontWeight: "500" },
-  empty: { flex: 1, backgroundColor: theme.bg, alignItems: "center", justifyContent: "center" },
-  emptyText: { color: theme.textFaint, fontSize: 15, textAlign: "center", marginTop: 32 },
+  rowBody: { flex: 1, gap: 1 },
+  rowTitle: { color: TEXT, ...TYPE.body, fontFamily: FONT.semibold, textAlign: READ },
+  rowSub: { color: TEXT_FAINT, ...TYPE.small, fontFamily: FONT.latin, textAlign: READ },
+
+  bar: { flexDirection: "row", paddingHorizontal: SP.md },
+  barBtn: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
+  barGlyph: { color: TEXT_SOFT, fontSize: 22 },
+
+  entry: { paddingHorizontal: SP.lg, paddingBottom: NAV_CLEARANCE, gap: SP.lg },
+  entryHead: { alignItems: "center", gap: SP.md, paddingVertical: SP.lg },
+  action: { ...TYPE.body, fontFamily: FONT.medium, textAlign: READ },
 });

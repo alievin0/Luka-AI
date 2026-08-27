@@ -1,11 +1,20 @@
 import { useEffect, useState } from "react";
-import { View, Text, Pressable, StyleSheet, ActivityIndicator, Alert, Linking } from "react-native";
+import {
+  View,
+  Text,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  ActivityIndicator,
+  Alert,
+  Linking,
+} from "react-native";
 import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { pack } from "../src/packs";
-import { t } from "../src/i18n";
+import { pack, bulletText, bulletGlyph } from "../src/packs";
+import { t, fill } from "../src/i18n";
 import { ui } from "../src/i18n/ui";
-import { FONTS } from "../src/type";
+import { UI_FONT } from "../src/ui-font";
 import { theme } from "../src/theme";
 import { privacyUrl, supportUrl, termsUrl } from "../src/legal";
 import { getOffers, purchase, purchasesAvailable, restore, type Offer } from "../src/purchases";
@@ -64,18 +73,33 @@ export default function Paywall() {
         <Text style={styles.closeText}>✕</Text>
       </Pressable>
 
-      <View style={styles.body}>
+      <ScrollView
+        style={styles.body}
+        contentContainerStyle={styles.bodyContent}
+        showsVerticalScrollIndicator={false}
+      >
         <Text style={styles.headline}>{t(pack.paywall.headline)}</Text>
 
         <View style={styles.bullets}>
           {pack.paywall.bullets.map((bullet) => (
-            <View key={t(bullet)} style={styles.bulletRow}>
-              <Text style={styles.check}>✓</Text>
-              <Text style={styles.bulletText}>{t(bullet)}</Text>
+            <View key={t(bulletText(bullet))} style={styles.bulletRow}>
+              <Text style={styles.check}>{bulletGlyph(bullet)}</Text>
+              <Text style={styles.bulletText}>{t(bulletText(bullet))}</Text>
             </View>
           ))}
         </View>
 
+        {!purchasesAvailable() ? (
+          <Text style={styles.devNote}>
+            {t(ui.devModeBody)}
+          </Text>
+        ) : null}
+      </ScrollView>
+
+      {/* The plan choice and the button that acts on it stay together and
+          stay on screen. Above the fold is the argument; this is the decision,
+          and a driver should never have to scroll to find half of it. */}
+      <View style={styles.footer}>
         {offers.length === 0 ? (
           <ActivityIndicator color={theme.accent} style={{ marginTop: 24 }} />
         ) : (
@@ -115,23 +139,17 @@ export default function Paywall() {
           </Text>
         ) : null}
 
-        {!purchasesAvailable() ? (
-          <Text style={styles.devNote}>
-            {t(ui.devModeBody)}
-          </Text>
-        ) : null}
-      </View>
-
-      <View style={styles.footer}>
         <Pressable
           style={[styles.cta, (!selected || working) && styles.ctaDisabled]}
           onPress={buy}
           disabled={!selected || working}
         >
           {working ? (
-            <ActivityIndicator color="#0C0E13" />
+            <ActivityIndicator color={theme.onAction} />
           ) : (
-            <Text style={styles.ctaText}>{t(ui.startNowCta)}</Text>
+            <Text style={styles.ctaText}>
+              {trialDays ? fill(ui.startTrialDays, { n: trialDays }) : t(ui.subscribeNow)}
+            </Text>
           )}
         </Pressable>
         <Pressable onPress={() => restore()}>
@@ -163,13 +181,14 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: theme.bg },
   close: { alignSelf: "flex-start", padding: 18 },
   closeText: { color: theme.textFaint, fontSize: 20 },
-  body: { flex: 1, paddingHorizontal: 24 },
-  headline: { color: theme.text, fontSize: 30, fontFamily: FONTS.displayBold, lineHeight: 44 },
+  body: { flex: 1 },
+  bodyContent: { paddingHorizontal: 24, paddingBottom: 24 },
+  headline: { color: theme.text, fontSize: 30, fontFamily: UI_FONT.bold, lineHeight: 44 },
   bullets: { marginTop: 28, gap: 14 },
   bulletRow: { flexDirection: "row", gap: 12, alignItems: "flex-start" },
-  check: { color: theme.accent, fontSize: 17, fontFamily: FONTS.displayBold },
-  bulletText: { color: theme.textSoft, fontSize: 16, fontFamily: FONTS.body, lineHeight: 27, flex: 1 },
-  offers: { marginTop: 32, gap: 10 },
+  check: { color: theme.accent, fontSize: 17, fontFamily: UI_FONT.bold },
+  bulletText: { color: theme.textSoft, fontSize: 16, fontFamily: UI_FONT.regular, lineHeight: 27, flex: 1 },
+  offers: { gap: 10 },
   offer: {
     backgroundColor: theme.surface,
     borderRadius: theme.radius,
@@ -183,7 +202,7 @@ const styles = StyleSheet.create({
   offerActive: { borderColor: theme.accent, backgroundColor: theme.surfaceAlt },
   offerBody: { flex: 1, gap: 3 },
   offerTitleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  offerTitle: { color: theme.text, fontSize: 16, fontFamily: FONTS.bodyMedium },
+  offerTitle: { color: theme.text, fontSize: 16, fontFamily: UI_FONT.medium },
   offerNote: { color: theme.textFaint, fontSize: 12 },
   badge: {
     backgroundColor: theme.accent,
@@ -191,16 +210,16 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
     paddingHorizontal: 9,
   },
-  badgeText: { color: theme.bg, fontSize: 10, fontFamily: FONTS.displayBold },
+  badgeText: { color: theme.bg, fontSize: 10, fontFamily: UI_FONT.bold },
   trialLine: {
     color: theme.textSoft,
-    fontSize: 13, fontFamily: FONTS.body,
+    fontSize: 13,
+    fontFamily: UI_FONT.regular,
     textAlign: "center",
-    marginTop: 14,
     lineHeight: 22,
   },
-  devNote: { color: theme.textFaint, fontSize: 12, fontFamily: FONTS.body, textAlign: "center", marginTop: 10 },
-  offerPrice: { color: theme.accent, fontSize: 17, fontFamily: FONTS.displayBold },
+  devNote: { color: theme.textFaint, fontSize: 12, fontFamily: UI_FONT.regular, textAlign: "center", marginTop: 10 },
+  offerPrice: { color: theme.text, fontSize: 17, fontFamily: UI_FONT.bold },
   notice: {
     marginTop: 32,
     backgroundColor: theme.surface,
@@ -209,19 +228,27 @@ const styles = StyleSheet.create({
     borderColor: theme.border,
     padding: 16,
   },
-  noticeText: { color: theme.textFaint, fontSize: 14, fontFamily: FONTS.body, lineHeight: 24 },
-  footer: { padding: 24, gap: 14 },
+  noticeText: { color: theme.textFaint, fontSize: 14, fontFamily: UI_FONT.regular, lineHeight: 24 },
+  footer: {
+    paddingHorizontal: 24,
+    paddingTop: 16,
+    paddingBottom: 24,
+    gap: 14,
+    borderTopWidth: 1,
+    borderTopColor: theme.border,
+  },
   cta: {
-    backgroundColor: theme.accent,
+    backgroundColor: theme.action,
     borderRadius: theme.radius,
-    paddingVertical: 18,
+    minHeight: 56,
+    justifyContent: "center",
     alignItems: "center",
   },
   ctaDisabled: { opacity: 0.45 },
-  ctaText: { color: "#0C0E13", fontSize: 17, fontFamily: FONTS.displayBold },
+  ctaText: { color: theme.onAction, fontSize: 17, fontFamily: UI_FONT.bold },
   renewal: {
     color: theme.textFaint,
-    fontSize: 11, fontFamily: FONTS.body,
+    fontSize: 11, fontFamily: UI_FONT.regular,
     lineHeight: 18,
     textAlign: "center",
     marginTop: 14,
@@ -233,7 +260,7 @@ const styles = StyleSheet.create({
     gap: 8,
     marginTop: 10,
   },
-  legalLink: { color: theme.textSoft, fontSize: 12, fontFamily: FONTS.body, textDecorationLine: "underline" },
+  legalLink: { color: theme.textSoft, fontSize: 12, fontFamily: UI_FONT.regular, textDecorationLine: "underline" },
   legalDot: { color: theme.textFaint, fontSize: 12 },
-  restore: { color: theme.textFaint, fontSize: 13, fontFamily: FONTS.body, textAlign: "center" },
+  restore: { color: theme.textFaint, fontSize: 13, fontFamily: UI_FONT.regular, textAlign: "center" },
 });

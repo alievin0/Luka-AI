@@ -79,6 +79,21 @@ export type Pricing = {
   defaultProductId: string;
 };
 
+/**
+ * One line of the paywall's value list.
+ *
+ * A bare Text gets the default tick, which is the honest mark for "included".
+ * The object form carries a glyph chosen to match what that particular line
+ * promises — five identical ticks make five different promises look like one.
+ */
+export type PaywallBullet = Text | { text: Text; glyph: string };
+
+export const bulletText = (bullet: PaywallBullet): Text =>
+  "text" in bullet ? bullet.text : bullet;
+
+export const bulletGlyph = (bullet: PaywallBullet): string =>
+  "text" in bullet ? bullet.glyph : "✓";
+
 /* ------------------------------------------------------------------ scanner */
 
 export type ScanResult = {
@@ -121,7 +136,7 @@ export type ScannerPack = {
   onboarding: OnboardingStep[];
   library?: LibraryEntry[];
   libraryTitle?: Text;
-  paywall: { headline: Text; bullets: Text[] };
+  paywall: { headline: Text; bullets: PaywallBullet[] };
   pricing: Pricing;
   /** The model answers in the user's language, so the locale goes in. */
   systemPrompt: (ctx: { currency: string; profile: string; locale: Locale }) => string;
@@ -163,7 +178,7 @@ export type ProgramPack = {
   nouns: { session: Text; item: Text; plan: Text };
   disclaimer: Text;
   onboarding: OnboardingStep[];
-  paywall: { headline: Text; bullets: Text[] };
+  paywall: { headline: Text; bullets: PaywallBullet[] };
   pricing: Pricing;
   plan: { weeks: number; daysPerWeek: number; promise: Text };
   sessions: Session[];
@@ -325,7 +340,7 @@ export type AudioPack = {
   emptyBody: Text;
   disclaimer: Text;
   onboarding: OnboardingStep[];
-  paywall: { headline: Text; bullets: Text[] };
+  paywall: { headline: Text; bullets: PaywallBullet[] };
   pricing: Pricing;
   /** How many lectures a free user gets before the paywall. */
   freeLectures: number;

@@ -79,12 +79,29 @@ export const dashlight: ScannerPack = {
       "Am I in trouble, and can I keep driving?",
       "أنا بورطة؟ وبقدر أكمل سواقة؟",
     ),
+    // Each glyph matches what its own line promises: the verdict, the
+    // consequence, the car, the estimate, the guide.
     bullets: [
-      L("A straight answer on whether it's safe to drive", "جواب واضح: تقدر تكمل سواقة ولا لأ"),
-      L("What actually happens if you ignore it", "شو بيصير فعلياً إذا تجاهلتها"),
-      L("Read against your own car, not a generic manual", "مقروءة على سيارتك إنت مش على دليل عام"),
-      L("Repair cost estimated in your currency", "تقدير كلفة التصليح بعملة بلدك"),
-      L("A guide to 48 warning lights, offline", "دليل ٤٨ لمبة تحذيرية بدون إنترنت"),
+      {
+        glyph: "✓",
+        text: L("A straight answer on whether it's safe to drive", "جواب واضح: تقدر تكمل سواقة ولا لأ"),
+      },
+      {
+        glyph: "!",
+        text: L("What actually happens if you ignore it", "شو بيصير فعلياً إذا تجاهلتها"),
+      },
+      {
+        glyph: "⚙",
+        text: L("Read against your own car, not a generic manual", "مقروءة على سيارتك إنت مش على دليل عام"),
+      },
+      {
+        glyph: "≈",
+        text: L("Repair cost estimated in your currency", "تقدير كلفة التصليح بعملة بلدك"),
+      },
+      {
+        glyph: "▤",
+        text: L("A guide to 48 warning lights, offline", "دليل ٤٨ لمبة تحذيرية بدون إنترنت"),
+      },
     ],
   },
   pricing: {

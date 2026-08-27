@@ -8,6 +8,18 @@ import {
   ReadexPro_700Bold,
 } from "@expo-google-fonts/readex-pro";
 import { Amiri_400Regular_Italic, Amiri_700Bold } from "@expo-google-fonts/amiri";
+import {
+  Inter_400Regular,
+  Inter_500Medium,
+  Inter_600SemiBold,
+  Inter_700Bold,
+} from "@expo-google-fonts/inter";
+import {
+  Cairo_400Regular,
+  Cairo_500Medium,
+  Cairo_600SemiBold,
+  Cairo_700Bold,
+} from "@expo-google-fonts/cairo";
 
 /**
  * The typefaces.
@@ -73,17 +85,44 @@ export const SCALE = {
   micro: 11,
 } as const;
 
+/**
+ * The faces each archetype actually uses.
+ *
+ * `activePackId` is fixed at build time, so this map is constant for the life
+ * of the app and safe to hand a hook. Loading all of them regardless would
+ * put a megabyte of Arabic outlines into a scanner that never draws one.
+ *
+ * The scanner apps use Inter for Latin and Cairo for Arabic: no single family
+ * draws both this well at the size a driver reads a warning from, and
+ * legibility beats tidiness on that screen. Mahdar keeps Readex Pro, a real
+ * superfamily, because a bilingual lecture transcript wants one voice.
+ */
+const AUDIO_FACES = {
+  ReadexPro_200ExtraLight,
+  ReadexPro_300Light,
+  ReadexPro_400Regular,
+  ReadexPro_500Medium,
+  ReadexPro_600SemiBold,
+  ReadexPro_700Bold,
+  Amiri_400Regular_Italic,
+  Amiri_700Bold,
+};
+
+const SCANNER_FACES = {
+  Inter_400Regular,
+  Inter_500Medium,
+  Inter_600SemiBold,
+  Inter_700Bold,
+  Cairo_400Regular,
+  Cairo_500Medium,
+  Cairo_600SemiBold,
+  Cairo_700Bold,
+};
+
 export function useAppFonts() {
-  const [loaded, error] = useFonts({
-    ReadexPro_200ExtraLight,
-    ReadexPro_300Light,
-    ReadexPro_400Regular,
-    ReadexPro_500Medium,
-    ReadexPro_600SemiBold,
-    ReadexPro_700Bold,
-    Amiri_400Regular_Italic,
-    Amiri_700Bold,
-  });
+  const [loaded, error] = useFonts(
+    require("./packs").pack.kind === "audio" ? AUDIO_FACES : SCANNER_FACES,
+  );
   // A font that fails to load must not hold the app hostage — the system face
   // is worse, not fatal.
   return loaded || Boolean(error);

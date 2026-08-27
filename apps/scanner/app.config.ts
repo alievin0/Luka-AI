@@ -72,7 +72,10 @@ const VARIANTS = {
 
 type VariantId = keyof typeof VARIANTS;
 
-const id = (process.env.SCANNER as VariantId) || "dashlight";
+/* EXPO_PUBLIC_SCANNER is the same choice by another name: Metro inlines it
+ * into the bundle, so the app can still tell which variant it is in contexts
+ * where the manifest is not available. Either spelling works. */
+const id = ((process.env.SCANNER || process.env.EXPO_PUBLIC_SCANNER) as VariantId) || "dashlight";
 const v = VARIANTS[id] ?? VARIANTS.dashlight;
 
 /** Only the lecture app records; the scanners must not ask for a microphone

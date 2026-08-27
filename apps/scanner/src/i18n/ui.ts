@@ -561,4 +561,75 @@ export const ui = {
     "{n} pieces of work came out of this week's lectures.",
     "{n} واجبات طلعت من محاضرات هالأسبوع.",
   ),
+
+  // ---- Dash Light redesign --------------------------------------------
+  // The result screen's four views. Short labels: four have to fit across a
+  // small phone without any of them being cut off.
+  resultTitle: L("Result", "النتيجة"),
+  scanTab: L("Scan", "افحص"),
+  // Counted properly rather than glued together: "0 free scan left" is the
+  // kind of line that makes an app look unfinished on the first screen.
+  scanQuotaNone: L("No free scans left", "ما ضل فحص مجاني"),
+  scanQuotaOne: L("1 free scan left", "ضل فحص مجاني واحد"),
+  scanQuotaMany: L("{n} free scans left", "ضل {n} فحوصات مجانية"),
+  // The grade of a light, as a word. Colour alone is not a signal a
+  // colour-blind driver can read, and this is the screen where being misread
+  // has a physical consequence.
+  gradeCritical: L("CRITICAL", "خطورة عالية"),
+  gradeWarning: L("WARNING", "تحذير"),
+  gradeInfo: L("INFO", "معلومة"),
+  resTabSummary: L("Summary", "الخلاصة"),
+  resTabCauses: L("Causes", "الأسباب"),
+  resTabActions: L("What to do", "شو تعمل"),
+  resTabAlso: L("Also lit", "لمبات أخرى"),
+
+  // The camera screen.
+  torchOn: L("Light on", "الإضاءة شغالة"),
+  torchOff: L("Light", "إضاءة"),
+  holdSteady: L("Hold steady", "ثبّت التلفون"),
+  takesSeconds: L("This takes a few seconds", "بياخد كم ثانية"),
+
+  // Nothing usable in the photo. Never phrased as the driver's mistake.
+  notDetectedTitle: L("We couldn't read a warning light", "ما قدرنا نقرأ اللمبة"),
+  tipsToTry: L("Try again like this", "جرّب هيك"),
+  retakePhoto: L("Retake the photo", "صوّر كمان مرة"),
+  chooseFromGallery: L("Choose from gallery", "اختر من المعرض"),
+
+  // The light guide.
+  searchLights: L("Search {n} lights", "دوّر بـ{n} لمبة"),
+  whatItMeans: L("What it means", "شو معناها"),
+  commonCauses: L("Common causes", "الأسباب الشائعة"),
+  whatToDoNow: L("What to do now", "شو تعمل هلق"),
+  backToList: L("Back to the list", "رجوع للقائمة"),
+  allLights: L("All", "الكل"),
+
+  // Onboarding and paywall.
+  skipQuestion: L("Skip", "تخطّى"),
+  startTrialDays: L("Start {n}-day trial", "ابدأ تجربة {n} أيام"),
+  subscribeNow: L("Subscribe", "اشترك"),
+  bestValue: L("Best value", "الأوفر"),
+  trialNote: L("{n}-day free trial", "تجربة مجانية {n} أيام"),
+
+  // ---- settings ---------------------------------------------------------
+  // These were hardcoded Arabic, which left the English build showing Arabic
+  // section headers to someone who had chosen English.
+  reminderEnable: L("Turn on the daily reminder", "فعّل التذكير اليومي"),
+  reminderLater: L("An hour later", "أخّر ساعة"),
+  reminderLocalNote: L(
+    "The reminder is local to your device — it never passes through a server.",
+    "تذكير محلي على جهازك — ما بيمر على أي خادم.",
+  ),
+  resetProgressQ: L("Reset your progress?", "تصفير التقدّم؟"),
+  resetDo: L("Reset", "صفّر"),
+  resetDoneBody: L("You're back at the start.", "رجعت للبداية."),
+  clearScansQ: L("Delete every scan?", "مسح كل الفحوصات؟"),
+  clearDo: L("Delete", "امسح"),
+  clearDone: L("Deleted", "انمسحت"),
+  clearDoneBody: L("No saved scans are left.", "ما ضل ولا فحص محفوظ."),
+  purchasesOffBody: L("Subscriptions are not enabled in this build.", "الاشتراكات مش مفعّلة بهالنسخة."),
+  noPriorPurchase: L("No subscription found", "ما لقينا اشتراك"),
+  noPriorPurchaseBody: L(
+    "There's no earlier subscription on this account.",
+    "ما في اشتراك سابق على هذا الحساب.",
+  ),
 };

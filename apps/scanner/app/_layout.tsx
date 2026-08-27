@@ -76,13 +76,16 @@ export default function RootLayout() {
           name="paywall"
           options={{ presentation: "modal", headerShown: false }}
         />
-        <Stack.Screen name="result" options={{ title: t(ui.result) }} />
-        <Stack.Screen name="history" options={{ title: t(ui.pastScans) }} />
+        {/* The scanner screens paint their own header and their own bottom
+            bar, so a stack header over them would be a second, competing set
+            of chrome. Mahdar's shell does the same. */}
+        <Stack.Screen name="result" options={{ headerShown: false }} />
+        <Stack.Screen name="history" options={{ headerShown: false }} />
+        <Stack.Screen name="library" options={{ headerShown: false }} />
         <Stack.Screen
-          name="library"
-          options={{ title: isScanner(pack) && pack.libraryTitle ? t(pack.libraryTitle) : t(ui.guide) }}
+          name="settings"
+          options={isScanner(pack) ? { headerShown: false } : { title: t(ui.settings) }}
         />
-        <Stack.Screen name="settings" options={{ title: t(ui.settings) }} />
         <Stack.Screen name="session" options={{ headerShown: false, presentation: "fullScreenModal" }} />
         <Stack.Screen name="price-check" options={{ title: t(ui.priceCheck) }} />
         <Stack.Screen name="plan" options={{ title: isProgram(pack) ? t(pack.nouns.plan) : t(ui.noPlan) }} />
