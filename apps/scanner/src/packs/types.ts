@@ -102,6 +102,11 @@ export type PaywallBullet =
       glyph?: string;
       /** A Feather icon name — one family, one stroke weight. */
       icon?: string;
+      /**
+       * A mark drawn by scripts/make-symbols.py, for packs whose design
+       * supplies its own artwork. Preferred over `icon` where both exist.
+       */
+      symbol?: string;
       /** The supporting line under the benefit. */
       detail?: Text;
     };
@@ -114,6 +119,9 @@ export const bulletGlyph = (bullet: PaywallBullet): string =>
 
 export const bulletIcon = (bullet: PaywallBullet): string | undefined =>
   "text" in bullet ? bullet.icon : undefined;
+
+export const bulletSymbol = (bullet: PaywallBullet): string | undefined =>
+  "text" in bullet ? bullet.symbol : undefined;
 
 export const bulletDetail = (bullet: PaywallBullet): Text | undefined =>
   "text" in bullet ? bullet.detail : undefined;

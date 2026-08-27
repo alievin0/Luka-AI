@@ -14,7 +14,7 @@ import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Feather from "@expo/vector-icons/Feather";
 import { symbolFor } from "../src/symbols";
-import { pack, bulletText, bulletDetail, bulletIcon, bulletGlyph } from "../src/packs";
+import { pack, bulletText, bulletDetail, bulletIcon, bulletGlyph, bulletSymbol } from "../src/packs";
 import { t, fill } from "../src/i18n";
 import { ui } from "../src/i18n/ui";
 import { UI_FONT } from "../src/ui-font";
@@ -123,6 +123,7 @@ export default function Paywall() {
             <Text style={styles.cardTitle}>{t(ui.youGet)}</Text>
             <View style={styles.grid}>
               {benefits.map((bullet, index) => {
+                const symbol = bulletSymbol(bullet);
                 const icon = bulletIcon(bullet);
                 const detail = bulletDetail(bullet);
                 return (
@@ -138,7 +139,13 @@ export default function Paywall() {
                       index === benefits.length - 1 && index % 2 === 0 && styles.cellWide,
                     ]}
                   >
-                    {icon ? (
+                    {symbol ? (
+                      <Image
+                        source={symbolFor(symbol)}
+                        style={styles.cellMark}
+                        resizeMode="contain"
+                      />
+                    ) : icon ? (
                       <Feather
                         name={icon as React.ComponentProps<typeof Feather>["name"]}
                         size={18}
@@ -403,6 +410,8 @@ const styles = StyleSheet.create({
   cellWide: { width: "100%" },
   cellDivided: { borderRightWidth: 1, borderRightColor: BORDER },
   cellRow: { borderTopWidth: 1, borderTopColor: BORDER },
+  /* The design runs these at 27-36pt; 28 sits in that band. */
+  cellMark: { width: 28, height: 28, tintColor: TEXT_SOFT },
   cellGlyph: { color: TEXT_SOFT, fontSize: 17 },
   cellTitle: { color: TEXT, fontSize: 14, fontFamily: UI_FONT.bold, textAlign: "center" },
   cellDetail: {

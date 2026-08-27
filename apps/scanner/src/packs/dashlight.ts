@@ -93,31 +93,31 @@ export const dashlight: ScannerPack = {
       "Am I in trouble, and can I keep driving?",
       "أنا بورطة؟ وبقدر أكمل سواقة؟",
     ),
-    // Each line is a title and the promise under it, with an icon from the
-    // one family the rest of the app uses.
+    // Each line is a title and the promise under it, marked with the
+    // design's own artwork rather than a stand-in from an icon set.
     bullets: [
       {
-        icon: "clock",
+        symbol: "benefit-seconds",
         text: L("In seconds", "خلال ثوانٍ"),
         detail: L("Photograph the light, get the answer", "صوّر اللمبة ونعطيك الجواب"),
       },
       {
-        icon: "truck",
+        symbol: "benefit-car",
         text: L("Read on your car", "مخصّص لسيارتك"),
         detail: L("Sharper answers for your make and year", "نتائج أدق حسب نوع سيارتك"),
       },
       {
-        icon: "book-open",
+        symbol: "benefit-guide",
         text: L("The whole guide", "دليل كامل"),
         detail: L("48 warning lights, offline", "دليل واضح لـ48 لمبة"),
       },
       {
-        icon: "credit-card",
+        symbol: "benefit-cost",
         text: L("What it costs", "تكلفة تقريبية"),
         detail: L("Know the repair before the workshop does", "اعرف كم ممكن يكلّف إصلاحها"),
       },
       {
-        icon: "check-square",
+        symbol: "benefit-steps",
         text: L("Clear steps", "خطوات واضحة"),
         detail: L("What to do now, in order", "شو تعمل الآن خطوة بخطوة"),
       },

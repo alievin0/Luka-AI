@@ -543,17 +543,19 @@ def grade_ok(p):
     The word OK sits inside it at display time rather than being drawn here,
     so it stays crisp at every size and can be translated if it ever needs to
     be."""
-    arch = p.arc(0, 0.10, 0.62, 180, 360, 0.075)
+    arch = p.arc(0, 0.02, 0.66, 180, 360, 0.075)
+    # The legs splay outward into feet, which is what makes it read as a
+    # gauge housing rather than half a circle.
     legs = union(
-        p.bar(-0.62, 0.10, -0.62, 0.40, 0.075),
-        p.bar(0.62, 0.10, 0.62, 0.40, 0.075),
+        p.bar(-0.66, 0.02, -0.86, 0.40, 0.075),
+        p.bar(0.66, 0.02, 0.86, 0.40, 0.075),
     )
     ticks = union(*[
         p.bar(
             0.44 * math.cos(math.radians(a)),
-            0.10 + 0.44 * math.sin(math.radians(a)),
+            0.02 + 0.44 * math.sin(math.radians(a)),
             0.34 * math.cos(math.radians(a)),
-            0.10 + 0.34 * math.sin(math.radians(a)),
+            0.02 + 0.34 * math.sin(math.radians(a)),
             0.035,
         )
         for a in (196, 218, 240, 262, 284, 306, 328, 350)
@@ -586,6 +588,96 @@ def grade_stop(p):
         )
 
     return [_outline(octagon)]
+
+
+# ------------------------------------------------- the paywall's five benefits
+#
+# The same five marks the design uses, drawn here for the same reason as the
+# three grades above: one family, one stroke weight, any density, tintable.
+# Two of them correct what the app had been showing — the design's vehicle is a
+# car seen head-on rather than a delivery truck, and its cost mark is a wallet
+# rather than a bank card.
+
+
+def benefit_seconds(p):
+    """A clock. Photograph the light, get the answer."""
+    face = p.ring(0, 0, 0.64, 0.07)
+    hands = union(p.bar(0, 0, 0, -0.32, 0.065), p.bar(0, 0, 0.28, 0.10, 0.065))
+    ticks = union(*[
+        p.bar(
+            0.48 * math.cos(math.radians(a)), 0.48 * math.sin(math.radians(a)),
+            0.38 * math.cos(math.radians(a)), 0.38 * math.sin(math.radians(a)),
+            0.035,
+        )
+        for a in (0, 90, 180, 270)
+    ])
+    return [union(face, hands, ticks)]
+
+
+def benefit_car(p):
+    """A car head-on. Read on your car.
+
+    Drawn as strokes of one weight rather than as a shape minus a scaled copy
+    of itself: scaling a copy narrows the wall unevenly wherever the shape is
+    off-centre, which is what turns an outline into a silhouette."""
+    t = 0.075
+    body = subtract(p.box(0, 0.18, 0.70, 0.28, 0.14), p.box(0, 0.18, 0.70 - t, 0.28 - t, 0.10))
+    roof = union(
+        p.bar(-0.34, -0.10, -0.20, -0.46, 0.07),
+        p.bar(-0.20, -0.46, 0.20, -0.46, 0.07),
+        p.bar(0.20, -0.46, 0.34, -0.10, 0.07),
+    )
+    lamps = union(p.bar(-0.50, 0.14, -0.36, 0.14, 0.05), p.bar(0.36, 0.14, 0.50, 0.14, 0.05))
+    wheels = union(p.bar(-0.56, 0.50, -0.40, 0.50, 0.06), p.bar(0.40, 0.50, 0.56, 0.50, 0.06))
+    return [union(body, roof, lamps, wheels)]
+
+
+def benefit_guide(p):
+    """An open book. The whole guide."""
+    t = 0.05
+
+    def half(side):
+        return union(
+            p.bar(0, -0.28, side * 0.70, -0.42, t),
+            p.bar(side * 0.70, -0.42, side * 0.70, 0.32, t),
+            p.bar(side * 0.70, 0.32, 0, 0.46, t),
+        )
+
+    spine = p.bar(0, -0.28, 0, 0.46, t)
+    lines = union(*[
+        p.bar(side * 0.16, y, side * 0.58, y, 0.032)
+        for side in (-1, 1)
+        for y in (-0.12, 0.06, 0.24)
+    ])
+    return [union(half(-1), half(1), spine, lines)]
+
+
+def benefit_cost(p):
+    """A wallet. What the repair costs."""
+    t = 0.075
+    pouch = subtract(p.box(0, 0.08, 0.64, 0.40, 0.14), p.box(0, 0.08, 0.64 - t, 0.40 - t, 0.10))
+    flap = p.bar(-0.54, -0.30, 0.28, -0.16, 0.055)
+    clasp = union(
+        subtract(p.dot(0.38, 0.12, 0.17), p.dot(0.38, 0.12, 0.17 - 0.055)),
+        p.dot(0.38, 0.12, 0.05),
+    )
+    return [union(pouch, flap, clasp)]
+
+
+def benefit_steps(p):
+    """A page with a check against it. What to do now, in order."""
+    t = 0.07
+    sheet = subtract(
+        p.box(-0.12, -0.08, 0.46, 0.60, 0.10),
+        p.box(-0.12, -0.08, 0.46 - t, 0.60 - t, 0.07),
+    )
+    lines = union(*[p.bar(-0.36, y, 0.08, y, 0.04) for y in (-0.32, -0.12, 0.08)])
+    tick = union(
+        subtract(p.dot(0.38, 0.44, 0.30), p.dot(0.38, 0.44, 0.30 - 0.06)),
+        p.bar(0.26, 0.45, 0.34, 0.55, 0.05),
+        p.bar(0.34, 0.55, 0.51, 0.33, 0.05),
+    )
+    return [union(sheet, lines, tick)]
 
 
 GLYPHS = {
@@ -633,6 +725,11 @@ GLYPHS = {
     "grade-ok": grade_ok,
     "grade-caution": grade_caution,
     "grade-stop": grade_stop,
+    "benefit-seconds": benefit_seconds,
+    "benefit-car": benefit_car,
+    "benefit-guide": benefit_guide,
+    "benefit-cost": benefit_cost,
+    "benefit-steps": benefit_steps,
 }
 
 
