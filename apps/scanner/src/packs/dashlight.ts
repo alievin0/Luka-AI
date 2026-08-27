@@ -134,7 +134,7 @@ export const dashlight: ScannerPack = {
         fallbackPrice: "$39.99",
         period: L("year", "سنة"),
         note: L("Under $0.77 a week", "أقل من $0.77 بالأسبوع"),
-        badge: L("Best value", "الأوفر"),
+        badge: L("Best value", "الأفضل"),
         trialDays: 3,
       },
     ],

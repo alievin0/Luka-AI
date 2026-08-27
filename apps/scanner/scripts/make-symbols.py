@@ -520,6 +520,74 @@ def esc_off(p):
     return [union(subtract(union(car, wheels, skids), gap), slash)]
 
 
+# --------------------------------------------------- the paywall's three grades
+#
+# Redrawn from the design file rather than copied out of it: its icons are
+# raster PNGs on a host this environment cannot reach, and a vector redraw is
+# the better asset anyway — it scales to any density and takes the grade colour
+# at display time, so the colour can never disagree with the severity.
+#
+# All three are outlines of uniform weight with rounded ends, which is the one
+# thing the brief is strictest about: no filled illustrations, no 3D, one
+# stroke width throughout.
+
+
+def _outline(shape_at):
+    """An outline of uniform weight: the shape minus a smaller copy of itself."""
+    return subtract(shape_at(1.0), shape_at(0.78))
+
+
+def grade_ok(p):
+    """The gauge reading clear — a rounded arch over tick marks.
+
+    The word OK sits inside it at display time rather than being drawn here,
+    so it stays crisp at every size and can be translated if it ever needs to
+    be."""
+    arch = p.arc(0, 0.10, 0.62, 180, 360, 0.075)
+    legs = union(
+        p.bar(-0.62, 0.10, -0.62, 0.40, 0.075),
+        p.bar(0.62, 0.10, 0.62, 0.40, 0.075),
+    )
+    ticks = union(*[
+        p.bar(
+            0.44 * math.cos(math.radians(a)),
+            0.10 + 0.44 * math.sin(math.radians(a)),
+            0.34 * math.cos(math.radians(a)),
+            0.10 + 0.34 * math.sin(math.radians(a)),
+            0.035,
+        )
+        for a in (196, 218, 240, 262, 284, 306, 328, 350)
+    ])
+    return [union(arch, legs, ticks)]
+
+
+def grade_caution(p):
+    """The caution triangle, outlined, with the bang solid inside it."""
+    def tri(k):
+        return p.poly(
+            [(0, -0.70 * k), (0.80 * k, 0.52 * k), (-0.80 * k, 0.52 * k)],
+            0.09 * k,
+        )
+
+    return [union(_outline(tri), p.bang(0, 0.10, 0.20, 0.055))]
+
+
+def grade_stop(p):
+    """The stop sign, outlined. STOP goes in at display time, as with OK."""
+    def octagon(k):
+        r = 0.80 * k
+        return p.poly(
+            [
+                (r * math.cos(math.radians(22.5 + i * 45)),
+                 r * math.sin(math.radians(22.5 + i * 45)))
+                for i in range(8)
+            ],
+            0.07 * k,
+        )
+
+    return [_outline(octagon)]
+
+
 GLYPHS = {
     "engine": engine,
     "oil-can": oil_can,
@@ -562,6 +630,9 @@ GLYPHS = {
     "pad-wear": pad_wear,
     "water-in-fuel": water_in_fuel,
     "washer": washer,
+    "grade-ok": grade_ok,
+    "grade-caution": grade_caution,
+    "grade-stop": grade_stop,
 }
 
 

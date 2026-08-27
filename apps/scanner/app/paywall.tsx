@@ -8,10 +8,12 @@ import {
   ActivityIndicator,
   Alert,
   Linking,
+  Image,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Feather from "@expo/vector-icons/Feather";
+import { symbolFor } from "../src/symbols";
 import { pack, bulletText, bulletDetail, bulletIcon, bulletGlyph } from "../src/packs";
 import { t, fill } from "../src/i18n";
 import { ui } from "../src/i18n/ui";
@@ -46,7 +48,7 @@ import { getOffers, purchase, purchasesAvailable, restore, type Offer } from "..
  * composed rather than merely padded.
  */
 const GUTTER = 18;
-const HEAD_INSET = 21;
+const HEAD_INSET = 26;
 
 export default function Paywall() {
   const router = useRouter();
@@ -111,9 +113,9 @@ export default function Paywall() {
           {/* The severity language, met here first rather than at the
               roadside. Three equal cards, line-art, no effects. */}
           <View style={styles.grades}>
-            <GradeCard tone="critical" icon="octagon" title={t(ui.cardStopTitle)} line={t(ui.cardStopLine)} />
-            <GradeCard tone="warning" icon="alert-triangle" title={t(ui.cardCautionTitle)} line={t(ui.cardCautionLine)} />
-            <GradeCard tone="info" icon="check-circle" title={t(ui.cardOkTitle)} line={t(ui.cardOkLine)} />
+            <GradeCard tone="critical" symbol="grade-stop" word="STOP" title={t(ui.cardStopTitle)} line={t(ui.cardStopLine)} />
+            <GradeCard tone="warning" symbol="grade-caution" title={t(ui.cardCautionTitle)} line={t(ui.cardCautionLine)} />
+            <GradeCard tone="info" symbol="grade-ok" word="OK" wordOffset={4} title={t(ui.cardOkTitle)} line={t(ui.cardOkLine)} />
           </View>
 
           {/* One card, one grid. Hairlines rather than boxes inside boxes. */}
@@ -199,7 +201,7 @@ export default function Paywall() {
           {/* Shown only when the selected plan actually has a trial. */}
           {trialDays ? (
             <View style={styles.reassure}>
-              <Feather name="shield" size={18} color={GRADE.info.fg} />
+              <Feather name="shield" size={18} color="#FFFFFF" />
               <View style={styles.reassureBody}>
                 <Text style={styles.reassureTitle}>{fill(ui.trialSafeTitle, { n: trialDays })}</Text>
                 <Text style={styles.reassureLine}>{t(ui.trialSafeBody)}</Text>
@@ -255,14 +257,32 @@ export default function Paywall() {
   );
 }
 
+/**
+ * One grade, as the design draws it: the word, then the mark, then the
+ * instruction.
+ *
+ * The mark is the design's own artwork, redrawn as a vector in the same
+ * generator that produces the 48 dashboard pictograms. Its own files are
+ * raster PNGs on a host this environment cannot reach; a vector is the better
+ * asset regardless, because it takes the grade colour at display time and so
+ * can never be shown in a colour that disagrees with its severity.
+ *
+ * STOP and OK sit on top as live text rather than being drawn into the glyph,
+ * which keeps them crisp at any density.
+ */
 function GradeCard({
   tone,
-  icon,
+  symbol,
+  word,
+  wordOffset = 0,
   title,
   line,
 }: {
   tone: keyof typeof GRADE;
-  icon: React.ComponentProps<typeof Feather>["name"];
+  symbol: string;
+  word?: string;
+  /** The gauge opens downward, so its word sits below the arch, not over it. */
+  wordOffset?: number;
   title: string;
   line: string;
 }) {
@@ -272,7 +292,21 @@ function GradeCard({
       <Text style={[styles.gradeTitle, { color: grade.fg }]} numberOfLines={2}>
         {title}
       </Text>
-      <Feather name={icon} size={24} color={grade.fg} />
+      <View style={styles.gradeMark}>
+        <Image
+          source={symbolFor(symbol)}
+          style={[styles.gradeGlyph, { tintColor: grade.fg }]}
+          resizeMode="contain"
+        />
+        {word ? (
+          <Text
+            style={[styles.gradeWord, { color: grade.fg, top: 26 + wordOffset }]}
+            numberOfLines={1}
+          >
+            {word}
+          </Text>
+        ) : null}
+      </View>
       <Text style={styles.gradeLine} numberOfLines={3}>
         {line}
       </Text>
@@ -313,8 +347,8 @@ const styles = StyleSheet.create({
 
   headline: {
     color: TEXT,
-    fontSize: 26,
-    lineHeight: 36,
+    fontSize: 24,
+    lineHeight: 34,
     fontFamily: UI_FONT.bold,
     textAlign: "center",
     paddingHorizontal: HEAD_INSET,
@@ -339,6 +373,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
   },
   gradeTitle: { fontSize: 13, lineHeight: 19, fontFamily: UI_FONT.bold, textAlign: "center" },
+  gradeMark: { alignItems: "center", justifyContent: "center" },
+  gradeGlyph: { width: 54, height: 54 },
+  /* Centred over the mark, not drawn into it. */
+  gradeWord: {
+    position: "absolute",
+    fontSize: 8,
+    lineHeight: 10,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: 0.2,
+  },
   gradeLine: { color: TEXT, fontSize: 12.5, lineHeight: 19, fontFamily: UI_FONT.regular, textAlign: "center" },
 
   card: {
@@ -416,9 +460,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    backgroundColor: SURFACE,
+    backgroundColor: "#24562B",
     borderWidth: 1.5,
-    borderColor: GRADE.info.line,
+    borderColor: "#347A3E",
     borderRadius: 24,
     paddingVertical: 16,
     paddingHorizontal: 18,
@@ -426,7 +470,7 @@ const styles = StyleSheet.create({
   reassureBody: { flex: 1, gap: 3 },
   reassureTitle: { color: TEXT, fontSize: 15, fontFamily: UI_FONT.bold, textAlign: READ },
   reassureLine: {
-    color: TEXT_SOFT,
+    color: "#D6E8D8",
     fontSize: 13,
     lineHeight: 21,
     fontFamily: UI_FONT.regular,
