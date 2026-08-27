@@ -80,7 +80,7 @@ export function ScannerNav(props: Partial<BottomTabBarProps>) {
                    cannot afford. A navigation affordance carries no severity,
                    so the rule does not reach it — do not "correct" this. */
                 <View style={styles.ring}>
-                  <Feather name="maximize" size={20} color={ACCENT} />
+                  <Feather name="maximize" size={17} color={ACCENT} />
                 </View>
               ) : (
                 <Feather name={item.icon} size={20} color={active ? ACCENT : TEXT_FAINT} />
@@ -103,35 +103,40 @@ export function ScannerNav(props: Partial<BottomTabBarProps>) {
 }
 
 /** What scrolling content must clear so the bar never covers the last row. */
-export const NAV_CLEARANCE = 112;
+export const NAV_CLEARANCE = 100;
 
 const styles = StyleSheet.create({
   /* The bar floats. Its own view is padding and nothing else, so the ground
      and whatever is scrolling over it show through around the pill. */
-  wrap: { paddingHorizontal: 32, paddingTop: 4, backgroundColor: "transparent" },
+  wrap: { paddingHorizontal: 32, paddingTop: 2, backgroundColor: "transparent" },
   pill: {
     flexDirection: "row",
     backgroundColor: SURFACE,
-    borderWidth: 1,
+    /* A hairline, not a stroke. Around a floating surface a 1pt border
+       reads as a drawn box; a hairline is just where the surface ends. */
+    borderWidth: StyleSheet.hairlineWidth,
     borderColor: BORDER,
-    borderRadius: 30,
-    paddingVertical: 8,
+    borderRadius: 26,
+    paddingVertical: 7,
     /* Bottom-aligned, which is what puts all four labels on one line while
        the taller scan ring rises above the other three. */
     alignItems: "flex-end",
   },
-  item: { flex: 1, minHeight: TAP, alignItems: "center", gap: 3 },
+  item: { flex: 1, minHeight: TAP, alignItems: "center", gap: 2 },
+  /* Quieter than the reference draws it. At full weight the ring is the
+     brightest thing on the screen and the bar is the first thing you see,
+     which is the opposite of what a bar is for. */
   ring: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    borderWidth: 2,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 1.5,
     borderColor: ACCENT,
     alignItems: "center",
     justifyContent: "center",
   },
   label: { color: TEXT_FAINT, ...TYPE.small, fontFamily: FONT.regular },
   labelOn: { color: ACCENT, fontFamily: FONT.medium },
-  dot: { width: 4, height: 4, borderRadius: 2, backgroundColor: "transparent" },
+  dot: { width: 3, height: 3, borderRadius: 1.5, backgroundColor: "transparent" },
   dotOn: { backgroundColor: ACCENT },
 });
