@@ -94,10 +94,31 @@ const micPermission =
 const speechPermission =
   "speechPermission" in v ? v.speechPermission : "Not used by this app.";
 
+/**
+ * A production build with no API origin ships an app that cannot scan.
+ *
+ * `EXPO_PUBLIC_API_URL` is inlined by Metro at build time, so an unset value
+ * cannot be noticed at runtime by anything except the user. Failing the build
+ * is the last moment anyone is watching. Only EAS production profiles are
+ * checked — `expo start` and preview builds resolve the origin from the dev
+ * host (see src/api-base.ts).
+ */
+if (process.env.EAS_BUILD_PROFILE?.startsWith("production") && !process.env.EXPO_PUBLIC_API_URL) {
+  throw new Error(
+    "EXPO_PUBLIC_API_URL is not set. A production build without it cannot reach " +
+      "the scan API — deploy app/api/ and set the origin in the EAS build profile " +
+      "or as an EAS environment variable.",
+  );
+}
+
 const config: ExpoConfig = {
   name: v.name,
   slug: v.slug,
   version: "0.1.0",
+  // Six apps share this file, so a hardcoded ios.buildNumber would be the same
+  // number for all of them. eas.json sets appVersionSource "remote" with
+  // autoIncrement instead, which keeps a build counter per app on EAS.
+  runtimeVersion: { policy: "appVersion" },
   orientation: "portrait",
   icon: `./assets/${id}/icon.png`,
   scheme: v.slug,
@@ -153,6 +174,9 @@ const config: ExpoConfig = {
       : []),
   ],
   experiments: { typedRoutes: true },
+  // `eas init` writes extra.eas.projectId and the top-level `owner` here on
+  // first run. They are account-scoped, so they are not committed ahead of it;
+  // without them `eas build` prompts to create the project interactively.
   extra: { scannerId: id, accent: v.accent },
 };
 

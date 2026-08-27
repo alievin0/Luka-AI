@@ -1,0 +1,56 @@
+{
+  "cli": {
+    "version": ">= 16.0.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "channel": "development",
+      "env": { "SCANNER": "dashlight", "EXPO_PUBLIC_SCANNER": "dashlight" }
+    },
+    "development:mahdar": {
+      "extends": "development",
+      "env": { "SCANNER": "mahdar", "EXPO_PUBLIC_SCANNER": "mahdar" }
+    },
+    "development:womensfit": {
+      "extends": "development",
+      "env": { "SCANNER": "womensfit", "EXPO_PUBLIC_SCANNER": "womensfit" }
+    },
+
+    "preview": {
+      "distribution": "internal",
+      "channel": "preview",
+      "ios": { "simulator": false },
+      "env": { "SCANNER": "dashlight", "EXPO_PUBLIC_SCANNER": "dashlight" }
+    },
+    "preview:mahdar": {
+      "extends": "preview",
+      "env": { "SCANNER": "mahdar", "EXPO_PUBLIC_SCANNER": "mahdar" }
+    },
+    "preview:womensfit": {
+      "extends": "preview",
+      "env": { "SCANNER": "womensfit", "EXPO_PUBLIC_SCANNER": "womensfit" }
+    },
+
+    "production": {
+      "channel": "production",
+      "autoIncrement": true,
+      "env": { "SCANNER": "dashlight", "EXPO_PUBLIC_SCANNER": "dashlight" }
+    },
+    "production:mahdar": {
+      "extends": "production",
+      "env": { "SCANNER": "mahdar", "EXPO_PUBLIC_SCANNER": "mahdar" }
+    },
+    "production:womensfit": {
+      "extends": "production",
+      "env": { "SCANNER": "womensfit", "EXPO_PUBLIC_SCANNER": "womensfit" }
+    }
+  },
+  "submit": {
+    "production": {},
+    "production:mahdar": {},
+    "production:womensfit": {}
+  }
+}
