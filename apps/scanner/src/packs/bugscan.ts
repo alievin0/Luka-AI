@@ -1,5 +1,6 @@
 import { L } from "../i18n";
 import type { ScannerPack } from "./types";
+import { BUGSCAN_LIBRARY } from "./bugscan-library";
 
 export const bugscan: ScannerPack = {
   kind: "scanner",
@@ -22,6 +23,7 @@ export const bugscan: ScannerPack = {
   },
   showCost: false,
   libraryTitle: L("Insect guide", "دليل الحشرات"),
+  library: BUGSCAN_LIBRARY,
   disclaimer: L(
     "This is identification guidance from a photo, not a medical diagnosis, and it does not replace a doctor. If there is difficulty breathing, swelling of the face or throat, or severe dizziness — call emergency services immediately and do not wait.",
     "هذا تعريف استرشادي مبني على صورة، وليس تشخيصاً طبياً ولا يغني عن الطبيب. عند ظهور صعوبة تنفس أو تورم بالوجه أو الحلق أو دوخة شديدة — اتصل بالطوارئ فوراً ولا تنتظر.",

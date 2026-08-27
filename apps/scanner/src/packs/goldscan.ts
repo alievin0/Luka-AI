@@ -1,5 +1,6 @@
 import { L } from "../i18n";
 import type { ScannerPack } from "./types";
+import { GOLDSCAN_LIBRARY } from "./goldscan-library";
 
 export const goldscan: ScannerPack = {
   kind: "scanner",
@@ -22,6 +23,7 @@ export const goldscan: ScannerPack = {
   },
   showCost: true,
   libraryTitle: L("Hallmark guide", "دليل الدمغات"),
+  library: GOLDSCAN_LIBRARY,
   disclaimer: L(
     "This is guidance from a photo of a hallmark, not a certified appraisal or a certificate of authenticity. Real value depends on actual weight, the live gold price, and a jeweller's test. Never buy or sell on this estimate alone.",
     "هذا تقدير استرشادي مبني على صورة الدمغة، وليس تقييماً معتمداً ولا شهادة أصالة. القيمة الحقيقية بتعتمد على الوزن الفعلي وسعر الذهب اللحظي وفحص الصائغ. لا تشتري ولا تبيع بناءً على هذا التقدير وحده.",
