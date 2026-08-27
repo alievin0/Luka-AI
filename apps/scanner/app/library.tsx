@@ -4,12 +4,14 @@ import { pack, isScanner } from "../src/packs";
 import { theme, severityStyle } from "../src/theme";
 import { normalise } from "../src/countries";
 import type { LibraryEntry } from "../src/packs";
+import { t } from "../src/i18n";
+import { ui } from "../src/i18n/ui";
 
 const SEVERITY_ORDER = ["critical", "warning", "info"] as const;
 const SEVERITY_TITLE = {
-  critical: "خطر — اوقف",
-  warning: "تحذير — افحص قريباً",
-  info: "معلومة",
+  critical: ui.sevCritical,
+  warning: ui.sevWarning,
+  info: ui.sevInfo,
 } as const;
 
 export default function Library() {
@@ -22,14 +24,14 @@ export default function Library() {
     const q = normalise(query);
     const matches = q
       ? entries.filter((e: LibraryEntry) =>
-          [e.title, e.subtitle, e.summary].some((field) =>
+          [t(e.title), e.subtitle, t(e.summary)].some((field: string) =>
             normalise(field).includes(q),
           ),
         )
       : entries;
 
     return SEVERITY_ORDER.map((severity) => ({
-      title: SEVERITY_TITLE[severity],
+      title: t(SEVERITY_TITLE[severity]),
       severity,
       data: matches.filter((e: LibraryEntry) => e.severity === severity),
     })).filter((section) => section.data.length > 0);
@@ -38,7 +40,7 @@ export default function Library() {
   if (entries.length === 0) {
     return (
       <View style={styles.empty}>
-        <Text style={styles.emptyText}>ما في دليل لهذا التطبيق بعد.</Text>
+        <Text style={styles.emptyText}>{t(ui.noMatch)}</Text>
       </View>
     );
   }
@@ -54,16 +56,16 @@ export default function Library() {
         <View style={styles.rowHead}>
           <View style={[styles.dot, { backgroundColor: sev.color }]} />
           <View style={styles.rowTitles}>
-            <Text style={styles.rowTitle}>{item.title}</Text>
+            <Text style={styles.rowTitle}>{t(item.title)}</Text>
             <Text style={styles.rowSubtitle}>{item.subtitle}</Text>
           </View>
           <Text style={styles.caret}>{expanded ? "−" : "+"}</Text>
         </View>
         {expanded && (
           <View style={styles.detail}>
-            <Text style={styles.summary}>{item.summary}</Text>
+            <Text style={styles.summary}>{t(item.summary)}</Text>
             <View style={[styles.actionBox, { backgroundColor: sev.bg }]}>
-              <Text style={[styles.actionText, { color: sev.color }]}>{item.action}</Text>
+              <Text style={[styles.actionText, { color: sev.color }]}>{t(item.action)}</Text>
             </View>
           </View>
         )}
@@ -79,7 +81,7 @@ export default function Library() {
           style={styles.search}
           value={query}
           onChangeText={setQuery}
-          placeholder="دوّر عن لمبة…"
+          placeholder={t(ui.searchGuide)}
           placeholderTextColor={theme.textFaint}
           autoCorrect={false}
         />
@@ -101,7 +103,7 @@ export default function Library() {
           <Text style={styles.sectionHeader}>{section.title}</Text>
         )}
         ListEmptyComponent={
-          <Text style={styles.emptyText}>ما لقينا لمبة بهذا الاسم.</Text>
+          <Text style={styles.emptyText}>{t(ui.noMatch)}</Text>
         }
       />
     </View>

@@ -13,11 +13,13 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { pack, isScanner } from "../src/packs";
 import { theme, severityStyle, verdictStyle } from "../src/theme";
 import { getHistory, type HistoryEntry } from "../src/storage";
+import { t } from "../src/i18n";
+import { ui } from "../src/i18n/ui";
 
 const CONFIDENCE_LABEL = {
-  high: "ثقة عالية",
-  medium: "ثقة متوسطة",
-  low: "ثقة منخفضة — تأكد من مختص",
+  high: ui.confidenceHigh,
+  medium: ui.confidenceMedium,
+  low: ui.confidenceLow,
 } as const;
 
 function Section({ title, items }: { title: string; items: string[] }) {
@@ -62,17 +64,17 @@ export default function Result() {
   if (!entry) {
     return (
       <View style={styles.center}>
-        <Text style={styles.muted}>ما لقينا هذا الفحص.</Text>
+        <Text style={styles.muted}>{t(ui.notFound)}</Text>
       </View>
     );
   }
 
   const { result, imageUri } = entry;
   const labels = scannerPack?.labels ?? {
-    facts: "معلومات",
-    causes: "الأسباب",
-    actions: "شو تعمل",
-    seekHelp: "متى تطلب مساعدة",
+    facts: ui.result,
+    causes: ui.result,
+    actions: ui.result,
+    seekHelp: ui.result,
   };
   const showCost = scannerPack?.showCost ?? false;
   const sev = severityStyle(result.severity);
@@ -98,7 +100,7 @@ export default function Result() {
 
       {result.facts?.length > 0 && (
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>{labels.facts}</Text>
+          <Text style={styles.cardTitle}>{t(labels.facts)}</Text>
           <View style={styles.factGrid}>
             {result.facts.map((fact, i) => (
               <View key={`${fact.label}-${i}`} style={styles.fact}>
@@ -112,7 +114,7 @@ export default function Result() {
 
       {showCost && result.cost && (
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>الكلفة التقديرية</Text>
+          <Text style={styles.cardTitle}>{t(ui.estimatedCost)}</Text>
           <Text style={styles.cost}>
             {result.cost.min} – {result.cost.max} {result.cost.currency}
           </Text>
@@ -120,16 +122,16 @@ export default function Result() {
         </View>
       )}
 
-      <Section title={labels.causes} items={result.causes} />
-      <Section title={labels.actions} items={result.actions} />
-      <Section title={labels.seekHelp} items={result.seekHelpIf} />
+      <Section title={t(labels.causes)} items={result.causes} />
+      <Section title={t(labels.actions)} items={result.actions} />
+      <Section title={t(labels.seekHelp)} items={result.seekHelpIf} />
 
       <View style={styles.actions}>
         <Pressable
           style={styles.primaryAction}
           onPress={() => router.replace("/")}
         >
-          <Text style={styles.primaryActionText}>افحص كمان مرة</Text>
+          <Text style={styles.primaryActionText}>{t(ui.scanAgain)}</Text>
         </Pressable>
         <Pressable
           style={styles.secondaryAction}
@@ -141,18 +143,18 @@ export default function Result() {
                 "",
                 result.summary,
                 "",
-                `${labels.actions}:`,
+                `${t(labels.actions)}:`,
                 ...result.actions.map((a, i) => `${i + 1}. ${a}`),
               ].join("\n"),
             })
           }
         >
-          <Text style={styles.secondaryActionText}>مشاركة</Text>
+          <Text style={styles.secondaryActionText}>{t(ui.share)}</Text>
         </Pressable>
       </View>
 
-      <Text style={styles.confidence}>{CONFIDENCE_LABEL[result.confidence]}</Text>
-      <Text style={styles.disclaimer}>{pack.disclaimer}</Text>
+      <Text style={styles.confidence}>{t(CONFIDENCE_LABEL[result.confidence])}</Text>
+      <Text style={styles.disclaimer}>{t(pack.disclaimer)}</Text>
     </ScrollView>
   );
 }

@@ -11,3 +11,4 @@ export const pack: Pack = PACKS[activePackId] ?? dashlight;
 
 export { PACKS };
 export * from "./types";
+export { t, L, locale, isRTL, type Text } from "../i18n";

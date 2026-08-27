@@ -1,4 +1,5 @@
 import Constants from "expo-constants";
+import { locale } from "./i18n";
 import type { ScanResult } from "./packs";
 
 /**
@@ -28,12 +29,13 @@ export async function scanImage(input: {
   currency: string;
   profile: string;
 }): Promise<ScanResult> {
+  const payload = { ...input, locale };
   let res: Response;
   try {
     res = await fetch(`${apiBase()}/api/scan`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(input),
+      body: JSON.stringify(payload),
     });
   } catch {
     throw new ScanError("ما قدرنا نوصل للخادم. تأكد من اتصالك بالإنترنت وجرّب كمان مرة.");

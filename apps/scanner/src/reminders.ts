@@ -2,6 +2,8 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
 import { activePackId, pack } from "./packs";
+import { t } from "./i18n";
+import { ui } from "./i18n/ui";
 
 /**
  * A single daily local reminder.
@@ -53,7 +55,7 @@ export async function scheduleReminder(hour: number): Promise<number | null> {
 
   if (Platform.OS === "android") {
     await Notifications.setNotificationChannelAsync("daily", {
-      name: "التذكير اليومي",
+      name: t(ui.dailyReminder),
       importance: Notifications.AndroidImportance.DEFAULT,
     });
   }
@@ -61,11 +63,11 @@ export async function scheduleReminder(hour: number): Promise<number | null> {
   await Notifications.scheduleNotificationAsync({
     identifier: IDENTIFIER,
     content: {
-      title: pack.appName,
+      title: t(pack.appName),
       body:
         pack.kind === "program"
-          ? `وقت ${pack.nouns.session} اليوم — لا تكسر السلسلة`
-          : "افتح التطبيق وشوف الجديد",
+          ? t(ui.reminderBody)
+          : t(ui.reminderBodyScanner),
     },
     trigger: {
       type: Notifications.SchedulableTriggerInputTypes.DAILY,

@@ -13,6 +13,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Haptics from "expo-haptics";
 import { pack, activePackId, isScanner } from "../src/packs";
+import { t } from "../src/i18n";
+import { ui } from "../src/i18n/ui";
 import { theme, withAlpha } from "../src/theme";
 import { completeOnboarding, type Profile } from "../src/storage";
 import { CountryField } from "../src/components/CountryField";
@@ -79,26 +81,26 @@ export default function Onboarding() {
         {step === INTRO ? (
           <View style={styles.intro}>
             <Image source={MARKS[activePackId]} style={styles.mark} resizeMode="contain" />
-            <Text style={styles.appName}>{pack.appName}</Text>
-            <Text style={styles.tagline}>{pack.tagline}</Text>
+            <Text style={styles.appName}>{t(pack.appName)}</Text>
+            <Text style={styles.tagline}>{t(pack.tagline)}</Text>
             <Text style={styles.introNote}>
-              كم سؤال سريع، وبعدها صوّر وشوف النتيجة.
+              {t(ui.quickQuestions)}
             </Text>
           </View>
         ) : isQuestion ? (
           <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
             <Text style={styles.stepLabel}>
-              سؤال {step} من {questions.length + 1}
+              {t(ui.questionOf)} {step} {t(ui.of)} {questions.length + 1}
             </Text>
-            <Text style={styles.question}>{questions[step - 1].question}</Text>
+            <Text style={styles.question}>{t(questions[step - 1].question)}</Text>
             <View style={styles.options}>
               {questions[step - 1].options.map((option) => (
                 <Pressable
-                  key={option}
+                  key={t(option)}
                   style={({ pressed }) => [styles.option, pressed && styles.optionPressed]}
-                  onPress={() => answer(questions[step - 1].key, option)}
+                  onPress={() => answer(questions[step - 1].key, t(option))}
                 >
-                  <Text style={styles.optionText}>{option}</Text>
+                  <Text style={styles.optionText}>{t(option)}</Text>
                   <Text style={styles.chevron}>‹</Text>
                 </Pressable>
               ))}
@@ -107,28 +109,27 @@ export default function Onboarding() {
         ) : step === COUNTRY ? (
           <View style={styles.body}>
             <Text style={styles.stepLabel}>
-              سؤال {questions.length + 1} من {questions.length + 1}
+              {t(ui.questionOf)} {questions.length + 1} {t(ui.of)} {questions.length + 1}
             </Text>
-            <Text style={styles.question}>من وين إنت؟</Text>
+            <Text style={styles.question}>{t(ui.whereAreYou)}</Text>
             <Text style={styles.subQuestion}>
               {isScanner(pack) && pack.showCost
-                ? "منشان نقدّر التكلفة بعملة بلدك."
-                : "منشان نضبط النتائج على منطقتك."}
+                ? t(ui.whyCountryCost)
+                : t(ui.whyCountryRegion)}
             </Text>
             <CountryField onSelect={pickCountry} />
           </View>
         ) : (
           <ScrollView contentContainerStyle={styles.body}>
-            <Text style={styles.question}>قبل ما نبدأ</Text>
+            <Text style={styles.question}>{t(ui.beforeWeStart)}</Text>
             <View style={styles.consentCard}>
               <Text style={styles.consentText}>
-                لما تصوّر، بتتحلل الصورة بالذكاء الاصطناعي وبترجعلك النتيجة خلال ثواني.
+                {t(ui.aiNotice)}
               </Text>
               <Text style={styles.consentText}>
-                ما بنخزّن صورك على خوادمنا وما بنربطها باسمك. الفحوصات بتنحفظ على
-                جهازك بس.
+                {t(ui.privacyNotice)}
               </Text>
-              <Text style={styles.consentWarn}>{pack.disclaimer}</Text>
+              <Text style={styles.consentWarn}>{t(pack.disclaimer)}</Text>
             </View>
           </ScrollView>
         )}
@@ -144,7 +145,7 @@ export default function Onboarding() {
                 <ActivityIndicator color={theme.bg} />
               ) : (
                 <Text style={styles.ctaText}>
-                  {step === INTRO ? "يلا نبدأ" : "موافق، ابدأ"}
+                  {step === INTRO ? t(ui.letsStart) : t(ui.agreeAndStart)}
                 </Text>
               )}
             </Pressable>

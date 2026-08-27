@@ -3,6 +3,8 @@ import { View, Text, StyleSheet, Pressable, Alert, ScrollView, Linking } from "r
 import { useFocusEffect, useRouter } from "expo-router";
 import Constants from "expo-constants";
 import { pack, isProgram, isScanner } from "../src/packs";
+import { t } from "../src/i18n";
+import { ui } from "../src/i18n/ui";
 import { theme } from "../src/theme";
 import { clearHistory, getProfile, updateProfile, type Profile } from "../src/storage";
 import { resetProgress } from "../src/progress";
@@ -137,10 +139,10 @@ export default function Settings() {
           onPress={() => setEditingCountry(true)}
         />
         {isScanner(pack) && pack.library ? (
-          <Row label={pack.libraryTitle ?? "الدليل"} onPress={() => router.push("/library")} />
+          <Row label={pack.libraryTitle ? t(pack.libraryTitle) : t(ui.guide)} onPress={() => router.push("/library")} />
         ) : null}
         {isProgram(pack) ? (
-          <Row label={pack.nouns.plan} onPress={() => router.push("/plan")} />
+          <Row label={t(pack.nouns.plan)} onPress={() => router.push("/plan")} />
         ) : null}
       </View>
 
@@ -196,7 +198,7 @@ export default function Settings() {
         />
       </View>
 
-      <Text style={styles.disclaimer}>{pack.disclaimer}</Text>
+      <Text style={styles.disclaimer}>{t(pack.disclaimer)}</Text>
     </ScrollView>
   );
 }

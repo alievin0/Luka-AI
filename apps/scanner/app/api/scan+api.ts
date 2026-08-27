@@ -113,6 +113,7 @@ export async function POST(request: Request) {
     base64?: string;
     currency?: string;
     profile?: string;
+    locale?: string;
   } | null;
 
   const selected = SCANNER_PACKS[body?.packId ?? ""];
@@ -135,6 +136,7 @@ export async function POST(request: Request) {
       system: selected.systemPrompt({
         currency: body.currency || "USD",
         profile: body.profile || "",
+        locale: body.locale === "ar" ? "ar" : "en",
       }),
       output_config: {
         format: {

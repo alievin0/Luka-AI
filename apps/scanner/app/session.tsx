@@ -4,6 +4,8 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
 import { pack, isProgram } from "../src/packs";
+import { t } from "../src/i18n";
+import { ui } from "../src/i18n/ui";
 import { theme } from "../src/theme";
 import { markComplete } from "../src/progress";
 
@@ -88,7 +90,7 @@ export default function SessionPlayer() {
   if (!session || !isProgram(pack)) {
     return (
       <View style={styles.center}>
-        <Text style={styles.muted}>ما لقينا هذا التمرين.</Text>
+        <Text style={styles.muted}>{t(ui.sessionNotFound)}</Text>
       </View>
     );
   }
@@ -98,15 +100,15 @@ export default function SessionPlayer() {
       <SafeAreaView style={styles.doneWrap}>
         <View style={styles.doneBody}>
           <Text style={styles.doneMark}>✓</Text>
-          <Text style={styles.doneTitle}>خلّصت</Text>
-          <Text style={styles.doneSubtitle}>{session.title}</Text>
+          <Text style={styles.doneTitle}>{t(ui.finished)}</Text>
+          <Text style={styles.doneSubtitle}>{t(session.title)}</Text>
           <Text style={styles.doneMeta}>
-            {session.items.length} {pack.nouns.item} · {session.minutes} دقيقة
+            {session.items.length} {t(pack.nouns.item)} · {session.minutes} {t(ui.minutes)}
           </Text>
         </View>
         <View style={styles.doneFooter}>
           <Pressable style={styles.primary} onPress={() => router.replace("/")}>
-            <Text style={styles.primaryText}>رجوع للرئيسية</Text>
+            <Text style={styles.primaryText}>{t(ui.backHome)}</Text>
           </Pressable>
         </View>
       </SafeAreaView>
@@ -133,28 +135,28 @@ export default function SessionPlayer() {
       <ScrollView contentContainerStyle={styles.body}>
         {phase === "rest" ? (
           <>
-            <Text style={styles.phaseLabel}>راحة</Text>
+            <Text style={styles.phaseLabel}>{t(ui.rest)}</Text>
             <Text style={styles.timer}>{remaining}</Text>
             <Text style={styles.nextUp}>
-              الجاي: {session.items[index + 1]?.name ?? "—"}
+              {t(ui.nextUp)}: {session.items[index + 1] ? t(session.items[index + 1].name) : "—"}
             </Text>
           </>
         ) : (
           <>
-            <Text style={styles.phaseLabel}>{item?.nameEn}</Text>
-            <Text style={styles.itemName}>{item?.name}</Text>
+            <Text style={styles.phaseLabel}>{item ? t(item.name) : ""}</Text>
+            <Text style={styles.itemName}>{item ? t(item.name) : ""}</Text>
             {isTimed ? (
               <Text style={styles.timer}>{remaining}</Text>
             ) : (
-              <Text style={styles.reps}>{item?.reps} تكرار</Text>
+              <Text style={styles.reps}>{item?.reps} {t(ui.reps)}</Text>
             )}
 
             <View style={styles.card}>
-              <Text style={styles.cardTitle}>كيف تعملها</Text>
+              <Text style={styles.cardTitle}>{t(ui.howToDoIt)}</Text>
               {item?.cues.map((cue, i) => (
                 <View key={i} style={styles.row}>
                   <Text style={styles.bullet}>{i + 1}</Text>
-                  <Text style={styles.rowText}>{cue}</Text>
+                  <Text style={styles.rowText}>{t(cue)}</Text>
                 </View>
               ))}
             </View>
@@ -162,12 +164,12 @@ export default function SessionPlayer() {
             {item?.mistakes && item.mistakes.length > 0 && (
               <View style={[styles.card, styles.mistakeCard]}>
                 <Text style={[styles.cardTitle, { color: theme.warning }]}>
-                  أخطاء شائعة
+                  {t(ui.commonMistakes)}
                 </Text>
                 {item.mistakes.map((mistake, i) => (
                   <View key={i} style={styles.row}>
                     <Text style={[styles.bullet, { color: theme.warning }]}>✕</Text>
-                    <Text style={styles.rowText}>{mistake}</Text>
+                    <Text style={styles.rowText}>{t(mistake)}</Text>
                   </View>
                 ))}
               </View>
@@ -179,16 +181,16 @@ export default function SessionPlayer() {
       <View style={styles.controls}>
         {(isTimed || phase === "rest") && (
           <Pressable style={styles.secondary} onPress={() => setRunning((r) => !r)}>
-            <Text style={styles.secondaryText}>{running ? "إيقاف مؤقت" : "متابعة"}</Text>
+            <Text style={styles.secondaryText}>{running ? t(ui.pause) : t(ui.resume)}</Text>
           </Pressable>
         )}
         <Pressable style={styles.primary} onPress={advance}>
           <Text style={styles.primaryText}>
             {phase === "rest"
-              ? "ابدأ التالي"
+              ? t(ui.startNext)
               : index === session.items.length - 1
-                ? "خلّصت"
-                : "التالي"}
+                ? t(ui.finish)
+                : t(ui.next)}
           </Text>
         </Pressable>
       </View>

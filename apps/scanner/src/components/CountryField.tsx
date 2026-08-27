@@ -9,6 +9,8 @@ import {
   Keyboard,
 } from "react-native";
 import * as Haptics from "expo-haptics";
+import { t } from "../i18n";
+import { ui } from "../i18n/ui";
 import { theme } from "../theme";
 import { searchCountries, type Country } from "../countries";
 
@@ -39,7 +41,7 @@ export function CountryField({
           style={styles.input}
           value={query}
           onChangeText={setQuery}
-          placeholder="اكتب اسم بلدك…"
+          placeholder={t(ui.searchCountry)}
           placeholderTextColor={theme.textFaint}
           autoCorrect={false}
           returnKeyType="search"
@@ -53,7 +55,7 @@ export function CountryField({
       </View>
 
       {results.length === 0 ? (
-        <Text style={styles.empty}>ما لقينا بلد بهذا الاسم. جرّب كتابة تانية.</Text>
+        <Text style={styles.empty}>{t(ui.noCountry)}</Text>
       ) : (
         <ScrollView
           style={styles.list}

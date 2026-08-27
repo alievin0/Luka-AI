@@ -1,74 +1,105 @@
+import { L } from "../i18n";
 import type { ScannerPack } from "./types";
 
 export const bugscan: ScannerPack = {
   kind: "scanner",
   id: "bugscan",
-  appName: "ماسح الحشرات",
-  tagline: "شو هالحشرة؟ وهاي القرصة خطيرة ولا لأ؟",
+  appName: L("Insect Identifier", "ماسح الحشرات"),
+  tagline: L(
+    "What is this bug? And is that bite dangerous?",
+    "شو هالحشرة؟ وهاي القرصة خطيرة ولا لأ؟",
+  ),
   accent: "#5BC08A",
-  captureHint: "صوّر الحشرة أو مكان اللدغة عن قرب",
+  captureHint: L(
+    "Get close to the insect or the bite",
+    "صوّر الحشرة أو مكان اللدغة عن قرب",
+  ),
   labels: {
-    facts: "معلومات سريعة",
-    causes: "الأعراض المتوقعة",
-    actions: "شو تعمل هلق",
-    seekHelp: "روح على الطوارئ إذا",
+    facts: L("At a glance", "معلومات سريعة"),
+    causes: L("What to expect", "الأعراض المتوقعة"),
+    actions: L("What to do now", "شو تعمل هلق"),
+    seekHelp: L("Get medical help if", "روح على الطوارئ إذا"),
   },
   showCost: false,
-  disclaimer:
-    "هذا تعريف استرشادي مبني على صورة، وليس تشخيصاً طبياً. لا يغني عن استشارة طبيب. عند ظهور صعوبة تنفس أو تورم بالوجه أو الحلق أو دوخة شديدة — اتصل بالطوارئ فوراً ولا تنتظر.",
+  libraryTitle: L("Insect guide", "دليل الحشرات"),
+  disclaimer: L(
+    "This is identification guidance from a photo, not a medical diagnosis, and it does not replace a doctor. If there is difficulty breathing, swelling of the face or throat, or severe dizziness — call emergency services immediately and do not wait.",
+    "هذا تعريف استرشادي مبني على صورة، وليس تشخيصاً طبياً ولا يغني عن الطبيب. عند ظهور صعوبة تنفس أو تورم بالوجه أو الحلق أو دوخة شديدة — اتصل بالطوارئ فوراً ولا تنتظر.",
+  ),
   onboarding: [
     {
       key: "target",
-      question: "شو بدك تفحص؟",
-      options: ["حشرة شفتها", "لدغة أو قرصة على الجلد", "التنتين"],
+      question: L("What are you checking?", "شو بدك تفحص؟"),
+      options: [
+        L("An insect I saw", "حشرة شفتها"),
+        L("A bite or sting on skin", "لدغة أو قرصة على الجلد"),
+        L("Both", "التنتين"),
+      ],
     },
     {
       key: "who",
-      question: "لمين؟",
-      options: ["إلي", "لطفل", "لشخص كبير بالعمر", "لحدا تاني"],
+      question: L("Who is it for?", "لمين؟"),
+      options: [
+        L("Me", "إلي"),
+        L("A child", "لطفل"),
+        L("An older adult", "لشخص كبير بالعمر"),
+        L("Someone else", "لحدا تاني"),
+      ],
     },
     {
-      key: "worry",
-      question: "شو أكثر شي بقلقك؟",
-      options: ["إذا سامة أو خطيرة", "كيف أعالج اللدغة", "إذا لازم أروح دكتور", "كلهم"],
+      key: "allergy",
+      question: L("Any known sting allergy?", "في حساسية معروفة من اللدغات؟"),
+      options: [
+        L("No", "لأ"),
+        L("Yes", "أه"),
+        L("Not sure", "ما بعرف"),
+      ],
     },
   ],
   paywall: {
-    headline: "اعرف إذا كانت خطيرة — بثانية",
+    headline: L("Know if it's dangerous — in seconds", "اعرف إذا كانت خطيرة — بثانية"),
     bullets: [
-      "تعرّف فوري على الحشرات واللدغات",
-      "جواب واضح: خطيرة ولا عادية",
-      "خطوات إسعاف أولي مباشرة",
-      "علامات تحذيرية لازم تروح فيها للطوارئ",
+      L("Instant ID for insects and bites", "تعرّف فوري على الحشرات واللدغات"),
+      L("A straight answer on whether it's dangerous", "جواب واضح: خطيرة ولا عادية"),
+      L("First-aid steps you can follow now", "خطوات إسعاف أولي مباشرة"),
+      L("A guide to 40 species worldwide, offline", "دليل ٤٠ نوع عالمي بدون إنترنت"),
     ],
   },
   pricing: {
     entitlement: "pro",
     defaultProductId: "annual",
     products: [
-      { id: "weekly", label: "أسبوعي", fallbackPrice: "$4.99", period: "أسبوع", trialDays: 3 },
-      { id: "annual", label: "سنوي", fallbackPrice: "$29.99", period: "سنة", note: "أقل من $0.58 بالأسبوع", badge: "الأوفر" },
+      { id: "weekly", label: L("Weekly", "أسبوعي"), fallbackPrice: "$4.99", period: L("week", "أسبوع"), trialDays: 3 },
+      {
+        id: "annual",
+        label: L("Yearly", "سنوي"),
+        fallbackPrice: "$29.99",
+        period: L("year", "سنة"),
+        note: L("Under $0.58 a week", "أقل من $0.58 بالأسبوع"),
+        badge: L("Best value", "الأوفر"),
+      },
     ],
   },
-  systemPrompt: ({ profile }) => `أنت خبير في علم الحشرات والإسعافات الأولية. مهمتك: تحليل صورة لحشرة أو لدغة/قرصة على الجلد.
+  systemPrompt: ({ profile, locale }) => `You are an entomologist with first-aid training. Analyse a photo of an insect, arachnid, or a bite/sting on skin.
 
-سياق المستخدم: ${profile || "غير معروف"}
+User context: ${profile || "unknown"}
 
-قواعد إلزامية:
-1. حدّد الحشرة أو نوع اللدغة الأرجح. إذا الصورة للدغة، حدّد الكائن الأرجح اللي سببها.
-2. إذا الصورة مش لحشرة ولا للدغة، أو ضبابية جداً — رجّع detected=false مع سبب واضح بالعربي يقول كيف يعيد التصوير.
-3. **السلامة أولاً — وهذا الأهم.** إذا كان الكائن ساماً أو خطيراً طبياً (عقرب، أرملة سوداء، ناسك بني، دبور/زنبور لشخص عنده حساسية، أفعى) — severity="critical" و verdictLevel="stop"، والإجراء الأول لازم يكون التوجه للطوارئ.
-4. **ممنوع منعاً باتاً** أن تعطي تشخيصاً طبياً قاطعاً أو تصف دواءً موصوفاً. أنت تعطي معلومات إسعاف أولي عامة فقط.
-5. اذكر دائماً ضمن seekHelpIf علامات الحساسية المفرطة (صعوبة تنفس، تورم الوجه أو الحلق، دوخة، طفح منتشر) — هذي حالة طوارئ مهما كان نوع الحشرة.
-6. إذا مش متأكد من النوع، خفّض confidence وارفع الحذر. الخطأ في اتجاه الحذر مقبول؛ الخطأ في اتجاه التطمين غير مقبول.
-7. اكتب كل النصوص بعربية بسيطة ومباشرة.
+WRITE EVERY USER-FACING STRING IN ${locale === "ar" ? "ARABIC (simple spoken Arabic anyone understands)" : "ENGLISH (plain and direct)"}.
 
-صياغة الحقول:
-- title: اسم الحشرة بالعربي (مثال: "دبور أصفر")
-- subtitle: الاسم العلمي أو الإنجليزي (مثال: "Vespula germanica")
-- verdict: سطر واحد يجاوب السؤال الحقيقي (مثال: "لدغة مؤلمة بس مش خطيرة لغير المتحسسين")
-- facts: ٣–٤ معلومات سريعة (سامة؟ مستوى الألم، مدة الأعراض، شائعة بمنطقتك؟)
-- causes: ٢–٥ أعراض متوقعة بالترتيب الزمني
-- actions: ٢–٥ خطوات إسعاف أولي عملية بالترتيب
-- seekHelpIf: ٣–٤ علامات تستدعي الطبيب أو الطوارئ فوراً`,
+Mandatory rules:
+1. Identify the most likely species, or for a bite, the most likely culprit.
+2. If the photo is not an insect or a bite, or is too blurry, return detected=false with clear instructions on retaking it.
+3. SAFETY FIRST, AND THIS MATTERS MOST. If the creature is venomous or medically significant (scorpion, black widow, brown recluse, wasp/hornet for an allergic person, snake), severity="critical", verdictLevel="stop", and the first action must be to seek emergency care.
+4. NEVER give a definitive medical diagnosis and never name a prescription medicine. General first-aid information only.
+5. ALWAYS include anaphylaxis warning signs in seekHelpIf — difficulty breathing, swelling of face or throat, dizziness, spreading rash. That is an emergency regardless of species.
+6. If unsure of the species, lower confidence and raise caution. Erring toward caution is fine; erring toward reassurance is not.
+
+Field shapes:
+- title: the common name
+- subtitle: scientific or English name (always English, even in Arabic mode)
+- verdict: one line answering their real question
+- facts: 3–4 (venomous?, pain level, how long symptoms last, common in their region?)
+- causes: 2–5 expected symptoms in time order
+- actions: 2–5 practical first-aid steps in order
+- seekHelpIf: 3–4 signs that need a doctor or emergency care now`,
 };

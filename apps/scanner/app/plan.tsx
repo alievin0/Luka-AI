@@ -2,6 +2,8 @@ import { useCallback, useState } from "react";
 import { View, Text, StyleSheet, FlatList, Pressable } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { pack, isProgram } from "../src/packs";
+import { t } from "../src/i18n";
+import { ui } from "../src/i18n/ui";
 import { theme } from "../src/theme";
 import { getCompletions } from "../src/progress";
 
@@ -19,7 +21,7 @@ export default function Plan() {
   if (!program) {
     return (
       <View style={styles.center}>
-        <Text style={styles.muted}>ما في خطة لهذا التطبيق.</Text>
+        <Text style={styles.muted}>{t(ui.noPlan)}</Text>
       </View>
     );
   }
@@ -30,7 +32,7 @@ export default function Plan() {
       contentContainerStyle={styles.content}
       data={program.sessions}
       keyExtractor={(s) => s.id}
-      ListHeaderComponent={<Text style={styles.promise}>{program.plan.promise}</Text>}
+      ListHeaderComponent={<Text style={styles.promise}>{t(program.plan.promise)}</Text>}
       renderItem={({ item, index }) => {
         const complete = done.has(item.id);
         return (
@@ -44,9 +46,9 @@ export default function Plan() {
               </Text>
             </View>
             <View style={styles.rowBody}>
-              <Text style={styles.rowTitle}>{item.title}</Text>
+              <Text style={styles.rowTitle}>{t(item.title)}</Text>
               <Text style={styles.rowMeta}>
-                {item.minutes} دقيقة · {item.items.length} {program.nouns.item} · {item.focus}
+                {item.minutes} {t(ui.minutes)} · {item.items.length} {t(program.nouns.item)} · {t(item.focus)}
               </Text>
             </View>
           </Pressable>

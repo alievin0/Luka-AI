@@ -1,77 +1,111 @@
+import { L } from "../i18n";
 import type { ScannerPack } from "./types";
 
 export const goldscan: ScannerPack = {
   kind: "scanner",
   id: "goldscan",
-  appName: "فاحص الذهب",
-  tagline: "صوّر الدمغة — واعرف العيار وقيمته قبل ما تشتري أو تبيع",
+  appName: L("Gold Hallmark Scanner", "فاحص الذهب"),
+  tagline: L(
+    "Photograph the hallmark — know the karat and what it's worth before you buy or sell",
+    "صوّر الدمغة — واعرف العيار وقيمته قبل ما تشتري أو تبيع",
+  ),
   accent: "#D9A441",
-  captureHint: "قرّب الكاميرا على الدمغة المحفورة على القطعة",
+  captureHint: L(
+    "Get close to the hallmark stamped on the piece",
+    "قرّب الكاميرا على الدمغة المحفورة على القطعة",
+  ),
   labels: {
-    facts: "معلومات القطعة",
-    causes: "علامات لازم تنتبهلها",
-    actions: "شو تعمل هلق",
-    seekHelp: "روح على صائغ إذا",
+    facts: L("The piece", "معلومات القطعة"),
+    causes: L("Watch out for", "علامات لازم تنتبهلها"),
+    actions: L("What to do now", "شو تعمل هلق"),
+    seekHelp: L("See a jeweller if", "روح على صائغ إذا"),
   },
   showCost: true,
-  disclaimer:
+  libraryTitle: L("Hallmark guide", "دليل الدمغات"),
+  disclaimer: L(
+    "This is guidance from a photo of a hallmark, not a certified appraisal or a certificate of authenticity. Real value depends on actual weight, the live gold price, and a jeweller's test. Never buy or sell on this estimate alone.",
     "هذا تقدير استرشادي مبني على صورة الدمغة، وليس تقييماً معتمداً ولا شهادة أصالة. القيمة الحقيقية بتعتمد على الوزن الفعلي وسعر الذهب اللحظي وفحص الصائغ. لا تشتري ولا تبيع بناءً على هذا التقدير وحده.",
+  ),
   onboarding: [
     {
       key: "purpose",
-      question: "شو بدك تعمل؟",
-      options: ["بدي أشتري قطعة", "بدي أبيع قطعة عندي", "بدي أتأكد إنها أصلية", "بس فضول"],
+      question: L("What are you doing?", "شو بدك تعمل؟"),
+      options: [
+        L("Buying a piece", "بدي أشتري قطعة"),
+        L("Selling something I own", "بدي أبيع قطعة عندي"),
+        L("Checking if it's real", "بدي أتأكد إنها أصلية"),
+        L("Just curious", "بس فضول"),
+      ],
     },
     {
       key: "itemType",
-      question: "شو نوع القطعة؟",
-      options: ["خاتم", "سلسال أو أسورة", "سبيكة أو ليرة", "طقم كامل", "شي تاني"],
+      question: L("What kind of piece?", "شو نوع القطعة؟"),
+      options: [
+        L("Ring", "خاتم"),
+        L("Chain or bracelet", "سلسال أو أسورة"),
+        L("Bar or coin", "سبيكة أو ليرة"),
+        L("Full set", "طقم كامل"),
+        L("Something else", "شي تاني"),
+      ],
     },
     {
       key: "experience",
-      question: "قديش خبرتك بالذهب؟",
-      options: ["أول مرة", "بشتري من وقت للتاني", "بفهم بالعيارات", "بشتغل بالمجال"],
+      question: L("How well do you know gold?", "قديش خبرتك بالذهب؟"),
+      options: [
+        L("First time", "أول مرة"),
+        L("I buy occasionally", "بشتري من وقت للتاني"),
+        L("I know the karats", "بفهم بالعيارات"),
+        L("I work in the trade", "بشتغل بالمجال"),
+      ],
     },
   ],
   paywall: {
-    headline: "لا تشتري ذهب وإنت مش متأكد",
+    headline: L("Don't buy gold unsure", "لا تشتري ذهب وإنت مش متأكد"),
     bullets: [
-      "قراءة فورية للدمغة والعيار",
-      "علامات التقليد والذهب المطلي",
-      "تقدير القيمة بعملة بلدك",
-      "شو تسأل الصائغ قبل ما تدفع",
+      L("Instant hallmark and karat reading", "قراءة فورية للدمغة والعيار"),
+      L("Spots plated and gold-filled markings", "بيكشف الذهب المطلي والمغطى"),
+      L("Per-gram value estimated in your currency", "تقدير قيمة الغرام بعملة بلدك"),
+      L("A guide to 38 hallmarks worldwide, offline", "دليل ٣٨ دمغة عالمية بدون إنترنت"),
     ],
   },
   pricing: {
     entitlement: "pro",
     defaultProductId: "annual",
     products: [
-      { id: "weekly", label: "أسبوعي", fallbackPrice: "$7.99", period: "أسبوع", trialDays: 3 },
-      { id: "annual", label: "سنوي", fallbackPrice: "$49.99", period: "سنة", note: "أقل من $0.96 بالأسبوع", badge: "الأوفر" },
+      { id: "weekly", label: L("Weekly", "أسبوعي"), fallbackPrice: "$7.99", period: L("week", "أسبوع"), trialDays: 3 },
+      {
+        id: "annual",
+        label: L("Yearly", "سنوي"),
+        fallbackPrice: "$49.99",
+        period: L("year", "سنة"),
+        note: L("Under $0.96 a week", "أقل من $0.96 بالأسبوع"),
+        badge: L("Best value", "الأوفر"),
+      },
     ],
   },
-  systemPrompt: ({ currency, profile }) => `أنت خبير في تقييم الذهب والمجوهرات وقراءة الدمغات (hallmarks). مهمتك: تحليل صورة لقطعة ذهب أو للدمغة المحفورة عليها.
+  systemPrompt: ({ currency, profile, locale }) => `You are an expert in precious metals and hallmark identification. Analyse a photo of a gold item or the hallmark stamped on it.
 
-سياق المستخدم: ${profile || "غير معروف"}
-العملة المطلوبة للتقديرات: ${currency}
+User context: ${profile || "unknown"}
+Currency for estimates: ${currency}
 
-قواعد إلزامية:
-1. دوّر على الدمغة المحفورة: الأرقام (999، 995، 916، 875، 750، 585، 375) أو الصيغة بالقيراط (24K، 22K، 21K، 18K، 14K، 9K) أو ختم بلد المنشأ.
-2. **تحويل الأرقام للعيار:** 999/995 = 24 قيراط، 916 = 22 قيراط، 875 = 21 قيراط، 750 = 18 قيراط، 585 = 14 قيراط، 375 = 9 قيراط. العيار ٢١ شائع جداً بالخليج والعيار ٢٢ بجنوب آسيا — انتبه لسياق المستخدم.
-3. إذا الدمغة مش واضحة أو الصورة بعيدة أو ضبابية — رجّع detected=false مع تعليمات دقيقة: يقرّب أكتر، يستخدم إضاءة قوية، يصوّر داخل الخاتم أو عند مشبك السلسال حيث الدمغة عادةً.
-4. **حذّر من التقليد بوضوح.** علامات مثل GP و GEP و GF و HGE و RGP و 1/20 تعني **مطلي أو مغطى بالذهب وليس ذهباً خالصاً**، وقيمته جزء بسيط جداً. إذا شفت أي واحدة منها: severity="critical" و verdictLevel="stop"، والعنوان لازم يوضّح إنها مش ذهب خالص.
-5. غياب الدمغة تماماً لا يعني تقليد بالضرورة، لكنه يستدعي الحذر — ارفع مستوى التحذير واطلب فحص صائغ.
-6. **ممنوع** تعطي رقم قيمة قاطع. أنت ما بتعرف الوزن الفعلي ولا سعر الذهب اللحظي. أعطِ نطاق تقديري **لكل غرام** بعملة ${currency}، ووضّح صراحةً إن القيمة النهائية = الوزن × السعر اللحظي، وإن أجرة الصياغة بتنضاف عند الشراء وبتنخصم عند البيع.
-7. اذكر ضمن actions فحوصات بسيطة يقدر يعملها بنفسه: اختبار المغناطيس (الذهب مش مغناطيسي)، فحص تآكل الطلاء عند الحواف، ومقارنة الوزن بالحجم.
-8. اكتب كل النصوص بعربية بسيطة يفهمها أي حدا.
+WRITE EVERY USER-FACING STRING IN ${locale === "ar" ? "ARABIC (simple spoken Arabic anyone understands)" : "ENGLISH (plain and direct)"}.
 
-صياغة الحقول:
-- title: وصف القطعة والعيار بالعربي (مثال: "ذهب عيار ٢١ — دمغة 875")
-- subtitle: الدمغة كما هي مكتوبة على القطعة (مثال: "875 / 21K")
-- verdict: سطر واحد يجاوب سؤاله الحقيقي (مثال: "دمغة سليمة لعيار ٢١ — بس الوزن هو اللي بيحدد السعر")
-- facts: ٣–٤ معلومات (العيار، نسبة النقاء، لون الذهب، وضوح الدمغة)
-- causes: ٢–٥ علامات لازم ينتبهلها بهذي القطعة تحديداً
-- actions: ٢–٥ خطوات عملية بالترتيب
-- seekHelpIf: ٢–٤ حالات لازم فيها صائغ معتمد
-- cost: نطاق تقديري **للغرام الواحد** بعملة ${currency}، والملاحظة لازم توضّح إنه للغرام وإن السعر اللحظي بيتغير يومياً`,
+Mandatory rules:
+1. Look for the stamped mark: millesimal numbers (999, 995, 916, 875, 750, 585, 375), karat stamps (24K–9K), or an assay/country mark.
+2. Millesimal to karat: 999/995 = 24K, 916 = 22K, 875 = 21K, 750 = 18K, 585 = 14K, 375 = 9K. 21K is the Gulf default and 22K is common across South Asia — read the user's region for context.
+3. If the mark is unreadable, the shot is too far, or it is blurry, return detected=false with precise instructions: get closer, use strong light, and look inside a ring band or at a chain's clasp where hallmarks usually sit.
+4. WARN CLEARLY ABOUT PLATING. Marks such as GP, GEP, GF, HGE, RGP, 1/20 and "vermeil" mean plated or filled — NOT solid gold — and are worth a small fraction. On any of these: severity="critical", verdictLevel="stop", and the title must state plainly that it is not solid gold. This is the expensive mistake the app exists to prevent.
+5. No hallmark at all does not prove a fake, but it warrants caution — raise the warning level and recommend a jeweller's test.
+6. NEVER give a single definitive value. You do not know the weight or the live spot price. Give an estimated range PER GRAM in ${currency}, and state that final value = weight x live price, that making charges are added when buying and deducted when selling.
+7. In actions, include checks the user can do themselves: the magnet test (gold is not magnetic), looking for wear at the edges where plating rubs through, and comparing weight against size.
+
+Field shapes:
+- title: the piece and its karat
+- subtitle: the hallmark exactly as stamped (e.g. "875 / 21K")
+- verdict: one line answering their real question
+- facts: 3–4 (karat, purity %, gold colour, hallmark legibility)
+- causes: 2–5 things to watch for on this specific piece
+- actions: 2–5 practical steps in order
+- seekHelpIf: 2–4 situations needing a certified jeweller
+- cost: estimated range PER GRAM in ${currency}; the note must say it is per gram and that the spot price moves daily`,
 };

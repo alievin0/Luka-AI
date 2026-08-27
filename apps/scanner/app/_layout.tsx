@@ -5,13 +5,16 @@ import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { theme } from "../src/theme";
 import { isOnboarded } from "../src/storage";
-import { pack, isProgram } from "../src/packs";
+import { pack, isProgram, isScanner } from "../src/packs";
+import { t, isRTL } from "../src/i18n";
+import { ui } from "../src/i18n/ui";
 import { initPurchases } from "../src/purchases";
 
-// The whole UI is Arabic — force RTL before the first render.
-if (!I18nManager.isRTL) {
-  I18nManager.allowRTL(true);
-  I18nManager.forceRTL(true);
+// Layout direction follows the device language, not the app. Forcing RTL
+// unconditionally would mirror the entire English UI.
+I18nManager.allowRTL(true);
+if (I18nManager.isRTL !== isRTL) {
+  I18nManager.forceRTL(isRTL);
 }
 
 export default function RootLayout() {
@@ -67,15 +70,15 @@ export default function RootLayout() {
           name="paywall"
           options={{ presentation: "modal", headerShown: false }}
         />
-        <Stack.Screen name="result" options={{ title: "النتيجة" }} />
-        <Stack.Screen name="history" options={{ title: "الفحوصات السابقة" }} />
+        <Stack.Screen name="result" options={{ title: t(ui.result) }} />
+        <Stack.Screen name="history" options={{ title: t(ui.pastScans) }} />
         <Stack.Screen
           name="library"
-          options={{ title: (pack.kind === "scanner" && pack.libraryTitle) || "الدليل" }}
+          options={{ title: isScanner(pack) && pack.libraryTitle ? t(pack.libraryTitle) : t(ui.guide) }}
         />
-        <Stack.Screen name="settings" options={{ title: "الإعدادات" }} />
+        <Stack.Screen name="settings" options={{ title: t(ui.settings) }} />
         <Stack.Screen name="session" options={{ headerShown: false, presentation: "fullScreenModal" }} />
-        <Stack.Screen name="plan" options={{ title: isProgram(pack) ? pack.nouns.plan : "الخطة" }} />
+        <Stack.Screen name="plan" options={{ title: isProgram(pack) ? t(pack.nouns.plan) : t(ui.noPlan) }} />
       </Stack>
     </SafeAreaProvider>
   );

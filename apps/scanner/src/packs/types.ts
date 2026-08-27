@@ -1,30 +1,35 @@
+import type { Text } from "../i18n";
+
 /* Two app archetypes share this engine.
  *
  * A `scanner` pack answers one question from a photo.
  * A `program` pack runs someone through a plan, day after day.
  *
- * Everything else — onboarding, paywall, pricing, settings, storage, theme —
- * is shared, so a new app in either shape is a content file, not a project.
+ * Every user-facing string is a `Text` pair (English + Arabic) resolved at
+ * render time. English is the default because the apps ship worldwide; Arabic
+ * is served to devices that ask for it.
  */
 
 export type Severity = "critical" | "warning" | "info";
 export type VerdictLevel = "stop" | "caution" | "ok";
 export type Confidence = "high" | "medium" | "low";
+export type Locale = "en" | "ar";
 
 export type OnboardingStep = {
   key: string;
-  question: string;
-  options: string[];
+  question: Text;
+  options: Text[];
 };
 
 /** An entry in a pack's offline reference library. */
 export type LibraryEntry = {
   id: string;
-  title: string;
+  title: Text;
+  /** Technical name — the same in both languages, so not a pair. */
   subtitle: string;
   severity: Severity;
-  summary: string;
-  action: string;
+  summary: Text;
+  action: Text;
 };
 
 /* ------------------------------------------------------------------ pricing */
@@ -32,13 +37,12 @@ export type LibraryEntry = {
 export type Product = {
   /** RevenueCat package identifier. */
   id: string;
-  label: string;
+  label: Text;
   /** Shown before RevenueCat loads, and in dev where it never does. */
   fallbackPrice: string;
-  period: string;
-  /** Small line under the price, e.g. per-week equivalent. */
-  note?: string;
-  badge?: string;
+  period: Text;
+  note?: Text;
+  badge?: Text;
   trialDays?: number;
 };
 
@@ -73,19 +77,20 @@ export type ScanResult = {
 export type ScannerPack = {
   kind: "scanner";
   id: string;
-  appName: string;
-  tagline: string;
+  appName: Text;
+  tagline: Text;
   accent: string;
-  captureHint: string;
-  labels: { facts: string; causes: string; actions: string; seekHelp: string };
+  captureHint: Text;
+  labels: { facts: Text; causes: Text; actions: Text; seekHelp: Text };
   showCost: boolean;
-  disclaimer: string;
+  disclaimer: Text;
   onboarding: OnboardingStep[];
   library?: LibraryEntry[];
-  libraryTitle?: string;
-  paywall: { headline: string; bullets: string[] };
+  libraryTitle?: Text;
+  paywall: { headline: Text; bullets: Text[] };
   pricing: Pricing;
-  systemPrompt: (ctx: { currency: string; profile: string }) => string;
+  /** The model answers in the user's language, so the locale goes in. */
+  systemPrompt: (ctx: { currency: string; profile: string; locale: Locale }) => string;
 };
 
 /* ------------------------------------------------------------------ program */
@@ -93,49 +98,43 @@ export type ScannerPack = {
 /** One movement, drill or lesson inside a session. */
 export type ProgramItem = {
   id: string;
-  name: string;
-  nameEn: string;
+  name: Text;
   /** Timed items set seconds; rep-based items set reps. One or the other. */
   seconds?: number;
   reps?: number;
   restSeconds: number;
   /** How to do it, step by step. */
-  cues: string[];
+  cues: Text[];
   /** What people get wrong — the part that makes an app worth paying for. */
-  mistakes?: string[];
+  mistakes?: Text[];
 };
 
 export type Session = {
   id: string;
-  title: string;
-  subtitle: string;
+  title: Text;
+  subtitle: Text;
   minutes: number;
   level: "beginner" | "intermediate" | "advanced";
-  focus: string;
+  focus: Text;
   items: ProgramItem[];
 };
 
 export type ProgramPack = {
   kind: "program";
   id: string;
-  appName: string;
-  tagline: string;
+  appName: Text;
+  tagline: Text;
   accent: string;
   /** Vocabulary, so the shared screens read naturally in each app. */
-  nouns: {
-    session: string;
-    item: string;
-    plan: string;
-    streakUnit: string;
-  };
-  disclaimer: string;
+  nouns: { session: Text; item: Text; plan: Text };
+  disclaimer: Text;
   onboarding: OnboardingStep[];
-  paywall: { headline: string; bullets: string[] };
+  paywall: { headline: Text; bullets: Text[] };
   pricing: Pricing;
-  plan: { weeks: number; daysPerWeek: number; promise: string };
+  plan: { weeks: number; daysPerWeek: number; promise: Text };
   sessions: Session[];
   /** Rotating daily tip on the home screen. */
-  tips: string[];
+  tips: Text[];
 };
 
 export type Pack = ScannerPack | ProgramPack;

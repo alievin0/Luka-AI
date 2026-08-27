@@ -3,6 +3,8 @@ import { View, Text, Pressable, StyleSheet, ActivityIndicator, Alert } from "rea
 import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { pack } from "../src/packs";
+import { t } from "../src/i18n";
+import { ui } from "../src/i18n/ui";
 import { theme } from "../src/theme";
 import { getOffers, purchase, purchasesAvailable, restore, type Offer } from "../src/purchases";
 
@@ -21,9 +23,9 @@ export default function Paywall() {
         ? live
         : pack.pricing.products.map((product) => ({
             id: product.id,
-            title: product.label,
+            title: t(product.label),
             price: product.fallbackPrice,
-            period: product.period,
+            period: t(product.period),
           }));
       setOffers(shown);
       setSelected(
@@ -39,16 +41,16 @@ export default function Paywall() {
     setWorking(true);
     try {
       if (!purchasesAvailable()) {
-        Alert.alert("وضع تجريبي", "الشراء مش مفعّل بهالنسخة.");
+        Alert.alert(t(ui.devMode), t(ui.purchaseOffBody));
         return;
       }
       if (await purchase(selected)) {
         router.back();
       } else {
-        Alert.alert("ما تمت العملية", "ما انفعّل الاشتراك. جرّب كمان مرة.");
+        Alert.alert(t(ui.purchaseFailed), t(ui.purchaseFailedBody));
       }
     } catch {
-      Alert.alert("ما تمت العملية", "انلغى الشراء أو صار خطأ.");
+      Alert.alert(t(ui.purchaseFailed), t(ui.purchaseCancelled));
     } finally {
       setWorking(false);
     }
@@ -61,13 +63,13 @@ export default function Paywall() {
       </Pressable>
 
       <View style={styles.body}>
-        <Text style={styles.headline}>{pack.paywall.headline}</Text>
+        <Text style={styles.headline}>{t(pack.paywall.headline)}</Text>
 
         <View style={styles.bullets}>
           {pack.paywall.bullets.map((bullet) => (
-            <View key={bullet} style={styles.bulletRow}>
+            <View key={t(bullet)} style={styles.bulletRow}>
               <Text style={styles.check}>✓</Text>
-              <Text style={styles.bulletText}>{bullet}</Text>
+              <Text style={styles.bulletText}>{t(bullet)}</Text>
             </View>
           ))}
         </View>
@@ -90,12 +92,12 @@ export default function Paywall() {
                       <Text style={styles.offerTitle}>{offer.title}</Text>
                       {configured?.badge ? (
                         <View style={styles.badge}>
-                          <Text style={styles.badgeText}>{configured.badge}</Text>
+                          <Text style={styles.badgeText}>{t(configured.badge)}</Text>
                         </View>
                       ) : null}
                     </View>
                     {configured?.note ? (
-                      <Text style={styles.offerNote}>{configured.note}</Text>
+                      <Text style={styles.offerNote}>{t(configured.note)}</Text>
                     ) : null}
                   </View>
                   <Text style={styles.offerPrice}>{offer.price}</Text>
@@ -107,13 +109,13 @@ export default function Paywall() {
 
         {trialDays ? (
           <Text style={styles.trialLine}>
-            جرّب {trialDays} أيام مجاناً — بتقدر تلغي بأي وقت قبل ما ينتهي
+            {t(ui.trialLine).replace("{n}", String(trialDays))}
           </Text>
         ) : null}
 
         {!purchasesAvailable() ? (
           <Text style={styles.devNote}>
-            وضع تجريبي: ضيف مفاتيح RevenueCat واعمل dev build عشان يشتغل الشراء فعلياً.
+            {t(ui.devModeBody)}
           </Text>
         ) : null}
       </View>
@@ -127,11 +129,11 @@ export default function Paywall() {
           {working ? (
             <ActivityIndicator color="#0C0E13" />
           ) : (
-            <Text style={styles.ctaText}>ابدأ الآن</Text>
+            <Text style={styles.ctaText}>{t(ui.startNowCta)}</Text>
           )}
         </Pressable>
         <Pressable onPress={() => restore()}>
-          <Text style={styles.restore}>استعادة عملية شراء سابقة</Text>
+          <Text style={styles.restore}>{t(ui.restorePrior)}</Text>
         </Pressable>
       </View>
     </SafeAreaView>

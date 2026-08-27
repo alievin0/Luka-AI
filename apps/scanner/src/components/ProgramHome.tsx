@@ -12,6 +12,8 @@ import {
   streakFrom,
   type Completion,
 } from "../progress";
+import { t } from "../i18n";
+import { ui } from "../i18n/ui";
 
 export function ProgramHome({ pack }: { pack: ProgramPack }) {
   const router = useRouter();
@@ -42,8 +44,8 @@ export function ProgramHome({ pack }: { pack: ProgramPack }) {
         <ScrollView contentContainerStyle={styles.content}>
           <View style={styles.header}>
             <View>
-              <Text style={styles.appName}>{pack.appName}</Text>
-              <Text style={styles.promise}>{pack.plan.promise}</Text>
+              <Text style={styles.appName}>{t(pack.appName)}</Text>
+              <Text style={styles.promise}>{t(pack.plan.promise)}</Text>
             </View>
             <Pressable
               style={styles.iconButton}
@@ -57,15 +59,15 @@ export function ProgramHome({ pack }: { pack: ProgramPack }) {
           <View style={styles.statRow}>
             <View style={styles.stat}>
               <Text style={styles.statValue}>{streak}</Text>
-              <Text style={styles.statLabel}>{pack.nouns.streakUnit} متواصل</Text>
+              <Text style={styles.statLabel}>{t(ui.dayStreak)}</Text>
             </View>
             <View style={styles.stat}>
               <Text style={styles.statValue}>{doneCount}</Text>
-              <Text style={styles.statLabel}>{pack.nouns.session} خلصت</Text>
+              <Text style={styles.statLabel}>{t(ui.completed)}</Text>
             </View>
             <View style={styles.stat}>
               <Text style={styles.statValue}>{progress}%</Text>
-              <Text style={styles.statLabel}>من {pack.nouns.plan}</Text>
+              <Text style={styles.statLabel}>{t(ui.ofPlan)}</Text>
             </View>
           </View>
 
@@ -74,7 +76,7 @@ export function ProgramHome({ pack }: { pack: ProgramPack }) {
           </View>
 
           <Text style={styles.sectionLabel}>
-            {doneToday ? "خلصت اليوم — كمّل إذا بدك" : "تمرين اليوم"}
+            {doneToday ? t(ui.doneToday) : t(ui.todaySession)}
           </Text>
 
           <Pressable
@@ -84,33 +86,33 @@ export function ProgramHome({ pack }: { pack: ProgramPack }) {
             }
           >
             <View style={styles.sessionHead}>
-              <Text style={styles.sessionTitle}>{session.title}</Text>
+              <Text style={styles.sessionTitle}>{t(session.title)}</Text>
               <View style={styles.chip}>
-                <Text style={styles.chipText}>{session.minutes} دقيقة</Text>
+                <Text style={styles.chipText}>{session.minutes} {t(ui.minutes)}</Text>
               </View>
             </View>
-            <Text style={styles.sessionSubtitle}>{session.subtitle}</Text>
+            <Text style={styles.sessionSubtitle}>{t(session.subtitle)}</Text>
             <View style={styles.sessionMeta}>
               <Text style={styles.metaText}>
-                {session.items.length} {pack.nouns.item}
+                {session.items.length} {t(pack.nouns.item)}
               </Text>
               <Text style={styles.metaDot}>·</Text>
-              <Text style={styles.metaText}>{session.focus}</Text>
+              <Text style={styles.metaText}>{t(session.focus)}</Text>
             </View>
             <View style={styles.startButton}>
               <Text style={styles.startText}>
-                {doneToday ? "ابدأ التالي" : "ابدأ الآن"}
+                {doneToday ? t(ui.startNext) : t(ui.startNow)}
               </Text>
             </View>
           </Pressable>
 
           <View style={styles.tipCard}>
-            <Text style={styles.tipLabel}>نصيحة اليوم</Text>
-            <Text style={styles.tipText}>{tip}</Text>
+            <Text style={styles.tipLabel}>{t(ui.tipOfDay)}</Text>
+            <Text style={styles.tipText}>{t(tip)}</Text>
           </View>
 
           <Pressable style={styles.planLink} onPress={() => router.push("/plan")}>
-            <Text style={styles.planLinkText}>شوف {pack.nouns.plan} كاملة</Text>
+            <Text style={styles.planLinkText}>{t(ui.seeFullPlan)}</Text>
           </Pressable>
         </ScrollView>
       </SafeAreaView>

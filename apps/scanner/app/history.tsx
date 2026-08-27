@@ -3,7 +3,10 @@ import { View, Text, StyleSheet, FlatList, Pressable, Image, Alert } from "react
 import { useFocusEffect, useRouter } from "expo-router";
 import { theme, severityStyle } from "../src/theme";
 import { pack } from "../src/packs";
+import { locale } from "../src/i18n";
 import { getHistory, removeFromHistory, type HistoryEntry } from "../src/storage";
+import { t } from "../src/i18n";
+import { ui } from "../src/i18n/ui";
 
 export default function History() {
   const router = useRouter();
@@ -18,8 +21,8 @@ export default function History() {
   if (entries.length === 0) {
     return (
       <View style={styles.empty}>
-        <Text style={styles.emptyTitle}>ما في فحوصات بعد</Text>
-        <Text style={styles.emptyBody}>{pack.tagline}</Text>
+        <Text style={styles.emptyTitle}>{t(ui.noScansYet)}</Text>
+        <Text style={styles.emptyBody}>{t(pack.tagline)}</Text>
       </View>
     );
   }
@@ -31,7 +34,7 @@ export default function History() {
       data={entries}
       keyExtractor={(item) => item.id}
       ListHeaderComponent={
-        <Text style={styles.hint}>اضغط مطوّلاً على أي فحص لمسحه</Text>
+        <Text style={styles.hint}>{t(ui.longPressDelete)}</Text>
       }
       renderItem={({ item }) => {
         const sev = severityStyle(item.result.severity);
@@ -40,10 +43,10 @@ export default function History() {
             style={styles.row}
             onPress={() => router.push({ params: { id: item.id }, pathname: "/result" })}
             onLongPress={() =>
-              Alert.alert("امسح هذا الفحص؟", item.result.title, [
-                { text: "إلغاء", style: "cancel" },
+              Alert.alert(t(ui.deleteScan), item.result.title, [
+                { text: t(ui.cancel), style: "cancel" },
                 {
-                  text: "امسح",
+                  text: t(ui.delete),
                   style: "destructive",
                   onPress: async () => setEntries(await removeFromHistory(item.id)),
                 },
@@ -56,7 +59,7 @@ export default function History() {
                 {item.result.title}
               </Text>
               <Text style={styles.rowMeta} numberOfLines={1}>
-                {new Date(item.at).toLocaleDateString("ar")}
+                {new Date(item.at).toLocaleDateString(locale)}
               </Text>
             </View>
             <View style={[styles.dot, { backgroundColor: sev.color }]} />

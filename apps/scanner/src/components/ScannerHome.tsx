@@ -26,6 +26,8 @@ import {
 } from "../storage";
 import { scanImage, ScanError } from "../api";
 import { isPro } from "../purchases";
+import { t } from "../i18n";
+import { ui } from "../i18n/ui";
 
 /**
  * Downscale + compress before upload. A full-res phone photo is several MB
@@ -77,8 +79,8 @@ export function ScannerHome({ pack }: { pack: ScannerPack }) {
       if (!result.detected) {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
         Alert.alert(
-          "ما قدرنا نتعرّف",
-          result.notDetectedReason || "جرّب صورة أوضح وأقرب.",
+          t(ui.couldNotIdentify),
+          result.notDetectedReason || t(ui.tryClearerPhoto),
         );
         return;
       }
@@ -97,8 +99,8 @@ export function ScannerHome({ pack }: { pack: ScannerPack }) {
     } catch (error) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       Alert.alert(
-        "ما زبطت",
-        error instanceof ScanError ? error.message : "صار خطأ. جرّب كمان مرة.",
+        t(ui.somethingWrong),
+        error instanceof ScanError ? error.message : t(ui.tryAgain),
       );
     } finally {
       setBusy(false);
@@ -142,13 +144,13 @@ export function ScannerHome({ pack }: { pack: ScannerPack }) {
   if (!permission.granted) {
     return (
       <SafeAreaView style={styles.permission}>
-        <Text style={styles.permTitle}>بدنا إذن الكاميرا</Text>
-        <Text style={styles.permBody}>{pack.captureHint}</Text>
+        <Text style={styles.permTitle}>{t(ui.cameraNeeded)}</Text>
+        <Text style={styles.permBody}>{t(pack.captureHint)}</Text>
         <Pressable style={styles.cta} onPress={requestPermission}>
-          <Text style={styles.ctaText}>اسمح بالوصول</Text>
+          <Text style={styles.ctaText}>{t(ui.allowCamera)}</Text>
         </Pressable>
         <Pressable onPress={pickFromLibrary}>
-          <Text style={styles.link}>أو اختر صورة من المعرض</Text>
+          <Text style={styles.link}>{t(ui.orPickPhoto)}</Text>
         </Pressable>
       </SafeAreaView>
     );
@@ -162,11 +164,11 @@ export function ScannerHome({ pack }: { pack: ScannerPack }) {
         <View style={styles.topBar}>
           <View style={styles.topLeft}>
             <Pressable style={styles.pill} onPress={() => router.push("/history")} hitSlop={8}>
-              <Text style={styles.pillText}>السجل</Text>
+              <Text style={styles.pillText}>{t(ui.history)}</Text>
             </Pressable>
             {pack.library ? (
               <Pressable style={styles.pill} onPress={() => router.push("/library")} hitSlop={8}>
-                <Text style={styles.pillText}>{pack.libraryTitle ?? "الدليل"}</Text>
+                <Text style={styles.pillText}>{pack.libraryTitle ? t(pack.libraryTitle) : t(ui.guide)}</Text>
               </Pressable>
             ) : null}
             <Pressable style={styles.pill} onPress={() => router.push("/settings")} hitSlop={8}>
@@ -176,7 +178,7 @@ export function ScannerHome({ pack }: { pack: ScannerPack }) {
           {scansLeft !== null && scansLeft !== Infinity && (
             <Pressable style={styles.pill} onPress={() => router.push("/paywall")}>
               <Text style={styles.pillText}>
-                {scansLeft > 0 ? `باقي ${scansLeft} فحص مجاني` : "ترقية"}
+                {scansLeft > 0 ? `${scansLeft} ${t(ui.scansLeft)}` : t(ui.upgrade)}
               </Text>
             </Pressable>
           )}
@@ -189,12 +191,12 @@ export function ScannerHome({ pack }: { pack: ScannerPack }) {
             <View style={[styles.corner, styles.cornerBL]} />
             <View style={[styles.corner, styles.cornerBR]} />
           </View>
-          <Text style={styles.hint}>{pack.captureHint}</Text>
+          <Text style={styles.hint}>{t(pack.captureHint)}</Text>
         </View>
 
         <View style={styles.controls}>
           <Pressable onPress={pickFromLibrary} hitSlop={12} disabled={busy}>
-            <Text style={styles.secondary}>المعرض</Text>
+            <Text style={styles.secondary}>{t(ui.gallery)}</Text>
           </Pressable>
 
           <Pressable
@@ -214,7 +216,7 @@ export function ScannerHome({ pack }: { pack: ScannerPack }) {
 
         {busy && (
           <View style={styles.busyBanner} pointerEvents="none">
-            <Text style={styles.busyText}>عم نحلل الصورة…</Text>
+            <Text style={styles.busyText}>{t(ui.analysing)}</Text>
           </View>
         )}
       </SafeAreaView>
