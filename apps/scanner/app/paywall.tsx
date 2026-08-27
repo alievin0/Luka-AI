@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
-import { View, Text, Pressable, StyleSheet, ActivityIndicator, Alert } from "react-native";
+import { View, Text, Pressable, StyleSheet, ActivityIndicator, Alert, Linking } from "react-native";
 import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { pack } from "../src/packs";
 import { t } from "../src/i18n";
 import { ui } from "../src/i18n/ui";
 import { theme } from "../src/theme";
+import { privacyUrl, supportUrl, termsUrl } from "../src/legal";
 import { getOffers, purchase, purchasesAvailable, restore, type Offer } from "../src/purchases";
 
 export default function Paywall() {
@@ -135,6 +136,23 @@ export default function Paywall() {
         <Pressable onPress={() => restore()}>
           <Text style={styles.restore}>{t(ui.restorePrior)}</Text>
         </Pressable>
+
+        {/* Apple wants the renewal terms and both links on the purchase screen
+            itself, not only in a document linked from somewhere else. */}
+        <Text style={styles.renewal}>{t(ui.renewalTerms)}</Text>
+        <View style={styles.legalRow}>
+          <Pressable onPress={() => Linking.openURL(termsUrl()).catch(() => undefined)} hitSlop={8}>
+            <Text style={styles.legalLink}>{t(ui.terms)}</Text>
+          </Pressable>
+          <Text style={styles.legalDot}>·</Text>
+          <Pressable onPress={() => Linking.openURL(privacyUrl()).catch(() => undefined)} hitSlop={8}>
+            <Text style={styles.legalLink}>{t(ui.privacyPolicy)}</Text>
+          </Pressable>
+          <Text style={styles.legalDot}>·</Text>
+          <Pressable onPress={() => Linking.openURL(supportUrl()).catch(() => undefined)} hitSlop={8}>
+            <Text style={styles.legalLink}>{t(ui.support)}</Text>
+          </Pressable>
+        </View>
       </View>
     </SafeAreaView>
   );
@@ -200,5 +218,21 @@ const styles = StyleSheet.create({
   },
   ctaDisabled: { opacity: 0.45 },
   ctaText: { color: "#0C0E13", fontSize: 17, fontWeight: "700" },
+  renewal: {
+    color: theme.textFaint,
+    fontSize: 11,
+    lineHeight: 18,
+    textAlign: "center",
+    marginTop: 14,
+  },
+  legalRow: {
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 10,
+  },
+  legalLink: { color: theme.textSoft, fontSize: 12, textDecorationLine: "underline" },
+  legalDot: { color: theme.textFaint, fontSize: 12 },
   restore: { color: theme.textFaint, fontSize: 13, textAlign: "center" },
 });

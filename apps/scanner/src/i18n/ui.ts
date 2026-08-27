@@ -186,6 +186,14 @@ export const ui = {
   couldNotOpen: L("Couldn't open the link", "ما قدرنا نفتح الرابط"),
   privacyPolicy: L("Privacy policy", "سياسة الخصوصية"),
   readPrivacyPolicy: L("Read the privacy policy", "اقرأ سياسة الخصوصية"),
+  terms: L("Terms of Use", "شروط الاستخدام"),
+  support: L("Support", "المساعدة"),
+  /* Apple requires the renewal terms on the purchase screen itself, not
+     only in a linked document. Missing this is a routine rejection. */
+  renewalTerms: L(
+    "Payment is charged to your account at confirmation. The subscription renews automatically unless you turn off auto-renewal at least 24 hours before the period ends, and your account is charged for renewal within 24 hours before that. Manage or cancel it any time in your account settings.",
+    "بينخصم المبلغ من حسابك عند التأكيد. الاشتراك بيتجدّد تلقائياً إلا إذا أوقفت التجديد قبل ٢٤ ساعة على الأقل من نهاية المدة، وبينخصم التجديد خلال الـ٢٤ ساعة اللي قبلها. تقدر تدير الاشتراك أو تلغيه أي وقت من إعدادات حسابك.",
+  ),
   linkFailed: L("Couldn't open", "ما فتحت"),
 
   trialLine: L(

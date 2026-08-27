@@ -22,3 +22,9 @@ const SITE = (process.env.EXPO_PUBLIC_SITE_URL || "https://luka-ai.vercel.app").
 );
 
 export const privacyUrl = () => `${SITE}/privacy/${activePackId}`;
+
+/** One document covers every app; the subscription terms are identical. */
+export const termsUrl = () => `${SITE}/terms`;
+
+/** The App Store requires a reachable support URL for every listing. */
+export const supportUrl = () => `${SITE}/support`;
