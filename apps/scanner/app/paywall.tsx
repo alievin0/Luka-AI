@@ -127,8 +127,10 @@ export default function Paywall() {
             <GradeCard tone="info" mark={DESIGN.gradeOk} title={t(ui.cardOkTitle)} line={t(ui.cardOkLine)} />
           </View>
 
-          {/* One card, one row. The design sets the five side by side. */}
-          <View style={styles.card}>
+          {/* No card behind these. The design stands the five straight on the
+              ground — a grey panel under them is a box the reference does not
+              have, and it narrows the columns for nothing. */}
+          <View style={styles.benefits}>
             <Text style={styles.cardTitle}>{t(ui.youGet)}</Text>
             <View style={styles.grid}>
               {benefits.map((bullet) => {
@@ -373,16 +375,8 @@ const styles = StyleSheet.create({
   gradeTitle: { fontSize: 13, lineHeight: 19, fontFamily: UI_FONT.bold, textAlign: "center" },
   gradeLine: { color: TEXT, fontSize: 12.5, lineHeight: 19, fontFamily: UI_FONT.regular, textAlign: "center" },
 
-  card: {
-    backgroundColor: SURFACE,
-    borderWidth: 1.5,
-    borderColor: BORDER,
-    borderRadius: 26,
-    paddingVertical: 22,
-    paddingHorizontal: 8,
-    gap: 18,
-  },
-  cardTitle: { color: TEXT, fontSize: 16, fontFamily: UI_FONT.bold, textAlign: READ, paddingHorizontal: 12 },
+  benefits: { gap: 16 },
+  cardTitle: { color: TEXT, fontSize: 16, fontFamily: UI_FONT.bold, textAlign: READ },
 
   /* One row of five, at the design's own column pitch: its five marks sit on
      centres 70pt apart across a 355pt card, which is five equal columns edge
