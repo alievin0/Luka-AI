@@ -6,7 +6,6 @@ import {
   Pressable,
   ScrollView,
   ActivityIndicator,
-  useWindowDimensions,
   Alert,
 } from "react-native";
 import { useNavigation, useRouter } from "expo-router";
@@ -23,7 +22,7 @@ import {
   type RecordingOptions,
 } from "expo-audio";
 import { pack, isAudio, type AudioChunk, type Segment } from "../src/packs";
-import { t, locale, isRTL } from "../src/i18n";
+import { t, isRTL } from "../src/i18n";
 import { ui } from "../src/i18n/ui";
 import { getProfile } from "../src/storage";
 import {
@@ -36,8 +35,22 @@ import {
   scoreEnergy,
 } from "../src/lectures";
 import { startLiveWriter, recogniserLocale, liveWriterAvailable, type LiveWriter } from "../src/speech";
-import { FONTS } from "../src/type";
-import { BLOOM, GOLD, INK, audio as s, READ } from "../src/components/audio-theme";
+import { FONTS, SCALE } from "../src/type";
+import {
+  BLOOM,
+  GOLD,
+  GOLD_BRIGHT,
+  GOLD_DEEP,
+  PANEL_BORDER,
+  TEXT,
+  TEXT_SOFT,
+  TEXT_FAINT,
+  SP,
+  RADIUS,
+  READ,
+  glow,
+  audio as s,
+} from "../src/components/audio-theme";
 
 /**
  * 16 kHz mono is not a compromise here — every speech recogniser downsamples
@@ -84,6 +97,9 @@ const SEGMENT_GAP_MS = 1800;
  *  transcript is written to storage as it accumulates rather than only at the
  *  end — if the app is killed at minute 80, minute 79 is still there. */
 const AUTOSAVE_MS = 15_000;
+/** Bars in the level meter. Enough to read as a waveform, few enough that
+ *  rebuilding the array four times a second costs nothing. */
+const METER_BARS = 32;
 /**
  * How long each slice of the recording runs before the recorder is rotated.
  *
@@ -99,8 +115,6 @@ const CHUNK_MS = 5 * 60 * 1000;
 export default function Record() {
   const router = useRouter();
   const navigation = useNavigation();
-  const { width } = useWindowDimensions();
-  const wide = width >= 700;
 
   const recorder = useAudioRecorder(LECTURE_RECORDING);
   // One poller only. On Android `getMaxAmplitude()` resets on read, so a
@@ -158,12 +172,21 @@ export default function Record() {
   elapsedRef.current = seconds;
   const startedAtRef = useRef(Date.now());
 
+  const [levels, setLevels] = useState<number[]>(() => new Array(METER_BARS).fill(0));
+
   /* Metering runs whether or not the live writer exists — the tone analysis
-   * is ours, and it is the one thing no competitor ships. */
+   * is ours, and it is the one thing no competitor ships. The same reading
+   * also drives the meter, so what the student sees moving is the same signal
+   * the emphasis detection is built on rather than a decorative animation. */
   useEffect(() => {
-    if (typeof state.metering === "number" && state.metering > peak.current) {
-      peak.current = state.metering;
-    }
+    const reading = state.metering;
+    if (typeof reading !== "number" || !Number.isFinite(reading)) return;
+    if (reading > peak.current) peak.current = reading;
+
+    // dBFS is logarithmic and mostly empty below -55; this maps the part of
+    // the range a voice actually occupies onto the height of a bar.
+    const level = Math.max(0, Math.min(1, (reading + 55) / 50));
+    setLevels((prev) => [...prev.slice(1), level]);
   }, [state.metering]);
 
   /* Crash safety. The recording itself is a single .m4a with no index until
@@ -545,78 +568,24 @@ export default function Record() {
     [segments],
   );
 
-  const transcript = (
-    <ScrollView
-      ref={scroller}
-      style={[s.panel, wide && styles.transcriptWide]}
-      contentContainerStyle={styles.transcriptInner}
-      onContentSizeChange={() => scroller.current?.scrollToEnd({ animated: true })}
-    >
-      {segments.map((seg, index) => (
-        <View key={index} style={styles.line}>
-          <Text style={styles.stamp}>{clock(seg.at)}</Text>
-          <Text style={[styles.lineText, seg.marked && styles.lineMarked]}>{seg.text}</Text>
-        </View>
-      ))}
-      {interim ? <Text style={styles.interim}>{interim}</Text> : null}
-      {segments.length === 0 && !interim ? (
-        <Text style={styles.interim}>{t(pack.voice.listening)}</Text>
-      ) : null}
-    </ScrollView>
-  );
-
-  const moments = (
-    <View style={[s.panel, styles.moments, wide && styles.momentsWide]}>
-      <Text style={styles.momentsTitle}>{t(ui.importantMoments)}</Text>
-      {marked.length === 0 ? (
-        <Text style={styles.momentsEmpty}>—</Text>
-      ) : (
-        <ScrollView contentContainerStyle={styles.momentsList}>
-          {marked.slice(-8).reverse().map(({ seg, index }) => (
-            <View key={index} style={styles.momentRow}>
-              <Text style={styles.momentStamp}>{clock(seg.at)}</Text>
-              <Text style={styles.momentText} numberOfLines={1}>
-                {seg.text || t(ui.markedByYou)}
-              </Text>
-              <View style={[s.tag, seg.marked && styles.tagMarked]}>
-                <Text style={s.tagText}>{seg.marked ? "★" : "◗"}</Text>
-              </View>
-            </View>
-          ))}
-        </ScrollView>
-      )}
-    </View>
-  );
 
   return (
     <View style={s.root}>
       <LinearGradient colors={BLOOM} locations={[0, 0.4, 1]} style={StyleSheet.absoluteFill} />
       <SafeAreaView style={s.safe} edges={["top", "bottom"]}>
-        <View style={s.wordmarkWrap}>
-          <View style={s.langPill}>
-            <Text style={s.langText}>{locale === "ar" ? "EN" : "ع"}</Text>
-          </View>
-          <Text style={s.wordmarkLatin}>{pack.wordmark}</Text>
-          <Text style={s.wordmarkDot}>•</Text>
-          <Text style={s.wordmarkArabic}>{t(pack.appName)}</Text>
-        </View>
 
-        <Text style={[styles.writerHint, writerDown && styles.writerHintDown]}>
-          {!liveWriterAvailable() || writerDown
-            ? t(ui.liveWriterOff)
-            : t(pack.voice.liveWriterReady)}
-        </Text>
-
-        {weak ? (
-          <View style={styles.warning}>
-            <Text style={styles.warningText}>{t(pack.voice.micWeak)}</Text>
-          </View>
-        ) : (
-          <View style={styles.timerWrap}>
+        {/* One line of chrome. During a lecture the phone is on a desk and
+            glanced at, so the state and the clock are the only things at the
+            top that earn their place. */}
+        <View style={styles.bar}>
+          <View style={styles.stateWrap}>
             <View style={[styles.dot, paused && styles.dotPaused]} />
-            <Text style={styles.timer}>{clock(seconds)}</Text>
+            <Text style={[styles.stateText, paused && styles.stateTextPaused]}>
+              {paused ? t(ui.pause) : t(ui.recording)}
+            </Text>
           </View>
-        )}
+          <Text style={styles.clock}>{clock(seconds)}</Text>
+        </View>
 
         {denied || failed ? (
           <View style={styles.centered}>
@@ -624,7 +593,7 @@ export default function Record() {
               {failed ? t(ui.serverError) : t(ui.micDenied)}
             </Text>
             <Pressable
-              style={({ pressed }) => [styles.ghost, pressed && s.pressed, styles.backButton]}
+              style={({ pressed }) => [styles.ghost, pressed && s.pressed]}
               onPress={() => router.replace("/")}
             >
               <Text style={styles.ghostText}>{t(ui.home)}</Text>
@@ -633,49 +602,126 @@ export default function Record() {
         ) : !ready ? (
           <View style={styles.centered}>
             <ActivityIndicator color={GOLD} />
+            <Text style={styles.preparing}>{t(ui.processing)}</Text>
           </View>
         ) : (
-          <View style={[styles.panels, wide && styles.panelsWide]}>
-            {/* Wide RTL puts the first child on the right, where the web
-                product keeps the transcript; stacked, the moments strip sits
-                above it so it stays visible as the transcript grows. */}
-            {wide && isRTL ? (
-              <>
-                {transcript}
-                {moments}
-              </>
-            ) : (
-              <>
-                {moments}
-                {transcript}
-              </>
-            )}
-          </View>
+          <>
+            {/* Proof the microphone is hearing something. A student who cannot
+                tell whether it is working will check the screen all lecture;
+                a meter that moves answers it in half a second. */}
+            <View style={styles.meter}>
+              {levels.map((level, i) => (
+                <View
+                  key={i}
+                  style={[
+                    styles.meterBar,
+                    { height: 3 + level * 26 },
+                    weak && styles.meterBarWeak,
+                    paused && styles.meterBarPaused,
+                  ]}
+                />
+              ))}
+            </View>
+
+            <Text style={[styles.status, weak && styles.statusWarn]}>
+              {weak
+                ? t(pack.voice.micWeak)
+                : !liveWriterAvailable() || writerDown
+                  ? t(ui.liveWriterOff)
+                  : t(pack.voice.liveWriterReady)}
+            </Text>
+
+            {/* Where the marks are, rather than a list of them. A strip shows
+                the shape of the lecture so far and costs one line, where the
+                old second panel competed with the transcript for the screen. */}
+            {marked.length > 0 ? (
+              <View style={styles.timelineWrap}>
+                <View style={styles.timeline}>
+                  {marked.map(({ seg, index }) => (
+                    <View
+                      key={index}
+                      style={[
+                        styles.tick,
+                        {
+                          [isRTL ? "right" : "left"]: `${Math.min(
+                            98,
+                            (seg.at / Math.max(1, seconds)) * 100,
+                          )}%`,
+                        },
+                        seg.marked && styles.tickMarked,
+                      ]}
+                    />
+                  ))}
+                </View>
+                <Text style={styles.timelineLabel}>
+                  {marked.length} {t(ui.importantMoments)}
+                </Text>
+              </View>
+            ) : null}
+
+            <ScrollView
+              ref={scroller}
+              style={styles.transcript}
+              contentContainerStyle={styles.transcriptInner}
+              showsVerticalScrollIndicator={false}
+              onContentSizeChange={() => scroller.current?.scrollToEnd({ animated: true })}
+            >
+              {segments.map((seg, index) => (
+                <View key={index} style={styles.line}>
+                  <Text style={styles.stamp}>{clock(seg.at)}</Text>
+                  <Text style={[styles.lineText, seg.marked && styles.lineMarked]}>
+                    {seg.text || t(ui.markedByYou)}
+                  </Text>
+                  {seg.marked ? <Text style={styles.lineStar}>★</Text> : null}
+                </View>
+              ))}
+              {interim ? <Text style={styles.interim}>{interim}</Text> : null}
+              {segments.length === 0 && !interim ? (
+                <Text style={styles.interim}>{t(pack.voice.listening)}</Text>
+              ) : null}
+            </ScrollView>
+          </>
         )}
 
+        {/* Marking is what a student presses over and over while the lecturer
+            is talking, so it is the big one under the thumb. Ending happens
+            once, and a fat gold button for it — which is what this screen had
+            — invites the one mistake that costs a lecture. */}
         <View style={[styles.actions, (denied || failed) && styles.hidden]}>
           <Pressable
-            style={({ pressed }) => [styles.end, pressed && s.pressed]}
-            onPress={end}
-            disabled={ending}
-          >
-            <Text style={styles.endGlyph}>◻</Text>
-            <Text style={styles.endText}>{t(ui.endLecture)}</Text>
-          </Pressable>
-          <Pressable
-            style={({ pressed }) => [styles.ghost, pressed && s.pressed]}
-            onPress={togglePause}
-          >
-            <Text style={styles.ghostGlyph}>{paused ? "▶" : "❙❙"}</Text>
-            <Text style={styles.ghostText}>{paused ? t(ui.resume) : t(ui.pause)}</Text>
-          </Pressable>
-          <Pressable
-            style={({ pressed }) => [styles.ghost, pressed && s.pressed]}
+            style={({ pressed }) => [styles.markWrap, pressed && { transform: [{ scale: 0.97 }] }]}
             onPress={markImportant}
+            accessibilityRole="button"
+            accessibilityLabel={t(ui.markImportant)}
           >
-            <Text style={styles.ghostGlyph}>☆</Text>
-            <Text style={styles.ghostText}>{t(ui.markImportant)}</Text>
+            <LinearGradient
+              colors={[GOLD_BRIGHT, GOLD, GOLD_DEEP]}
+              start={{ x: 0.2, y: 0 }}
+              end={{ x: 0.8, y: 1 }}
+              style={styles.mark}
+            >
+              <Text style={styles.markStar}>★</Text>
+              <Text style={styles.markText}>{t(ui.markImportant)}</Text>
+            </LinearGradient>
           </Pressable>
+
+          <View style={styles.minorRow}>
+            <Pressable
+              style={({ pressed }) => [styles.minor, pressed && s.pressed]}
+              onPress={togglePause}
+            >
+              <Text style={styles.minorGlyph}>{paused ? "▶" : "❙❙"}</Text>
+              <Text style={styles.minorText}>{paused ? t(ui.resume) : t(ui.pause)}</Text>
+            </Pressable>
+            <Pressable
+              style={({ pressed }) => [styles.minor, pressed && s.pressed]}
+              onPress={end}
+              disabled={ending}
+            >
+              <Text style={styles.minorGlyph}>◻</Text>
+              <Text style={styles.minorText}>{t(ui.endLecture)}</Text>
+            </Pressable>
+          </View>
         </View>
       </SafeAreaView>
     </View>
@@ -683,97 +729,160 @@ export default function Record() {
 }
 
 const styles = StyleSheet.create({
-  writerHintDown: { color: "#C9AE73" },
-  writerHint: {
-    color: "#9C9382",
-    fontSize: 13, fontFamily: FONTS.body,
-    textAlign: "center",
-    marginTop: 16,
-    paddingHorizontal: 24,
-  },
-  timerWrap: {
+  /* One line of chrome: what the recorder is doing, and for how long. */
+  bar: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    gap: 10,
-    marginTop: 14,
+    justifyContent: "space-between",
+    paddingHorizontal: SP.xl,
+    paddingTop: SP.md,
   },
+  stateWrap: { flexDirection: "row", alignItems: "center", gap: SP.sm },
   dot: { width: 9, height: 9, borderRadius: 5, backgroundColor: "#C8553D" },
   dotPaused: { backgroundColor: "#6E685C" },
-  timer: { color: "#E8E0CE", fontSize: 19, fontFamily: FONTS.displayBold, fontVariant: ["tabular-nums"] },
-  warning: {
-    backgroundColor: "#241E0C",
-    borderWidth: 1,
-    borderColor: "#4A3D18",
-    borderRadius: 14,
-    paddingVertical: 14,
-    paddingHorizontal: 18,
-    marginHorizontal: 20,
-    marginTop: 14,
+  stateText: {
+    color: "#D6A99C",
+    fontSize: SCALE.label,
+    fontFamily: FONTS.bodyMedium,
+    letterSpacing: 0.4,
   },
-  warningText: { color: "#D9BE83", fontSize: 14, fontFamily: FONTS.body, textAlign: "center" },
-
-  panels: { flex: 1, gap: 12, paddingHorizontal: 20, marginTop: 16 },
-  panelsWide: { flexDirection: "row" },
-  transcriptWide: { flex: 2 },
-  transcriptInner: { padding: 18, gap: 14 },
-  line: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
-  stamp: {
-    color: "#6E685C",
-    fontSize: 12, fontFamily: FONTS.body,
+  stateTextPaused: { color: TEXT_FAINT },
+  clock: {
+    color: TEXT,
+    fontSize: 30,
+    fontFamily: FONTS.displayBold,
     fontVariant: ["tabular-nums"],
-    marginTop: 4,
-    minWidth: 42,
+    letterSpacing: -0.5,
   },
-  lineText: { color: "#E8E0CE", fontSize: 16, fontFamily: FONTS.body, lineHeight: 30, flex: 1, textAlign: READ },
-  lineMarked: { color: GOLD },
-  interim: { color: "#6E685C", fontSize: 15, fontFamily: FONTS.body, fontStyle: "italic", textAlign: READ },
 
-  moments: { maxHeight: 190, padding: 16, gap: 10 },
-  momentsWide: { flex: 1, maxHeight: undefined },
-  momentsTitle: { color: "#E8E0CE", fontSize: 15, fontFamily: FONTS.displayBold, textAlign: READ },
-  momentsEmpty: { color: "#6E685C", fontSize: 14, fontFamily: FONTS.body, textAlign: "center", paddingVertical: 12 },
-  momentsList: { gap: 10 },
-  momentRow: { flexDirection: "row", alignItems: "center", gap: 10 },
-  momentStamp: { color: "#6E685C", fontSize: 12, fontFamily: FONTS.body, fontVariant: ["tabular-nums"] },
-  momentText: { color: "#C9BC9A", fontSize: 14, fontFamily: FONTS.body, flex: 1, textAlign: READ },
-  tagMarked: { backgroundColor: "#3A2E12" },
-
-  centered: { flex: 1, alignItems: "center", justifyContent: "center", padding: 32, gap: 22 },
-  backButton: { alignSelf: "center" },
-  deniedText: { color: "#9C9382", fontSize: 16, fontFamily: FONTS.body, lineHeight: 30, textAlign: "center" },
-
-  actions: {
-    flexDirection: "row",
-    gap: 10,
-    paddingHorizontal: 20,
-    paddingTop: 16,
-    justifyContent: "center",
-    flexWrap: "wrap",
-  },
-  hidden: { display: "none" },
-  end: {
+  /* The microphone, made visible. */
+  meter: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 9,
-    backgroundColor: GOLD,
-    borderRadius: 999,
-    paddingVertical: 17,
-    paddingHorizontal: 24,
+    justifyContent: "space-between",
+    height: 32,
+    gap: 2,
+    paddingHorizontal: SP.xl,
+    marginTop: SP.xl,
   },
-  endGlyph: { color: INK, fontSize: 13 },
-  endText: { color: INK, fontSize: 15, fontFamily: FONTS.displayBold },
-  ghost: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 9,
-    backgroundColor: "#17150F",
+  meterBar: { flex: 1, borderRadius: 1.5, backgroundColor: GOLD, opacity: 0.9 },
+  meterBarWeak: { backgroundColor: "#8A6A2E" },
+  meterBarPaused: { backgroundColor: "#3B3524" },
+
+  status: {
+    color: TEXT_FAINT,
+    fontSize: SCALE.micro,
+    fontFamily: FONTS.body,
+    textAlign: "center",
+    marginTop: SP.md,
+    paddingHorizontal: SP.xl,
+    lineHeight: SCALE.labelLine,
+  },
+  statusWarn: { color: "#D9AE6A" },
+
+  /* Marks as a strip: where they are in the lecture, not a list competing
+     with the transcript for the screen. */
+  timelineWrap: { paddingHorizontal: SP.xl, marginTop: SP.xl, gap: 6 },
+  timeline: {
+    height: 22,
+    borderRadius: RADIUS.sm,
+    backgroundColor: "rgba(26,22,15,0.85)",
     borderWidth: 1,
-    borderColor: "#2A2519",
-    borderRadius: 999,
-    paddingVertical: 17,
-    paddingHorizontal: 20,
+    borderColor: PANEL_BORDER,
+    justifyContent: "center",
   },
-  ghostGlyph: { color: "#C9BC9A", fontSize: 12 },
-  ghostText: { color: "#E8E0CE", fontSize: 15, fontFamily: FONTS.bodyMedium },
+  tick: {
+    position: "absolute",
+    width: 2,
+    height: 12,
+    borderRadius: 1,
+    backgroundColor: "#5C5333",
+  },
+  tickMarked: { backgroundColor: GOLD, width: 3, height: 16 },
+  timelineLabel: {
+    color: TEXT_FAINT,
+    fontSize: SCALE.micro,
+    fontFamily: FONTS.body,
+    textAlign: READ,
+  },
+
+  transcript: { flex: 1, marginTop: SP.xl },
+  transcriptInner: { paddingHorizontal: SP.xl, paddingBottom: SP.xl, gap: SP.md },
+  line: { flexDirection: "row", alignItems: "flex-start", gap: SP.md },
+  stamp: {
+    color: "#5B5443",
+    fontSize: SCALE.micro,
+    fontVariant: ["tabular-nums"],
+    fontFamily: FONTS.body,
+    marginTop: 5,
+    minWidth: 40,
+  },
+  lineText: {
+    color: "#CFC4AA",
+    fontSize: SCALE.body + 1,
+    lineHeight: SCALE.bodyLine,
+    flex: 1,
+    textAlign: READ,
+    fontFamily: FONTS.body,
+  },
+  lineMarked: { color: TEXT, fontFamily: FONTS.bodyMedium },
+  lineStar: { color: GOLD, fontSize: 11, marginTop: 5 },
+  interim: {
+    color: "#5B5443",
+    fontSize: SCALE.body,
+    lineHeight: SCALE.bodyLine,
+    fontFamily: FONTS.scriptItalic,
+    textAlign: READ,
+  },
+
+  centered: { flex: 1, alignItems: "center", justifyContent: "center", padding: SP.xxl, gap: SP.xl },
+  preparing: { color: TEXT_FAINT, fontSize: SCALE.label, fontFamily: FONTS.body },
+  deniedText: {
+    color: TEXT_SOFT,
+    fontSize: SCALE.body,
+    lineHeight: SCALE.bodyLine,
+    textAlign: "center",
+    fontFamily: FONTS.body,
+  },
+
+  /* The thumb zone. Marking is the repeated action and gets the weight. */
+  actions: { paddingHorizontal: SP.xl, paddingTop: SP.lg, gap: SP.md },
+  hidden: { display: "none" },
+  markWrap: { borderRadius: RADIUS.lg, ...glow(GOLD, 20, 0.28) },
+  mark: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: SP.md,
+    borderRadius: RADIUS.lg,
+    paddingVertical: 20,
+  },
+  markStar: { color: "#17130A", fontSize: 17 },
+  markText: { color: "#17130A", fontSize: SCALE.section, fontFamily: FONTS.displayBold },
+
+  minorRow: { flexDirection: "row", gap: SP.md },
+  minor: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: SP.sm,
+    backgroundColor: "rgba(26,22,15,0.86)",
+    borderWidth: 1,
+    borderColor: PANEL_BORDER,
+    borderRadius: RADIUS.md,
+    paddingVertical: SP.lg,
+  },
+  minorGlyph: { color: "#8E8471", fontSize: 12 },
+  minorText: { color: TEXT_SOFT, fontSize: SCALE.label, fontFamily: FONTS.bodyMedium },
+
+  ghost: {
+    backgroundColor: "rgba(26,22,15,0.86)",
+    borderWidth: 1,
+    borderColor: PANEL_BORDER,
+    borderRadius: RADIUS.md,
+    paddingVertical: SP.lg,
+    paddingHorizontal: SP.xxl,
+  },
+  ghostText: { color: TEXT, fontSize: SCALE.body, fontFamily: FONTS.bodyMedium },
 });
