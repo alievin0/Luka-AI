@@ -107,9 +107,14 @@ export const dashlight: ScannerPack = {
         detail: L("Sharper answers for your make and year", "نتائج أدق حسب نوع سيارتك"),
       },
       {
+        // This line used to read "The whole guide — 48 warning lights,
+        // offline". The guide is a free tab with no entitlement check
+        // anywhere, so selling it was selling something the reader already
+        // has. What the subscription buys is the scanning; the claim is now
+        // about what the scanner will recognise.
         symbol: "benefitGuide",
-        text: L("The whole guide", "دليل كامل"),
-        detail: L("48 warning lights, offline", "دليل واضح لـ48 مصباحاً"),
+        text: L("Every warning light", "كل المصابيح التحذيرية"),
+        detail: L("The rare ones too, not only the familiar", "بما فيها النادرة، لا المألوفة فقط"),
       },
       {
         symbol: "benefitCost",
