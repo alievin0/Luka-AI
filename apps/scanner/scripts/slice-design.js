@@ -28,9 +28,11 @@ const PAGE_H = 1536;
 const PARTS = [
   ["scene", 0, 83, 711, 736],
   ["close", 32, 116, 33, 35],
-  ["card-critical", 48, 333, 211, 235],
+  // The page is right-to-left, so the leftmost of the three grades is the
+  // green one and the rightmost is the red one — not the other way round.
+  ["card-info", 48, 333, 211, 235],
   ["card-warning", 258, 333, 195, 235],
-  ["card-info", 452, 333, 211, 235],
+  ["card-critical", 452, 333, 211, 235],
   ["grade-ok", 96, 384, 115, 84],
   ["grade-caution", 307, 384, 97, 84],
   ["grade-stop", 500, 384, 115, 101],
