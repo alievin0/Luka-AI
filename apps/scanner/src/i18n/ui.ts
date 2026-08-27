@@ -194,6 +194,22 @@ export const ui = {
   tabLibrary: L("Lectures", "المحاضرات"),
   navTasks: L("Tasks", "المهام"),
   tabRecord: L("Record", "سجّل"),
+  tabSearch: L("Search", "بحث"),
+  searchEverything: L("Search your lectures", "دوّر بمحاضراتك"),
+  searchHint: L(
+    "Search what was said, the concepts, the tasks — anything from any lecture.",
+    "دوّر بكلام الدكتور، بالمفاهيم، بالمهام — أي إشي من أي محاضرة.",
+  ),
+  inConcepts: L("Concepts", "مفاهيم"),
+  inTasks: L("Tasks", "مهام"),
+  inTranscript: L("Said in the lecture", "انقال بالمحاضرة"),
+  aboutThisLecture: L("What this lecture was about", "عن شو كانت المحاضرة"),
+  keyConcepts: L("Key concepts", "المفاهيم الأساسية"),
+  importantMomentsTitle: L("Important moments", "اللحظات المهمة"),
+  tasksAndAssignments: L("Tasks & assignments", "المهام والواجبات"),
+  viewAllMoments: L("See all moments", "شوف كل اللحظات"),
+  mentionedAt: L("Mentioned at", "انذكرت بـ"),
+  lectureMap: L("Lecture map", "خريطة المحاضرة"),
 
   // tasks across lectures
   overdue: L("Overdue", "متأخر"),
@@ -414,4 +430,118 @@ export const ui = {
   serverError: L("Something went wrong. Try again.", "صار خطأ أثناء التحليل. جرّب كمان مرة."),
   noImage: L("No image received.", "ما وصلتنا صورة."),
   imageTooLarge: L("That image is too large.", "الصورة كبيرة كتير."),
+
+  // ---- redesign: home, study, states ----------------------------------
+  // Greeting picks the time of day. It is the only place the app addresses
+  // the student by name, so it stays warm and then gets out of the way.
+  goodMorning: L("Good morning", "صباح الخير"),
+  goodAfternoon: L("Good afternoon", "مساء الخير"),
+  goodEvening: L("Good evening", "مساء الخير"),
+  readyToContinue: L(
+    "Ready to pick up where you left off?",
+    "جاهز نكمّل من وين وقفنا؟",
+  ),
+  letsRecord: L(
+    "Record the lecture. Let Mahdar study with you.",
+    "سجّل المحاضرة، وخلّي محضر يذاكر معك.",
+  ),
+  continueLearning: L("Continue learning", "كمّل من وين وقفت"),
+  todayPriorities: L("Today's priorities", "أولويات اليوم"),
+  insights: L("What Mahdar noticed", "شو لاحظ محضر"),
+  percentDone: L("done", "خلصت"),
+
+  // Priorities. Counts come from the student's own data — never a placeholder.
+  tasksDueSoon: L("tasks due soon", "مهام قربت"),
+  taskDueSoon: L("task due soon", "مهمة قربت"),
+  lectureToReview: L("lecture waiting to be reviewed", "محاضرة تنطر مراجعة"),
+  lecturesToReview: L("lectures waiting to be reviewed", "محاضرات تنطر مراجعة"),
+  examSignalsFound: L("exam mentions to go over", "إشارات امتحان تستاهل مراجعة"),
+  nothingUrgent: L("Nothing urgent today.", "ما في شي مستعجل اليوم."),
+
+  // AI Study. Grounded answers only — every claim carries where it came from.
+  aiStudy: L("Ask Mahdar", "اسأل محضر"),
+  askAboutLectures: L("Ask about your lectures", "اسأل عن محاضراتك"),
+  askPlaceholder: L("What did the professor say about…", "شو حكى الدكتور عن…"),
+  foundIn: L("Found in", "لقيناها بـ"),
+  jumpToSource: L("Open the source", "افتح المصدر"),
+  askNeedsLectures: L(
+    "Record a lecture first — Mahdar only answers from what you recorded.",
+    "سجّل محاضرة أول — محضر بجاوب بس من اللي سجّلته.",
+  ),
+  askThinking: L("Reading your lectures…", "عم يقرأ محاضراتك…"),
+  askNoAnswer: L(
+    "Nothing in your lectures covers that yet.",
+    "ما في إشي بمحاضراتك بيحكي عن هاد لهلق.",
+  ),
+  askFailed: L("Couldn't answer that right now. Try again.", "ما قدرنا نجاوب هلق. جرّب كمان مرة."),
+
+  // Task candidates. Extracted, then confirmed — never silently committed.
+  newTaskFound: L("New task found", "لقينا مهمة جديدة"),
+  newTasksFound: L("New tasks found", "لقينا مهام جديدة"),
+  addTask: L("Add task", "ضيفها"),
+  dismissTask: L("Not a task", "مش مهمة"),
+  addedTask: L("Added", "انضافت"),
+  filterAll: L("All", "الكل"),
+  filterDueSoon: L("Due soon", "قربت"),
+  filterDone: L("Completed", "خلصت"),
+  source: L("Source", "المصدر"),
+
+  // Concepts panel.
+  whereItAppeared: L("Where it came up", "وين انذكر"),
+  relatedConcepts: L("Related", "مرتبط فيه"),
+  mentionsCount: L("mentions", "مرات ذكر"),
+
+  // Transcript tools.
+  playFromHere: L("Play from here", "شغّل من هون"),
+  askAboutThis: L("Ask about this", "اسأل عن هاي"),
+  nowPlaying: L("Playing", "عم يشتغل"),
+
+  // Recording lifecycle, named stage by stage rather than as one spinner.
+  mahdarIsListening: L("Mahdar is listening", "محضر عم يسمع"),
+  stepSaved: L("Recording saved", "التسجيل انحفظ"),
+  stepTranscribing: L("Turning speech into text", "عم يحوّل الصوت لنص"),
+  stepMoments: L("Finding the important moments", "عم يلاقي اللحظات المهمة"),
+  stepTasks: L("Listening for assignments", "عم يدوّر على الواجبات"),
+  stepStudyView: L("Building your study view", "عم يجهّز صفحة المذاكرة"),
+  lectureIsReady: L("The lecture is ready.", "المحاضرة جاهزة."),
+
+  // Empty states. The room is quiet, not broken.
+  emptyLecturesTitle: L("Your lecture hall is quiet — for now.", "قاعة محاضراتك هادية… لهلق."),
+  emptyTasksTitle: L("Nothing is waiting for you.", "ما في شي ناطرك."),
+  emptyTasksBody: L(
+    "Assignments your lecturer mentions will land here on their own.",
+    "الواجبات اللي بذكرها الدكتور بتوصل لهون لحالها.",
+  ),
+  emptySearchTitle: L("Search everything you recorded.", "دوّر بكل اللي سجّلته."),
+
+  // Errors that keep the recording safe.
+  savedButOffline: L(
+    "Your lecture is saved. We'll finish processing when you're back online.",
+    "محاضرتك محفوظة. رح نكمّل التحليل لما يرجع النت.",
+  ),
+  savedButAnalysisFailed: L(
+    "The lecture was saved, but the analysis couldn't finish yet.",
+    "المحاضرة انحفظت، بس التحليل ما خلص.",
+  ),
+  retryAnalysis: L("Try analysing again", "جرّب التحليل كمان مرة"),
+
+  // Plan status in the sidebar. Stated once, never sold.
+  planPro: L("Full access", "اشتراك كامل"),
+  planFree: L("Free plan", "الخطة المجانية"),
+  lecturesLeft: L("lectures left", "محاضرات باقية"),
+
+  // Insight sentences. Whole sentences per language rather than fragments
+  // glued around a number — Arabic puts the count somewhere else entirely.
+  insightRepeated: L(
+    "Your lecturer kept coming back to “{term}” across {n} lectures.",
+    "دكتورك رجع لـ«{term}» بـ{n} محاضرات.",
+  ),
+  insightExam: L(
+    "Your lecturer said “{topic}” may come up in the exam.",
+    "دكتورك حكى إنه «{topic}» ممكن ييجي بالامتحان.",
+  ),
+  insightTasks: L(
+    "{n} pieces of work came out of this week's lectures.",
+    "{n} واجبات طلعت من محاضرات هالأسبوع.",
+  ),
 };

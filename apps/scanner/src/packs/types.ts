@@ -220,6 +220,20 @@ export type Lecture = {
   analysis?: LectureAnalysis;
   /** Indices into analysis.tasks the student has ticked off. */
   done?: number[];
+  /** Indices into analysis.tasks the student said were not tasks. Extracted
+   *  work is a suggestion until they accept it, so this is how "no" is kept —
+   *  without it the same wrong task is offered again on every visit. */
+  dismissed?: number[];
+  /** Indices the student has explicitly accepted. Absent means "not yet
+   *  decided", which is what makes a candidate a candidate. */
+  accepted?: number[];
+  /** Seconds into the lecture the student last listened to. This is the whole
+   *  basis of "continue learning": without it there is nowhere to resume to
+   *  and no honest way to draw a progress bar. */
+  playhead?: number;
+  /** When the lecture was last opened (epoch ms). Distinguishes "analysed and
+   *  never looked at" from "read", which is what the review prompt is for. */
+  openedAt?: number;
   /** The on-device writer stopped before the lecture did, so the transcript
    *  it produced is truncated however complete it looks. Forces the accurate
    *  pass rather than summarising the first minutes as the whole hour. */
@@ -264,6 +278,10 @@ export type LectureTask = Provenance & {
 };
 
 export type LectureAnalysis = {
+  /** The lecturer, when they can be identified from the transcript — students
+   *  introduce a recording by who gave it far more readily than by its title.
+   *  Absent when nobody was named; never guessed. */
+  lecturer?: string;
   summary: string;
   keyPoints: string[];
   /** Homework, deadlines and anything the lecturer told students to do. */

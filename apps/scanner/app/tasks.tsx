@@ -1,33 +1,35 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { View, Text, StyleSheet, Pressable, ScrollView } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { LinearGradient } from "expo-linear-gradient";
 import * as Haptics from "expo-haptics";
 import { pack, isAudio } from "../src/packs";
-import { t, locale } from "../src/i18n";
+import { t } from "../src/i18n";
 import { ui } from "../src/i18n/ui";
 import { FONTS, SCALE } from "../src/type";
+import { useLayout } from "../src/layout";
 import {
   GOLD,
-  BLOOM,
-  PANEL_GRADIENT,
-  PANEL_BORDER,
-  HAIRLINE,
+  INK,
   TEXT,
   TEXT_SOFT,
   TEXT_FAINT,
+  HAIRLINE,
   STATE,
   SP,
   RADIUS,
   READ,
-  READ_END,
-  lift,
-  audio as s,
 } from "../src/components/audio-theme";
-import { TabBar, TAB_CLEARANCE } from "../src/components/TabBar";
-import { clock, getLectures, lectureAllowed, updateLecture } from "../src/lectures";
-import { groupTasks, tasksOf, type SourcedTask, type TaskBucket } from "../src/tasks";
+import { Shell, useContentPad } from "../src/components/Shell";
+import { Card, Button, Chip, PageTitle, SectionTitle, Tabs, EmptyState, Meta } from "../src/components/kit";
+import { clock, decideTask, getLectures, updateLecture } from "../src/lectures";
+import {
+  bucketOf,
+  candidatesOf,
+  groupTasks,
+  tasksOf,
+  type SourcedTask,
+  type TaskBucket,
+} from "../src/tasks";
 
 /**
  * Everything the lecturers asked for, in one place.
@@ -36,6 +38,10 @@ import { groupTasks, tasksOf, type SourcedTask, type TaskBucket } from "../src/t
  * What this has that a to-do app cannot is where each item came from: the
  * lecture, the second it was said, and the lecturer's own words. Tapping a
  * task plays that moment back.
+ *
+ * Above the list sit the things nobody has ruled on yet. They are kept
+ * separate on purpose — a suggestion mixed in with accepted work is how a
+ * planning tool quietly stops being trustworthy.
  */
 
 const BUCKET_LABEL: Record<TaskBucket, { text: typeof ui.overdue; state: keyof typeof STATE }> = {
@@ -47,19 +53,41 @@ const BUCKET_LABEL: Record<TaskBucket, { text: typeof ui.overdue; state: keyof t
   done: { text: ui.completed2, state: "done" },
 };
 
+type Filter = "all" | "soon" | "done";
+
+const FILTERS: { key: Filter; label: typeof ui.filterAll }[] = [
+  { key: "all", label: ui.filterAll },
+  { key: "soon", label: ui.filterDueSoon },
+  { key: "done", label: ui.filterDone },
+];
+
+/** Buckets that count as "due soon" — the horizon anyone actually plans on. */
+const SOON: TaskBucket[] = ["overdue", "today", "soon"];
+
 export default function Tasks() {
   const router = useRouter();
+  const layout = useLayout();
+  const pad = useContentPad();
   const [tasks, setTasks] = useState<SourcedTask[]>([]);
+  const [candidates, setCandidates] = useState<SourcedTask[]>([]);
+  const [filter, setFilter] = useState<Filter>("all");
+  const [busyKey, setBusyKey] = useState<string | null>(null);
 
   const load = useCallback(() => {
-    getLectures().then((lectures) => setTasks(tasksOf(lectures)));
+    getLectures().then((lectures) => {
+      setTasks(tasksOf(lectures));
+      setCandidates(candidatesOf(lectures));
+    });
   }, []);
 
-  useFocusEffect(
-    useCallback(() => {
-      load();
-    }, [load]),
-  );
+  useFocusEffect(load);
+
+  const shown = useMemo(() => {
+    if (filter === "done") return tasks.filter((task) => task.done);
+    if (filter === "soon")
+      return tasks.filter((task) => !task.done && SOON.includes(bucketOf(task)));
+    return tasks;
+  }, [tasks, filter]);
 
   if (!isAudio(pack)) return null;
 
@@ -67,9 +95,7 @@ export default function Tasks() {
    *  `done` lives — the list here is a view over the lectures, not a store. */
   const toggle = async (item: SourcedTask) => {
     Haptics.selectionAsync();
-    setTasks((prev) =>
-      prev.map((x) => (x.key === item.key ? { ...x, done: !x.done } : x)),
-    );
+    setTasks((prev) => prev.map((x) => (x.key === item.key ? { ...x, done: !x.done } : x)));
     const lectures = await getLectures();
     const lecture = lectures.find((l) => l.id === item.lectureId);
     if (!lecture) return;
@@ -79,77 +105,134 @@ export default function Tasks() {
     await updateLecture(item.lectureId, { done: [...done] });
   };
 
-  const groups = groupTasks(tasks);
+  const decide = async (item: SourcedTask, keep: boolean) => {
+    setBusyKey(item.key);
+    await decideTask(item.lectureId, item.index, keep);
+    load();
+    setBusyKey(null);
+  };
+
+  const openSource = (item: SourcedTask, tab = "tasks") =>
+    router.push({
+      pathname: "/lecture",
+      params: {
+        id: item.lectureId,
+        // Opening from a task lands on the moment it was set rather than the
+        // top of a ninety-minute lecture.
+        at: item.task.atSeconds ?? "",
+        tab,
+      },
+    });
+
+  const groups = groupTasks(shown);
   const open = tasks.filter((task) => !task.done).length;
 
   return (
-    <View style={s.root}>
-      <LinearGradient colors={BLOOM} locations={[0, 0.4, 1]} style={StyleSheet.absoluteFill} />
+    <Shell>
+      <ScrollView
+        contentContainerStyle={[
+          styles.content,
+          { paddingHorizontal: layout.gutter, paddingBottom: pad },
+        ]}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.head}>
+          <PageTitle>{t(ui.navTasks)}</PageTitle>
+          {tasks.length > 0 ? (
+            <Meta>
+              {open} {t(ui.openTasks)}
+            </Meta>
+          ) : null}
+        </View>
 
-      <SafeAreaView style={s.safe} edges={["top"]}>
-        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-          <View style={styles.head}>
-            <Text style={styles.title}>{t(ui.navTasks)}</Text>
-            {tasks.length > 0 ? (
-              <Text style={styles.headCount}>
-                {open} {t(ui.openTasks)}
-              </Text>
-            ) : null}
-          </View>
-
-          {tasks.length === 0 ? (
-            <View style={[styles.empty, lift]}>
-              <LinearGradient colors={PANEL_GRADIENT} style={StyleSheet.absoluteFill} />
-              <Text style={styles.emptyGlyph}>◪</Text>
-              <Text style={styles.emptyBody}>{t(ui.noTasksYet)}</Text>
+        {candidates.length > 0 ? (
+          <View style={styles.section}>
+            <SectionTitle>
+              {candidates.length === 1 ? t(ui.newTaskFound) : t(ui.newTasksFound)}
+            </SectionTitle>
+            <View style={styles.list}>
+              {candidates.map((item) => (
+                <Card key={item.key} style={styles.candidate}>
+                  <Text style={styles.taskText}>{item.task.text}</Text>
+                  <Pressable
+                    style={styles.sourceRow}
+                    onPress={() => openSource(item, "transcript")}
+                    accessibilityRole="button"
+                  >
+                    <Text style={styles.sourceLabel}>{t(ui.source)}</Text>
+                    <Text style={styles.sourceValue} numberOfLines={1}>
+                      {item.lectureTitle || t(ui.untitledLecture)}
+                    </Text>
+                    {typeof item.task.atSeconds === "number" ? (
+                      <Text style={styles.sourceTime}>{clock(item.task.atSeconds)}</Text>
+                    ) : null}
+                  </Pressable>
+                  <View style={styles.candidateActions}>
+                    <Button
+                      label={t(ui.addTask)}
+                      variant="primary"
+                      size="sm"
+                      busy={busyKey === item.key}
+                      onPress={() => void decide(item, true)}
+                    />
+                    <Button
+                      label={t(ui.dismissTask)}
+                      variant="ghost"
+                      size="sm"
+                      disabled={busyKey === item.key}
+                      onPress={() => void decide(item, false)}
+                    />
+                  </View>
+                </Card>
+              ))}
             </View>
-          ) : (
-            groups.map((group) => (
-              <View key={group.bucket} style={styles.group}>
-                <View style={styles.groupHead}>
-                  <View
-                    style={[
-                      styles.groupDot,
-                      { backgroundColor: STATE[BUCKET_LABEL[group.bucket].state].fg },
-                    ]}
-                  />
-                  <Text style={styles.groupLabel}>{t(BUCKET_LABEL[group.bucket].text)}</Text>
-                  <View style={styles.groupRule} />
-                  <Text style={styles.groupCount}>{group.tasks.length}</Text>
-                </View>
+          </View>
+        ) : null}
 
+        {tasks.length > 0 ? (
+          <Tabs
+            items={FILTERS.map((f) => ({ key: f.key, label: t(f.label) }))}
+            value={filter}
+            onChange={setFilter}
+          />
+        ) : null}
+
+        {tasks.length === 0 ? (
+          candidates.length === 0 ? (
+            <EmptyState glyph="◪" title={t(ui.emptyTasksTitle)} body={t(ui.emptyTasksBody)} />
+          ) : null
+        ) : shown.length === 0 ? (
+          <EmptyState glyph="◪" title={t(ui.emptyTasksTitle)} />
+        ) : (
+          groups.map((group) => (
+            <View key={group.bucket} style={styles.section}>
+              <View style={styles.groupHead}>
+                <View
+                  style={[
+                    styles.groupDot,
+                    { backgroundColor: STATE[BUCKET_LABEL[group.bucket].state].fg },
+                  ]}
+                />
+                <Text style={styles.groupLabel}>{t(BUCKET_LABEL[group.bucket].text)}</Text>
+                <View style={styles.groupRule} />
+                <Text style={styles.groupCount}>{group.tasks.length}</Text>
+              </View>
+
+              <View style={styles.list}>
                 {group.tasks.map((item) => (
                   <TaskCard
                     key={item.key}
                     item={item}
-                    onToggle={() => toggle(item)}
-                    onOpen={() =>
-                      router.push({
-                        pathname: "/lecture",
-                        params: {
-                          id: item.lectureId,
-                          // Opening from a task lands on the moment it was set
-                          // rather than the top of a ninety-minute lecture.
-                          at: item.task.atSeconds ?? "",
-                          tab: "tasks",
-                        },
-                      })
-                    }
+                    onToggle={() => void toggle(item)}
+                    onOpen={() => openSource(item)}
                   />
                 ))}
               </View>
-            ))
-          )}
-        </ScrollView>
-      </SafeAreaView>
-
-      <TabBar
-        onRecord={async () => {
-          if (await lectureAllowed()) router.push("/record");
-          else router.push("/paywall");
-        }}
-      />
-    </View>
+            </View>
+          ))
+        )}
+      </ScrollView>
+    </Shell>
   );
 }
 
@@ -173,21 +256,20 @@ function TaskCard({
   const hasSource = typeof task.atSeconds === "number";
 
   return (
-    <View style={[styles.card, lift, item.done && styles.cardDone]}>
-      <LinearGradient colors={PANEL_GRADIENT} style={StyleSheet.absoluteFill} />
-
+    <Card style={[styles.card, item.done && styles.cardDone]}>
       <View style={styles.cardTop}>
         <Pressable
           onPress={onToggle}
-          hitSlop={10}
+          hitSlop={12}
           accessibilityRole="checkbox"
           accessibilityState={{ checked: item.done }}
+          accessibilityLabel={task.text}
           style={[styles.check, item.done && styles.checkOn]}
         >
           {item.done ? <Text style={styles.checkGlyph}>✓</Text> : null}
         </Pressable>
 
-        <Pressable style={styles.cardBody} onPress={onOpen}>
+        <Pressable style={styles.cardBody} onPress={onOpen} accessibilityRole="button">
           <Text style={[styles.taskText, item.done && styles.taskTextDone]}>{task.text}</Text>
 
           <View style={styles.metaRow}>
@@ -210,22 +292,17 @@ function TaskCard({
         </Pressable>
 
         {task.difficulty ? (
-          <View style={s.tag}>
-            <Text style={s.tagText}>
-              {t(
-                task.difficulty === "easy"
-                  ? ui.easy
-                  : task.difficulty === "hard"
-                    ? ui.hard
-                    : ui.medium,
-              )}
-            </Text>
-          </View>
+          <Chip
+            label={t(
+              task.difficulty === "easy" ? ui.easy : task.difficulty === "hard" ? ui.hard : ui.medium,
+            )}
+            gold
+          />
         ) : null}
       </View>
 
       {task.quote ? (
-        <Pressable style={styles.quote} onPress={onOpen}>
+        <Pressable style={styles.quote} onPress={onOpen} accessibilityRole="button">
           <View style={styles.quoteBar} />
           <View style={styles.quoteBody}>
             <Text style={styles.quoteText}>“{task.quote}”</Text>
@@ -237,113 +314,94 @@ function TaskCard({
           </View>
         </Pressable>
       ) : hasSource ? (
-        <Pressable style={styles.jump} onPress={onOpen}>
+        <Pressable style={styles.jump} onPress={onOpen} accessibilityRole="button">
           <Text style={styles.jumpText}>
-            ▶ {t(ui.jumpToMoment)} · {clock(task.atSeconds!)}
+            ▶ {t(ui.mentionedAt)} {clock(task.atSeconds!)}
           </Text>
         </Pressable>
       ) : null}
-    </View>
+    </Card>
   );
 }
 
 const styles = StyleSheet.create({
-  content: {
-    paddingHorizontal: SP.xl,
-    paddingTop: SP.md,
-    paddingBottom: TAB_CLEARANCE + SP.xl,
-  },
+  content: { paddingTop: SP.md, gap: SP.xl },
+  head: { flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", gap: SP.md },
 
-  head: { flexDirection: "row", alignItems: "baseline", gap: SP.md, marginBottom: SP.xl },
-  title: { color: TEXT, fontSize: SCALE.title, fontFamily: FONTS.display, textAlign: READ },
-  headCount: { color: TEXT_FAINT, fontSize: SCALE.label, fontFamily: FONTS.body },
+  section: { gap: SP.md },
+  list: { gap: SP.md },
 
-  group: { marginBottom: SP.xxl, gap: SP.md },
   groupHead: { flexDirection: "row", alignItems: "center", gap: SP.sm },
-  groupDot: { width: 6, height: 6, borderRadius: 3 },
-  groupLabel: {
-    color: TEXT_SOFT,
-    fontSize: SCALE.label,
-    fontFamily: FONTS.bodyMedium,
-    letterSpacing: 0.4,
-  },
+  groupDot: { width: 7, height: 7, borderRadius: 4 },
+  groupLabel: { color: TEXT_SOFT, fontSize: SCALE.label, fontFamily: FONTS.bodyMedium },
   groupRule: { flex: 1, height: 1, backgroundColor: HAIRLINE },
-  groupCount: { color: TEXT_FAINT, fontSize: SCALE.micro, fontFamily: FONTS.bodyMedium },
+  groupCount: { color: TEXT_FAINT, fontSize: SCALE.micro, fontFamily: FONTS.body },
 
-  card: {
-    borderWidth: 1,
-    borderColor: PANEL_BORDER,
-    borderRadius: RADIUS.lg,
-    padding: SP.lg,
-    gap: SP.md,
-    overflow: "hidden",
-  },
+  card: { gap: SP.md, padding: SP.lg },
   cardDone: { opacity: 0.55 },
   cardTop: { flexDirection: "row", alignItems: "flex-start", gap: SP.md },
+  cardBody: { flex: 1, gap: SP.xs },
 
   check: {
     width: 22,
     height: 22,
     borderRadius: 7,
     borderWidth: 1.5,
-    borderColor: "#443C29",
+    borderColor: "#3B3324",
     alignItems: "center",
     justifyContent: "center",
     marginTop: 2,
   },
   checkOn: { backgroundColor: GOLD, borderColor: GOLD },
-  checkGlyph: { color: "#17130A", fontSize: 12, fontFamily: FONTS.displayBold },
+  checkGlyph: { color: INK, fontSize: 13, fontFamily: FONTS.displayBold },
 
-  cardBody: { flex: 1, gap: 5 },
   taskText: {
     color: TEXT,
-    fontSize: SCALE.body + 1,
+    fontSize: SCALE.body,
     lineHeight: SCALE.bodyLine,
-    fontFamily: FONTS.bodyMedium,
+    fontFamily: FONTS.body,
     textAlign: READ,
   },
   taskTextDone: { color: TEXT_FAINT, textDecorationLine: "line-through" },
 
-  metaRow: { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" },
-  source: { color: TEXT_FAINT, fontSize: SCALE.micro, fontFamily: FONTS.body, flexShrink: 1 },
-  metaDot: { color: "#3F3928", fontSize: SCALE.micro },
-  due: { color: STATE.urgent.fg, fontSize: SCALE.micro, fontFamily: FONTS.bodyMedium },
+  metaRow: { flexDirection: "row", alignItems: "center", gap: SP.sm, flexWrap: "wrap" },
+  source: { color: TEXT_FAINT, fontSize: SCALE.micro, fontFamily: FONTS.body },
+  metaDot: { color: TEXT_FAINT, fontSize: SCALE.micro },
+  due: { color: GOLD, fontSize: SCALE.micro, fontFamily: FONTS.bodyMedium },
   inferredNote: { color: STATE.inferred.fg, fontSize: SCALE.micro, fontFamily: FONTS.body },
 
-  /* The lecturer's own words. Verified against the transcript upstream, so
-     what is shown here was genuinely said. */
   quote: { flexDirection: "row", gap: SP.md, alignItems: "stretch" },
   quoteBar: { width: 2, borderRadius: 1, backgroundColor: STATE.stated.line },
-  quoteBody: { flex: 1, gap: 4 },
+  quoteBody: { flex: 1, gap: 3 },
   quoteText: {
     color: TEXT_SOFT,
     fontSize: SCALE.label,
-    lineHeight: SCALE.labelLine + 4,
-    fontFamily: FONTS.scriptItalic,
+    lineHeight: SCALE.labelLine + 5,
+    fontFamily: FONTS.body,
+    fontStyle: "italic",
     textAlign: READ,
   },
-  quoteMeta: { color: STATE.stated.fg, fontSize: SCALE.micro, fontFamily: FONTS.bodyMedium, textAlign: READ },
+  quoteMeta: { color: GOLD, fontSize: SCALE.micro, fontFamily: FONTS.bodyMedium, textAlign: READ },
 
-  jump: { alignSelf: READ_END },
-  jumpText: { color: GOLD, fontSize: SCALE.micro, fontFamily: FONTS.bodyMedium },
+  jump: { paddingTop: 2 },
+  jumpText: { color: GOLD, fontSize: SCALE.micro, fontFamily: FONTS.bodyMedium, textAlign: READ },
 
-  empty: {
-    borderWidth: 1,
-    borderColor: PANEL_BORDER,
-    borderRadius: RADIUS.xl,
-    paddingVertical: 44,
-    paddingHorizontal: SP.xl,
+  candidate: { gap: SP.md, padding: SP.lg },
+  candidateActions: { flexDirection: "row", gap: SP.sm },
+  sourceRow: {
+    flexDirection: "row",
     alignItems: "center",
-    gap: SP.lg,
-    overflow: "hidden",
+    gap: SP.sm,
+    borderTopWidth: 1,
+    borderTopColor: HAIRLINE,
+    paddingTop: SP.md,
   },
-  emptyGlyph: { color: "#3A3426", fontSize: 34 },
-  emptyBody: {
-    color: TEXT_FAINT,
-    fontSize: SCALE.label,
-    lineHeight: SCALE.labelLine + 6,
-    textAlign: "center",
-    fontFamily: FONTS.body,
-    maxWidth: 280,
+  sourceLabel: { color: TEXT_FAINT, fontSize: SCALE.micro, fontFamily: FONTS.body },
+  sourceValue: { flex: 1, color: TEXT_SOFT, fontSize: SCALE.micro, fontFamily: FONTS.body },
+  sourceTime: {
+    color: GOLD,
+    fontSize: SCALE.micro,
+    fontFamily: FONTS.bodyMedium,
+    fontVariant: ["tabular-nums"],
   },
 });

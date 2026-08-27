@@ -122,8 +122,13 @@ export default function Analyzing() {
           title: lecture.title || title || t(ui.untitledLecture),
           // done[] holds indices into the previous task list. A re-analysis
           // returns a different list, so keeping them would tick off whatever
-          // now sits at those positions — unrelated tasks, silently.
+          // now sits at those positions — unrelated tasks, silently. The same
+          // reasoning retires the student's earlier accept/dismiss decisions.
           done: [],
+          // Extracted work starts as a suggestion. An empty list is what makes
+          // these candidates rather than tasks nobody agreed to.
+          accepted: [],
+          dismissed: [],
           status: "ready",
           error: undefined,
         });

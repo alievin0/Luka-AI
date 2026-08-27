@@ -48,24 +48,76 @@ export function bucketOf(task: SourcedTask, now = Date.now()): TaskBucket {
   return "later";
 }
 
-/** Flattens every lecture's tasks into one list, newest lecture first. */
+/**
+ * Whether a lecture's extracted work has been put to the student yet.
+ *
+ * Lectures analysed before task confirmation existed have no `accepted` list
+ * at all. Those are legacy: everything in them was already showing as a real
+ * task, and quietly demoting a semester of work back to "unconfirmed" would
+ * be the app losing the student's data in front of them. So absent means
+ * "already accepted", and only lectures that went through the new flow — which
+ * writes an empty list — have candidates.
+ */
+const decided = (lecture: Lecture) => lecture.accepted;
+
+const sourced = (lecture: Lecture, task: LectureTask, index: number, done: Set<number>): SourcedTask => {
+  const parsed = task.dueISO ? Date.parse(task.dueISO) : NaN;
+  return {
+    key: `${lecture.id}:${index}`,
+    task,
+    index,
+    lectureId: lecture.id,
+    lectureTitle: lecture.title,
+    lectureAt: lecture.at,
+    done: done.has(index),
+    due: Number.isFinite(parsed) ? parsed : null,
+  };
+};
+
+/**
+ * Every confirmed task, newest lecture first.
+ *
+ * Confirmed means the student either accepted it or it predates the
+ * confirmation step. Anything they said was not a task is gone from here for
+ * good — being asked twice about the same wrong sentence is worse than not
+ * being asked at all.
+ */
 export function tasksOf(lectures: Lecture[]): SourcedTask[] {
   const out: SourcedTask[] = [];
 
   for (const lecture of lectures) {
     const done = new Set(lecture.done ?? []);
+    const dismissed = new Set(lecture.dismissed ?? []);
+    const accepted = decided(lecture);
     (lecture.analysis?.tasks ?? []).forEach((task, index) => {
-      const parsed = task.dueISO ? Date.parse(task.dueISO) : NaN;
-      out.push({
-        key: `${lecture.id}:${index}`,
-        task,
-        index,
-        lectureId: lecture.id,
-        lectureTitle: lecture.title,
-        lectureAt: lecture.at,
-        done: done.has(index),
-        due: Number.isFinite(parsed) ? parsed : null,
-      });
+      if (dismissed.has(index)) return;
+      if (accepted !== undefined && !accepted.includes(index)) return;
+      out.push(sourced(lecture, task, index, done));
+    });
+  }
+
+  return out;
+}
+
+/**
+ * Work the lecturer mentioned that the student has not ruled on yet.
+ *
+ * These are offered, not imposed. "Solve chapter four" said as an aside in a
+ * digression is not an assignment, and a to-do list that fills itself with
+ * things nobody agreed to is one a student stops trusting — and then stops
+ * reading.
+ */
+export function candidatesOf(lectures: Lecture[]): SourcedTask[] {
+  const out: SourcedTask[] = [];
+
+  for (const lecture of lectures) {
+    const accepted = decided(lecture);
+    if (accepted === undefined) continue;
+    const dismissed = new Set(lecture.dismissed ?? []);
+    const done = new Set(lecture.done ?? []);
+    (lecture.analysis?.tasks ?? []).forEach((task, index) => {
+      if (dismissed.has(index) || accepted.includes(index)) return;
+      out.push(sourced(lecture, task, index, done));
     });
   }
 

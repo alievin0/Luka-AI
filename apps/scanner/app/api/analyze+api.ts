@@ -32,6 +32,7 @@ const ANALYSIS_SCHEMA = {
   ],
   properties: {
     title: { type: "string" },
+    lecturer: { type: "string" },
     summary: { type: "string" },
     keyPoints: { type: "array", items: { type: "string" } },
     tasks: {
@@ -242,6 +243,8 @@ MOMENTS THE LECTURER'S VOICE ROSE ABOVE THEIR OWN BASELINE, or that the student 
 ${emphasis || "(none detected — the lecture was delivered at an even volume)"}
 
 ---
+
+Set "lecturer" to the name of the person giving the lecture if it is said or clearly addressed in the transcript ("Dr. Ahmed Khaled", "Professor Smith"). Leave it out entirely if nobody is named — a wrong name on a student's lecture is worse than none.
 
 Also give the lecture a short title naming what it was actually about, in the student's language. And give "confidence": how much of this transcript you could genuinely rely on, 0–100 — low when the text is garbled, sparse, or clearly missing stretches of the lecture. "chapters" is the lecture broken into its parts in order, each anchored to the timestamp where that part began.
 

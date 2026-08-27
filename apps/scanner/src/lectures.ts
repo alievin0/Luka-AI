@@ -66,6 +66,57 @@ export async function updateLecture(id: string, patch: Partial<Lecture>) {
   return write(lectures);
 }
 
+/**
+ * Remember where the student stopped listening.
+ *
+ * Written on pause and on leaving the screen rather than on every tick: a
+ * write per second would hammer AsyncStorage for a number nobody reads until
+ * the next visit. Very early positions are ignored, because "resume at four
+ * seconds" is not resuming, it is starting over with extra steps.
+ */
+export async function savePlayhead(id: string, seconds: number) {
+  if (!Number.isFinite(seconds) || seconds < 10) return;
+  await updateLecture(id, { playhead: Math.floor(seconds) });
+}
+
+/**
+ * Record the student's answer on an extracted task.
+ *
+ * Both lists are written together because they are one decision with two
+ * outcomes, and an index that ended up in both would be a task that is
+ * simultaneously accepted and refused.
+ */
+export async function decideTask(id: string, index: number, keep: boolean) {
+  const lecture = await getLecture(id);
+  if (!lecture) return;
+  const accepted = new Set(lecture.accepted ?? []);
+  const dismissed = new Set(lecture.dismissed ?? []);
+  if (keep) {
+    accepted.add(index);
+    dismissed.delete(index);
+  } else {
+    dismissed.add(index);
+    accepted.delete(index);
+  }
+  await updateLecture(id, { accepted: [...accepted], dismissed: [...dismissed] });
+}
+
+/** How far through the lecture the student has listened, 0–1. */
+export function listenedFraction(lecture: Lecture): number {
+  if (!lecture.duration || !lecture.playhead) return 0;
+  return Math.max(0, Math.min(1, lecture.playhead / lecture.duration));
+}
+
+/**
+ * A lecture that has been analysed but never opened.
+ *
+ * This is the one the home screen offers for review, and the definition is
+ * deliberately strict — "you haven't read this yet" is only useful if it is
+ * literally true.
+ */
+export const awaitingReview = (lecture: Lecture) =>
+  lecture.status === "ready" && !lecture.openedAt;
+
 export async function deleteLecture(id: string) {
   return write((await getLectures()).filter((l) => l.id !== id));
 }
@@ -242,6 +293,51 @@ export function mergeTranscript(incoming: Segment[], recorded: Segment[]): Segme
   }
 
   return merged;
+}
+
+/**
+ * The shape of the lecture, as a fixed number of bars.
+ *
+ * This is a picture of the recording rather than decoration: each bar is the
+ * loudest thing said in its slice of the hour, normalised against the quiet
+ * and loud ends of that same lecture. A hall recorded from the back row and
+ * one recorded from the front row both come out legible, because the scale is
+ * per-lecture rather than absolute.
+ *
+ * Returns an empty array when there is nothing measured to draw — a strip of
+ * identical stubs would be a picture of nothing, pretending to be data.
+ */
+export function waveformOf(segments: Segment[], buckets = 48): number[] {
+  const measured = segments.filter(
+    (s) =>
+      typeof s.energy === "number" &&
+      Number.isFinite(s.energy) &&
+      s.energy < CLIPPING_DBFS &&
+      s.energy > ANDROID_FLOOR_DBFS,
+  );
+  if (measured.length < 4) return [];
+
+  const span = segments[segments.length - 1]!.at - segments[0]!.at;
+  if (span <= 0) return [];
+  const start = segments[0]!.at;
+
+  const peaks = new Array<number>(buckets).fill(-Infinity);
+  for (const segment of measured) {
+    const slot = Math.min(buckets - 1, Math.floor(((segment.at - start) / span) * buckets));
+    peaks[slot] = Math.max(peaks[slot]!, segment.energy!);
+  }
+
+  const heard = peaks.filter((p) => p > -Infinity);
+  const low = Math.min(...heard);
+  const high = Math.max(...heard);
+  const range = high - low;
+  // A lecture delivered at one unvarying level has no shape to show. A flat
+  // mid-height strip says "recorded" without claiming a dynamic it never had.
+  if (range < 3) return peaks.map(() => 0.42);
+
+  return peaks.map((peak) =>
+    peak === -Infinity ? 0.06 : Math.max(0.06, Math.min(1, (peak - low) / range)),
+  );
 }
 
 /** The moments worth handing the model: what the student marked by hand,

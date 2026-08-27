@@ -29,9 +29,10 @@ export function TabBar({ onRecord }: { onRecord: () => void }) {
   const insets = useSafeAreaInsets();
 
   const tabs: Tab[] = [
-    { path: "/", label: t(ui.tabHome), glyph: "◈" },
-    { path: "/lectures", label: t(ui.tabLibrary), glyph: "◫" },
-    { path: "/tasks", label: t(ui.navTasks), glyph: "◪" },
+    { path: "/", label: t(ui.tabHome), glyph: "⌂" },
+    { path: "/lectures", label: t(ui.tabLibrary), glyph: "▤" },
+    { path: "/tasks", label: t(ui.navTasks), glyph: "☑" },
+    { path: "/search", label: t(ui.tabSearch), glyph: "⌕" },
   ];
 
   const left = tabs.slice(0, 2);
@@ -83,11 +84,8 @@ export function TabBar({ onRecord }: { onRecord: () => void }) {
             end={{ x: 0.8, y: 1 }}
             style={styles.record}
           >
-            <View style={styles.recordDot} />
+            <Text style={styles.recordGlyph}>🎙</Text>
           </LinearGradient>
-          <Text style={styles.recordLabel} numberOfLines={1}>
-            {t(ui.tabRecord)}
-          </Text>
         </Pressable>
 
         {right.map(item)}
@@ -116,15 +114,14 @@ const styles = StyleSheet.create({
   pip: { width: 4, height: 4, borderRadius: 2, backgroundColor: "transparent", marginTop: 1 },
   pipActive: { backgroundColor: GOLD },
 
-  recordWrap: { alignItems: "center", gap: 5, flex: 1, marginBottom: 2 },
+  recordWrap: { alignItems: "center", flex: 1, marginBottom: 6 },
   record: {
-    width: 54,
-    height: 54,
+    width: 58,
+    height: 58,
     borderRadius: RADIUS.pill,
     alignItems: "center",
     justifyContent: "center",
     ...glow(GOLD, 18, 0.3),
   },
-  recordDot: { width: 13, height: 13, borderRadius: 7, backgroundColor: "#8C2F22" },
-  recordLabel: { color: "#C7BB9C", fontSize: SCALE.micro, fontFamily: FONTS.bodyMedium },
+  recordGlyph: { fontSize: 23 },
 });

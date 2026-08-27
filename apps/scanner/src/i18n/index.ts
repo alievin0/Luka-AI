@@ -72,3 +72,16 @@ export const t = (text: Text): string => text[locale] || text.en;
 
 /** Pick a value by locale without building a Text pair. */
 export const pick = <T,>(en: T, ar: T): T => (locale === "ar" ? ar : en);
+
+/**
+ * Fill a placeholder string: fill(ui.dueIn, { n: 3 }).
+ *
+ * Sentences that stitch a number between two translated fragments read fine
+ * in English and fall apart in Arabic, where the number's position in the
+ * sentence is different. A whole templated sentence per language keeps that
+ * decision with the translator instead of in the layout code.
+ */
+export const fill = (text: Text, values: Record<string, string | number>): string =>
+  t(text).replace(/\{(\w+)\}/g, (_, key: string) =>
+    key in values ? String(values[key]) : `{${key}}`,
+  );

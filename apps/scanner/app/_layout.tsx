@@ -99,6 +99,8 @@ export default function RootLayout() {
         <Stack.Screen name="lecture" options={{ headerShown: false }} />
         <Stack.Screen name="lectures" options={{ headerShown: false }} />
         <Stack.Screen name="tasks" options={{ headerShown: false }} />
+        <Stack.Screen name="search" options={{ headerShown: false }} />
+        <Stack.Screen name="study" options={{ headerShown: false }} />
         <Stack.Screen name="paste" options={{ headerShown: false }} />
       </Stack>
     </SafeAreaProvider>
