@@ -73,6 +73,10 @@ export default function LectureScreen() {
   const status = useAudioPlayerStatus(player);
 
   const analysis = lecture?.analysis;
+  /** Scored once per render rather than per row: the rolling baseline is a
+   *  windowed pass over every segment, so calling it inside map() would make
+   *  rendering an hour-long transcript quadratic. */
+  const scored = useMemo(() => scoreEnergy(lecture?.segments ?? []), [lecture?.segments]);
   const done = useMemo(() => new Set(lecture?.done ?? []), [lecture?.done]);
 
   const toggleTask = async (index: number) => {
@@ -422,16 +426,16 @@ export default function LectureScreen() {
             ) : null}
 
             {tab === "transcript" ? (
-              scoreEnergy(lecture.segments).length === 0 ? (
+              scored.length === 0 ? (
                 <Text style={styles.empty}>{transcriptOfSegments(lecture.segments)}</Text>
               ) : (
-                scoreEnergy(lecture.segments).map((segment, index) => (
+                scored.map((segment, index) => (
                   <Pressable key={index} style={styles.line} onPress={() => seek(segment.at)}>
                     <Text style={styles.lineStamp}>{clock(segment.at)}</Text>
                     <Text
                       style={[
                         styles.lineText,
-                        (segment.energy ?? 0) >= 0.6 && styles.lineLoud,
+                        segment.emphasis >= 0.5 && styles.lineLoud,
                         segment.marked && styles.lineMarked,
                       ]}
                     >

@@ -8,7 +8,8 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "typecheck": "tsc --noEmit",
-    "deploy:api": "eas deploy"
+    "deploy:api": "eas deploy",
+    "check:emphasis": "node scripts/check-emphasis.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.109.1",

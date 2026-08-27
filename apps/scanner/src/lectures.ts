@@ -104,6 +104,13 @@ const median = (values: number[]) => {
   return sorted[Math.floor(sorted.length / 2)];
 };
 
+/** A segment with its emphasis worked out. `energy` stays the raw dBFS
+ *  measurement; `emphasis` is the derived 0–1 score. Keeping them in separate
+ *  fields is what makes scoring twice harmless instead of silently destructive
+ *  — a 0–1 value fed back through the dBFS filters reads as clipping and
+ *  zeroes the whole lecture. */
+export type ScoredSegment = Segment & { emphasis: number };
+
 /**
  * Scores how far each segment rose above the lecturer's own voice.
  *
@@ -116,7 +123,7 @@ const median = (values: number[]) => {
  * Runs on the device over metering we already collect, so the feature that
  * makes the app worth paying for costs nothing per lecture.
  */
-export function scoreEnergy(segments: Segment[]): Segment[] {
+export function scoreEnergy(segments: Segment[]): ScoredSegment[] {
   const usable = segments.filter(
     (s) =>
       typeof s.energy === "number" &&
@@ -124,12 +131,12 @@ export function scoreEnergy(segments: Segment[]): Segment[] {
       s.energy < CLIPPING_DBFS &&
       s.energy > ANDROID_FLOOR_DBFS,
   );
-  if (usable.length < 6) return segments.map((s) => ({ ...s, energy: 0 }));
+  if (usable.length < 6) return segments.map((s) => ({ ...s, emphasis: 0 }));
 
   const overall = median(usable.map((s) => s.energy!));
   // Speech only. Pauses would otherwise define the baseline.
   const speech = usable.filter((s) => s.energy! > overall - SILENCE_GATE_DB);
-  if (speech.length < 4) return segments.map((s) => ({ ...s, energy: 0 }));
+  if (speech.length < 4) return segments.map((s) => ({ ...s, emphasis: 0 }));
 
   return segments.map((segment) => {
     const energy = segment.energy;
@@ -139,7 +146,7 @@ export function scoreEnergy(segments: Segment[]): Segment[] {
       energy >= CLIPPING_DBFS ||
       energy <= ANDROID_FLOOR_DBFS
     ) {
-      return { ...segment, energy: 0 };
+      return { ...segment, emphasis: 0 };
     }
 
     const nearby = speech.filter(
@@ -151,8 +158,8 @@ export function scoreEnergy(segments: Segment[]): Segment[] {
     // Below the threshold is ordinary delivery; the top of the scale is
     // reached at roughly twice the threshold, which in practice is a lecturer
     // who is genuinely raising their voice rather than merely audible.
-    if (rise <= RAISE_DB) return { ...segment, energy: 0 };
-    return { ...segment, energy: Math.max(0, Math.min(1, (rise - RAISE_DB) / RAISE_DB)) };
+    if (rise <= RAISE_DB) return { ...segment, emphasis: 0 };
+    return { ...segment, emphasis: Math.max(0, Math.min(1, (rise - RAISE_DB) / RAISE_DB)) };
   });
 }
 
@@ -162,8 +169,8 @@ export function emphasisCandidates(segments: Segment[], limit = 24) {
   const scored = scoreEnergy(segments);
   const marked = scored.filter((s) => s.marked);
   const loud = scored
-    .filter((s) => !s.marked && (s.energy ?? 0) >= 0.5)
-    .sort((a, b) => (b.energy ?? 0) - (a.energy ?? 0))
+    .filter((s) => !s.marked && s.emphasis >= 0.5)
+    .sort((a, b) => b.emphasis - a.emphasis)
     .slice(0, Math.max(0, limit - marked.length));
 
   return [...marked, ...loud].sort((a, b) => a.at - b.at);

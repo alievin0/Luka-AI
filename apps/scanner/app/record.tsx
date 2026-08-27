@@ -293,7 +293,10 @@ export default function Record() {
       at: startedAtRef.current,
       duration: seconds,
       audioUri: uri,
-      segments: scoreEnergy(finished.filter((seg) => seg.text.trim() || seg.marked)),
+      // Raw dBFS goes to storage. Scoring here would write a 0–1 value into
+      // the same field the scorer later reads as dBFS, and every later pass
+      // would read those as clipping and zero the whole lecture.
+      segments: finished.filter((seg) => seg.text.trim() || seg.marked),
       status: "processing",
     });
 
@@ -302,7 +305,7 @@ export default function Record() {
 
   const marked = scoreEnergy(segments)
     .map((seg, index) => ({ seg, index }))
-    .filter(({ seg }) => seg.marked || (seg.energy ?? 0) >= 0.6);
+    .filter(({ seg }) => seg.marked || seg.emphasis >= 0.5);
 
   const transcript = (
     <ScrollView

@@ -1,0 +1,101 @@
+/**
+ * Regression check for the emphasis scorer — the one piece of logic the whole
+ * product rests on, and the one with no visible failure mode: if it silently
+ * returns nothing, the app still runs, still transcribes, still summarises,
+ * and quietly stops doing the thing people subscribed for.
+ *
+ * Run: node scripts/check-emphasis.js
+ */
+const Module = require("module");
+const fs = require("fs");
+const path = require("path");
+
+const ROOT = path.join(__dirname, "..");
+const ts = require(path.join(ROOT, "node_modules/typescript"));
+
+// lectures.ts imports two native modules that can't load outside the app.
+const STUBS = {
+  "react-native": { Platform: { OS: "ios" } },
+  "@react-native-async-storage/async-storage": { default: {} },
+};
+const originalLoad = Module._load;
+const originalResolve = Module._resolveFilename;
+const isPack = (r) => r === "./packs" || r === "../packs";
+Module._resolveFilename = function (request, ...rest) {
+  if (STUBS[request] || isPack(request)) return "stub:" + request;
+  return originalResolve.call(this, request, ...rest);
+};
+Module._load = function (request, ...rest) {
+  if (STUBS[request]) return STUBS[request];
+  if (isPack(request)) return {};
+  return originalLoad.call(this, request, ...rest);
+};
+require.extensions[".ts"] = (mod, filename) => {
+  const { outputText } = ts.transpileModule(fs.readFileSync(filename, "utf8"), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
+  });
+  mod._compile(outputText, filename);
+};
+
+const { scoreEnergy, emphasisCandidates } = require(path.join(ROOT, "src/lectures.ts"));
+
+let failures = 0;
+const check = (label, actual, expected) => {
+  const ok = JSON.stringify(actual) === JSON.stringify(expected);
+  if (!ok) failures += 1;
+  console.log(`${ok ? "ok  " : "FAIL"} ${label}${ok ? "" : `\n       expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`}`);
+};
+
+/** An even lecture around -30 dBFS with three genuinely raised passages, one
+ *  knock against the phone that clips, and one stretch at the silence floor. */
+function lecture() {
+  const BASE = -30;
+  const RAISED = [8, 20, 33];
+  const segments = [];
+  for (let i = 0; i < 40; i += 1) {
+    let energy = BASE + (i % 5) - 2;
+    if (RAISED.includes(i)) energy = BASE + 11;
+    if (i === 14) energy = -0.5;
+    if (i === 25) energy = -160;
+    segments.push({ at: i * 12, text: `line ${i}`, energy });
+  }
+  segments[5].marked = true;
+  return segments;
+}
+
+const segments = lecture();
+const scored = scoreEnergy(segments);
+const raisedAt = (list) => list.filter((s) => s.emphasis >= 0.5).map((s) => s.at / 12);
+
+check("detects the passages the lecturer raised their voice on", raisedAt(scored), [8, 20, 33]);
+check("rejects a clipping knock as handling noise", scored[14].emphasis, 0);
+check("rejects the Android silence floor", scored[25].emphasis, 0);
+check("leaves the raw dBFS measurement untouched", scored[8].energy, -19);
+check("carries the hand-marked flag through", scored[5].marked, true);
+
+// Scoring is a read-time derivation, so applying it twice must be identical.
+// When the 0-1 score was written back over `energy`, the second pass read
+// those values as clipping and zeroed every emphasis in the lecture.
+check("is idempotent across a storage round-trip", raisedAt(scoreEnergy(scored)), [8, 20, 33]);
+
+check(
+  "hands the model the marked moment plus the raised ones",
+  emphasisCandidates(segments).map((c) => c.at),
+  [60, 96, 240, 396],
+);
+
+// A lecture delivered at one flat volume has nothing to report, and saying so
+// is more useful than stretching noise into a ranking.
+check(
+  "reports nothing when delivery is flat",
+  raisedAt(scoreEnergy(Array.from({ length: 40 }, (_, i) => ({ at: i * 12, text: "x", energy: -30 })))),
+  [],
+);
+check(
+  "reports nothing when there is too little to judge",
+  scoreEnergy([{ at: 0, text: "a", energy: -30 }, { at: 5, text: "b", energy: -12 }]).map((s) => s.emphasis),
+  [0, 0],
+);
+
+console.log(failures === 0 ? "\nAll emphasis checks passed." : `\n${failures} check(s) failed.`);
+process.exit(failures === 0 ? 0 : 1);

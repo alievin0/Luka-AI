@@ -170,7 +170,9 @@ export type Segment = {
   /** Seconds from the start of the lecture. */
   at: number;
   text: string;
-  /** Loudness against this speaker's own baseline, 0–1. Drives "النبرة". */
+  /** Loudness exactly as the recorder reported it, in dBFS (-160 silent,
+   *  0 clipping). Always the raw measurement — the 0–1 emphasis score is
+   *  derived at read time by `scoreEnergy`, never stored back over this. */
   energy?: number;
   /** The student pressed "mark this important" while this was being said. */
   marked?: boolean;
