@@ -405,7 +405,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 16,
     minHeight: 72,
-    backgroundColor: SURFACE,
+    /* No fill. The reference gives the plans an outline and nothing behind
+       it — the ground shows through, and the amber border on the selected
+       one is then the only thing filling anything in. */
+    backgroundColor: "transparent",
     borderRadius: 24,
     borderWidth: 1.5,
     borderColor: BORDER,
