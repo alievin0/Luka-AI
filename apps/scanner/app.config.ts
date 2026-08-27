@@ -9,13 +9,24 @@ import type { ExpoConfig } from "expo/config";
  * listings on the stores while sharing every screen and the scan API.
  */
 /**
- * The permission strings are the one place in these apps where a string is
- * baked into the build in a single language: iOS reads them from Info.plist
- * before any JavaScript runs, so there is no locale to resolve against. Each
- * variant is written in the language its users are expected to read — which
- * is why Dash Light's camera line is Arabic and its photos line is English,
- * a mismatch that a real localised Info.plist would settle.
+ * The permission strings do not live here.
+ *
+ * iOS reads them from Info.plist before any JavaScript runs, so `t()` cannot
+ * reach them — which is how Dash Light came to ship an Arabic camera line
+ * beside an English photos line, one of them wrong for whoever was reading.
+ * They live in `locales/<variant>/{en,ar}.json` instead, which Expo compiles
+ * into `en.lproj/InfoPlist.strings` and `ar.lproj/InfoPlist.strings` at
+ * prebuild. The English file is also read below as the base Info.plist, which
+ * is what a device set to neither language sees.
+ *
+ * CFBundleDisplayName is in there too, so the icon on an Arabic phone is
+ * labelled in Arabic. It is the home-screen label and iOS truncates it around
+ * a dozen characters, so it is deliberately shorter than the store name: the
+ * listing can say مصابيح السيارة where the icon says المصابيح.
  */
+const strings = (variant: string, lang: "en" | "ar"): Record<string, string> =>
+  require(`./locales/${variant}/${lang}.json`);
+
 const VARIANTS = {
   dashlight: {
     name: "Dash Light Scanner",
@@ -23,9 +34,6 @@ const VARIANTS = {
     bundleId: "com.dashlight.scanner",
     accent: "#F2A33C",
     splashBg: "#14171F",
-    cameraPermission:
-      "نحتاج الكاميرا لتصوير لوحة القيادة والتعرّف على المصباح التحذيري.",
-    photosPermission: "We need photo access so you can pick a dashboard photo.",
   },
   goldscan: {
     name: "Gold Hallmark Scanner",
@@ -33,8 +41,6 @@ const VARIANTS = {
     bundleId: "com.goldscan.hallmark",
     accent: "#D9A441",
     splashBg: "#1A1509",
-    cameraPermission: "We need the camera to photograph the hallmark stamped on your gold.",
-    photosPermission: "We need photo access so you can pick a photo of the piece.",
   },
   womensfit: {
     name: "Home Workouts",
@@ -42,8 +48,6 @@ const VARIANTS = {
     bundleId: "com.womensfit.home",
     accent: "#C9738F",
     splashBg: "#171014",
-    cameraPermission: "Not used by this app.",
-    photosPermission: "Not used by this app.",
   },
   dogtrain: {
     name: "Dog Training",
@@ -51,8 +55,6 @@ const VARIANTS = {
     bundleId: "com.dogtrain.coach",
     accent: "#5A8DEE",
     splashBg: "#0E1420",
-    cameraPermission: "Not used by this app.",
-    photosPermission: "Not used by this app.",
   },
   mahdar: {
     name: "Mahdar",
@@ -60,12 +62,6 @@ const VARIANTS = {
     bundleId: "com.mahdar.lectures",
     accent: "#D9BE83",
     splashBg: "#0E0D0B",
-    cameraPermission: "Not used by this app.",
-    photosPermission: "Not used by this app.",
-    micPermission:
-      "يحتاج مَحضَر إلى الميكروفون لتسجيل المحاضرة وتحويلها إلى نص وملخّص.",
-    speechPermission:
-      "يحوّل مَحضَر كلام المحاضر إلى نص على جهازك لحظة بلحظة.",
   },
   bugscan: {
     name: "Insect Identifier",
@@ -73,8 +69,6 @@ const VARIANTS = {
     bundleId: "com.bugscan.identifier",
     accent: "#5BC08A",
     splashBg: "#0F1714",
-    cameraPermission: "We need the camera to photograph the insect or bite.",
-    photosPermission: "We need photo access so you can pick a photo of the insect or bite.",
   },
 } as const;
 
@@ -89,10 +83,10 @@ const v = VARIANTS[id] ?? VARIANTS.dashlight;
 /** Only the lecture app records; the scanners must not ask for a microphone
  *  they never use, and stores reject permissions a build can't justify. */
 const recordsAudio = id === "mahdar";
-const micPermission =
-  "micPermission" in v ? v.micPermission : "Not used by this app.";
-const speechPermission =
-  "speechPermission" in v ? v.speechPermission : "Not used by this app.";
+
+/** The base Info.plist values: English, and what a device localised to
+ *  neither shipped language falls back to. */
+const en = strings(id, "en");
 
 /**
  * A production build with no API origin ships an app that cannot scan.
@@ -129,16 +123,23 @@ const config: ExpoConfig = {
     resizeMode: "contain",
     backgroundColor: v.splashBg,
   },
+  // Expo compiles these into <lang>.lproj/InfoPlist.strings at prebuild and
+  // adds them to the Xcode project, so the permission prompts and the icon's
+  // label follow the phone's language rather than the build's.
+  locales: { en: `./locales/${id}/en.json`, ar: `./locales/${id}/ar.json` },
   ios: {
     supportsTablet: false,
     bundleIdentifier: v.bundleId,
     infoPlist: {
-      NSCameraUsageDescription: v.cameraPermission,
-      NSPhotoLibraryUsageDescription: v.photosPermission,
+      // Required for the .lproj strings to be consulted at all when the app's
+      // development region and the device language disagree.
+      CFBundleAllowMixedLocalizations: true,
+      NSCameraUsageDescription: en.NSCameraUsageDescription,
+      NSPhotoLibraryUsageDescription: en.NSPhotoLibraryUsageDescription,
       ...(recordsAudio
         ? {
-            NSMicrophoneUsageDescription: micPermission,
-            NSSpeechRecognitionUsageDescription: speechPermission,
+            NSMicrophoneUsageDescription: en.NSMicrophoneUsageDescription,
+            NSSpeechRecognitionUsageDescription: en.NSSpeechRecognitionUsageDescription,
           }
         : {}),
     },
@@ -157,8 +158,8 @@ const config: ExpoConfig = {
   web: { output: "server", favicon: `./assets/${id}/favicon.png` },
   plugins: [
     "expo-router",
-    ["expo-camera", { cameraPermission: v.cameraPermission }],
-    ["expo-image-picker", { photosPermission: v.photosPermission }],
+    ["expo-camera", { cameraPermission: en.NSCameraUsageDescription }],
+    ["expo-image-picker", { photosPermission: en.NSPhotoLibraryUsageDescription }],
     // Recording has to survive the screen locking — a student puts the phone
     // down the moment the lecture starts. enableBackgroundRecording is what
     // writes UIBackgroundModes on iOS and the foreground-service permissions
@@ -167,9 +168,15 @@ const config: ExpoConfig = {
       ? ([
           [
             "expo-audio",
-            { microphonePermission: micPermission, enableBackgroundRecording: true },
+            {
+              microphonePermission: en.NSMicrophoneUsageDescription,
+              enableBackgroundRecording: true,
+            },
           ],
-          ["expo-speech-recognition", { speechRecognitionPermission: speechPermission }],
+          [
+            "expo-speech-recognition",
+            { speechRecognitionPermission: en.NSSpeechRecognitionUsageDescription },
+          ],
         ] as NonNullable<ExpoConfig["plugins"]>)
       : []),
   ],

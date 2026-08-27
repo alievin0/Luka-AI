@@ -1,0 +1,5 @@
+{
+  "CFBundleDisplayName": "Bug ID",
+  "NSCameraUsageDescription": "We need the camera to photograph the insect or bite.",
+  "NSPhotoLibraryUsageDescription": "We need photo access so you can pick a photo of the insect or bite."
+}

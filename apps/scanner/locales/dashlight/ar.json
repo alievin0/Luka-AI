@@ -1,0 +1,5 @@
+{
+  "CFBundleDisplayName": "المصابيح",
+  "NSCameraUsageDescription": "نحتاج الكاميرا لتصوير لوحة القيادة والتعرّف على المصباح التحذيري.",
+  "NSPhotoLibraryUsageDescription": "نحتاج الوصول إلى الصور لاختيار صورة للوحة القيادة."
+}

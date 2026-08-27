@@ -113,6 +113,23 @@ const DIALECT = [
 
 const placeholders = (s) => [...s.matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort();
 
+/**
+ * The Info.plist strings, which are not `L()` calls.
+ *
+ * iOS reads them before any JavaScript runs, so they are a pair of JSON files
+ * per app rather than a pair of arguments — and they would have been the one
+ * place a dialect string could survive this guard. Matching keys across the
+ * two files gives the same shape everything else is checked in.
+ */
+function plistPairs(variant) {
+  const dir = path.join(ROOT, "locales", variant);
+  const read = (lang) => JSON.parse(fs.readFileSync(path.join(dir, `${lang}.json`), "utf8"));
+  const en = read("en");
+  const ar = read("ar");
+  const keys = [...new Set([...Object.keys(en), ...Object.keys(ar)])].sort();
+  return keys.map((key) => ({ en: en[key] ?? "", ar: ar[key] ?? "", line: key }));
+}
+
 /** Every L(en, ar) call in a file, with the line it sits on. */
 function pairs(file) {
   const src = fs.readFileSync(path.join(ROOT, file), "utf8");
@@ -142,9 +159,23 @@ const files = process.argv.includes("--all") ? EVERYTHING : SCOPE;
 let failures = 0;
 let checked = 0;
 
-for (const file of files) {
+/** Locale files for the apps whose copy has been converted. The three
+ *  unconverted packs keep theirs out of scope, like their content. */
+const PLIST = ["dashlight", "mahdar", "womensfit"];
+const PLIST_ALL = [...PLIST, "bugscan", "goldscan", "dogtrain"];
+
+const targets = [
+  ...files.map((file) => ({ file, read: () => pairs(file) })),
+  ...(process.argv.includes("--all") ? PLIST_ALL : PLIST).map((variant) => ({
+    file: `locales/${variant}/`,
+    read: () => plistPairs(variant),
+  })),
+];
+
+for (const target of targets) {
+  const file = target.file;
   if (!fs.existsSync(path.join(ROOT, file))) continue;
-  const found = pairs(file);
+  const found = target.read();
   checked += found.length;
   const problems = [];
 
@@ -161,7 +192,8 @@ for (const file of files) {
     // Identical halves are usually an untranslated string, but not always:
     // the language toggles name themselves, and a numeric placeholder like
     // "2019" has nothing to translate.
-    const sameOnPurpose = /^(العربية|English)$/.test(ar) || !/\p{L}/u.test(ar);
+    const sameOnPurpose =
+      /^(العربية|English|مَحضَر)$/.test(ar) || !/\p{L}/u.test(ar);
     if (ar === en && !sameOnPurpose) {
       problems.push(`${file}:${line}  Arabic is identical to English — "${ar}"`);
     }
