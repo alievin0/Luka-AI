@@ -14,7 +14,12 @@ import {
   transcriptOfSegments,
   updateLecture,
 } from "../src/lectures";
-import { analyseLecture, transcribeLecture, LectureError } from "../src/lecture-api";
+import {
+  analyseLecture,
+  transcribeLecture,
+  LectureError,
+  lectureErrorText,
+} from "../src/lecture-api";
 import { useReducedMotion } from "../src/motion";
 import {
   GOLD,
@@ -143,14 +148,7 @@ export default function Analyzing() {
         router.replace({ pathname: "/lecture", params: { id: lecture.id } });
       } catch (caught) {
         if (cancelled) return;
-        const message =
-          caught instanceof LectureError && caught.message === "offline"
-            ? t(ui.offline)
-            : caught instanceof LectureError && caught.message === "empty"
-              ? t(ui.transcribeFailed)
-              : caught instanceof LectureError
-                ? caught.message
-                : t(ui.serverError);
+        const message = lectureErrorText(caught, ui.serverError);
         await updateLecture(String(id), { status: "failed", error: message });
         setError(message);
       }

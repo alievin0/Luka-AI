@@ -1,20 +1,31 @@
-import Constants from "expo-constants";
-import { locale, remote } from "./i18n";
+import { apiBase } from "./api-base";
+import { locale, remote, t, type Text } from "./i18n";
+import { apiError } from "./i18n/errors";
+import { ui } from "./i18n/ui";
 import type { AudioChunk, LectureAnalysis, Segment } from "./packs";
 import { offsetSegments } from "./lectures";
 
-/** Same origin resolution as the scan client: explicit in production, the
- *  Expo dev host otherwise so a phone on the same Wi-Fi reaches the laptop. */
-function apiBase(): string {
-  const explicit = process.env.EXPO_PUBLIC_API_URL;
-  if (explicit) return explicit.replace(/\/$/, "");
-  const hostUri =
-    Constants.expoConfig?.hostUri ?? (Constants as any).expoGoConfig?.debuggerHost;
-  if (hostUri) return `http://${String(hostUri).split("/")[0]}`;
-  return "http://localhost:8081";
-}
-
 export class LectureError extends Error {}
+
+/**
+ * Resolve what `post` and `transcribeLecture` throw.
+ *
+ * Their message is either a sentinel naming a condition the screens have their
+ * own copy for, or a message the server already resolved into the reader's
+ * language. Screens used to print the sentinel when it was not one they tested
+ * for, so a lecture that failed on the server said "server" on screen.
+ */
+export function lectureErrorText(caught: unknown, fallback: Text): string {
+  if (!(caught instanceof LectureError)) return t(fallback);
+  const known: Record<string, Text | undefined> = {
+    offline: ui.offline,
+    unconfigured: apiError.notConfigured,
+    empty: ui.transcribeFailed,
+    server: ui.serverError,
+  };
+  const copy = known[caught.message];
+  return copy ? t(copy) : caught.message;
+}
 
 /** Generous: this is a whole lecture going up over a phone connection, and
  *  the server then waits on the transcription. But not unbounded — a request
@@ -38,9 +49,13 @@ function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
 }
 
 async function post<T>(path: string, body: unknown): Promise<T> {
+  // "unconfigured" rather than "offline" — see the note in api-base.ts.
+  const base = apiBase();
+  if (!base) throw new LectureError("unconfigured");
+
   let res: Response;
   try {
-    res = await fetch(`${apiBase()}${path}`, {
+    res = await fetch(`${base}${path}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -79,6 +94,9 @@ export async function transcribeLecture(input: {
   // new sync File API, which has no upload.
   const legacy = require("expo-file-system/legacy") as typeof import("expo-file-system/legacy");
 
+  const base = apiBase();
+  if (!base) throw new LectureError("unconfigured");
+
   const all: Segment[] = [];
   let reachedAny = false;
   let lastError: string | null = null;
@@ -90,7 +108,7 @@ export async function transcribeLecture(input: {
     let result: { status: number; body: string };
     try {
       result = await withTimeout(
-        legacy.uploadAsync(`${apiBase()}/api/transcribe`, chunk.uri, {
+        legacy.uploadAsync(`${base}/api/transcribe`, chunk.uri, {
           httpMethod: "POST",
           uploadType: legacy.FileSystemUploadType.MULTIPART,
           fieldName: "file",

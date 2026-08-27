@@ -24,7 +24,11 @@ import { Shell, useContentPad } from "../../src/components/Shell";
 import { Card, Chip, PageTitle, EmptyState, LoadingState, ErrorState, Meta } from "../../src/components/kit";
 import { clock, getLectures } from "../../src/lectures";
 import { contextFor, suggestionsFor } from "../../src/study";
-import { askLectures, LectureError, type StudyAnswer } from "../../src/lecture-api";
+import {
+  askLectures,
+  lectureErrorText,
+  type StudyAnswer,
+} from "../../src/lecture-api";
 import { activePackId } from "../../src/packs";
 
 /**
@@ -106,7 +110,7 @@ export default function Study() {
           ...prev,
           {
             role: "error",
-            text: caught instanceof LectureError ? caught.message : t(ui.askFailed),
+            text: lectureErrorText(caught, ui.askFailed),
           },
         ]);
       } finally {

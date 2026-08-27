@@ -1,26 +1,8 @@
-import Constants from "expo-constants";
+import { apiBase } from "./api-base";
 import { locale, remote, t } from "./i18n";
+import { apiError } from "./i18n/errors";
 import { ui } from "./i18n/ui";
 import type { ScanResult } from "./packs";
-
-/**
- * Resolves the scan API origin.
- *
- * Production: set EXPO_PUBLIC_API_URL to the deployed origin (EAS Hosting,
- * Vercel, wherever the `app/api/scan+api.ts` route is served from).
- * Dev: derived from the Expo dev-server host so a phone on the same Wi-Fi
- * reaches your laptop instead of its own localhost.
- */
-function apiBase(): string {
-  const explicit = process.env.EXPO_PUBLIC_API_URL;
-  if (explicit) return explicit.replace(/\/$/, "");
-
-  const hostUri =
-    Constants.expoConfig?.hostUri ?? (Constants as any).expoGoConfig?.debuggerHost;
-  if (hostUri) return `http://${String(hostUri).split("/")[0]}`;
-
-  return "http://localhost:8081";
-}
 
 export class ScanError extends Error {}
 
@@ -31,9 +13,16 @@ export async function scanImage(input: {
   profile: string;
 }): Promise<ScanResult> {
   const payload = { ...input, locale };
+
+  // Not "offline": a build that shipped without EXPO_PUBLIC_API_URL has no
+  // server to be offline from, and telling the driver to check their
+  // connection would send them looking in the wrong place.
+  const base = apiBase();
+  if (!base) throw new ScanError(t(apiError.notConfigured));
+
   let res: Response;
   try {
-    res = await fetch(`${apiBase()}/api/scan`, {
+    res = await fetch(`${base}/api/scan`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
