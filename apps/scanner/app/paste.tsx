@@ -11,11 +11,13 @@ import {
 } from "react-native";
 import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { LinearGradient } from "expo-linear-gradient";
 import { pack, isAudio } from "../src/packs";
 import { t, locale, isRTL } from "../src/i18n";
 import { ui } from "../src/i18n/ui";
 import { bumpLectureCount, lectureAllowed, newLectureId, saveLecture } from "../src/lectures";
-import { GOLD, INK, audio as s, READ, READ_END } from "../src/components/audio-theme";
+import { FONTS } from "../src/type";
+import { BLOOM, GOLD, INK, audio as s, READ, READ_END } from "../src/components/audio-theme";
 
 /** Text pasted in has no timestamps, so it is stored as one segment at zero.
  *  Splitting it into fake timestamps would put times on the screen that point
@@ -60,6 +62,7 @@ export default function Paste() {
 
   return (
     <View style={s.root}>
+      <LinearGradient colors={BLOOM} locations={[0, 0.4, 1]} style={StyleSheet.absoluteFill} />
       <SafeAreaView style={s.safe} edges={["top", "bottom"]}>
         <KeyboardAvoidingView
           style={styles.flex}
@@ -130,18 +133,18 @@ const styles = StyleSheet.create({
   heading: {
     color: "#F5EEDF",
     fontSize: 32,
-    fontWeight: "800",
+    fontFamily: FONTS.displayBold,
     marginTop: 30,
     textAlign: READ,
   },
-  hint: { color: "#9C9382", fontSize: 15, lineHeight: 30, marginTop: 14, textAlign: READ },
+  hint: { color: "#9C9382", fontSize: 15, fontFamily: FONTS.body, lineHeight: 30, marginTop: 14, textAlign: READ },
   titleInput: {
     backgroundColor: "#141209",
     borderWidth: 1,
     borderColor: "#241F14",
     borderRadius: 14,
     color: "#E8E0CE",
-    fontSize: 16,
+    fontSize: 16, fontFamily: FONTS.body,
     paddingVertical: 15,
     paddingHorizontal: 16,
     marginTop: 22,
@@ -152,13 +155,13 @@ const styles = StyleSheet.create({
     borderColor: "#241F14",
     borderRadius: 18,
     color: "#E8E0CE",
-    fontSize: 15,
+    fontSize: 15, fontFamily: FONTS.body,
     lineHeight: 28,
     minHeight: 240,
     padding: 16,
     marginTop: 12,
   },
-  error: { color: "#E08878", fontSize: 14, marginTop: 12, textAlign: READ },
+  error: { color: "#E08878", fontSize: 14, fontFamily: FONTS.body, marginTop: 12, textAlign: READ },
   actions: { flexDirection: "row", gap: 10, marginTop: 22, justifyContent: READ_END },
   primary: {
     backgroundColor: GOLD,
@@ -166,7 +169,7 @@ const styles = StyleSheet.create({
     paddingVertical: 17,
     paddingHorizontal: 30,
   },
-  primaryText: { color: INK, fontSize: 16, fontWeight: "700" },
+  primaryText: { color: INK, fontSize: 16, fontFamily: FONTS.displayBold },
   ghost: {
     backgroundColor: "#17150F",
     borderWidth: 1,
@@ -175,5 +178,5 @@ const styles = StyleSheet.create({
     paddingVertical: 17,
     paddingHorizontal: 24,
   },
-  ghostText: { color: "#E8E0CE", fontSize: 16, fontWeight: "600" },
+  ghostText: { color: "#E8E0CE", fontSize: 16, fontFamily: FONTS.bodyMedium },
 });

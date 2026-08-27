@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { View, Text, StyleSheet, Animated, Easing, Pressable } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { pack, isAudio, activePackId } from "../src/packs";
@@ -14,7 +15,14 @@ import {
   updateLecture,
 } from "../src/lectures";
 import { analyseLecture, transcribeLecture, LectureError } from "../src/lecture-api";
-import { GOLD, audio as s } from "../src/components/audio-theme";
+import {
+  GOLD,
+  GOLD_DEEP,
+  BLOOM,
+  TEXT_FAINT,
+  audio as s,
+} from "../src/components/audio-theme";
+import { FONTS } from "../src/type";
 
 /** How long each line of "what we're doing right now" stays up. */
 const STEP_MS = 2600;
@@ -30,7 +38,7 @@ export default function Analyzing() {
     const animation = Animated.loop(
       Animated.timing(spin, {
         toValue: 1,
-        duration: 1400,
+        duration: 2200,
         easing: Easing.linear,
         useNativeDriver: true,
       }),
@@ -38,6 +46,19 @@ export default function Analyzing() {
     animation.start();
     return () => animation.stop();
   }, [spin]);
+
+  /* The line changes on a fade rather than a cut, so the screen reads as
+   * working through something instead of flicking between labels. */
+  const fade = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    fade.setValue(0);
+    Animated.timing(fade, {
+      toValue: 1,
+      duration: 520,
+      easing: Easing.out(Easing.quad),
+      useNativeDriver: true,
+    }).start();
+  }, [step, fade]);
 
   useEffect(() => {
     const timer = setInterval(() => setStep((n) => n + 1), STEP_MS);
@@ -131,9 +152,11 @@ export default function Analyzing() {
 
   const steps = pack.voice.analysingSteps;
   const rotate = spin.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "360deg"] });
+  const counter = spin.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "-360deg"] });
 
   return (
     <View style={s.root}>
+      <LinearGradient colors={BLOOM} locations={[0, 0.42, 1]} style={StyleSheet.absoluteFill} />
       <SafeAreaView style={s.safe} edges={["top", "bottom"]}>
         <View style={s.wordmarkWrap}>
           <View style={s.langPill}>
@@ -165,9 +188,15 @@ export default function Analyzing() {
             </>
           ) : (
             <>
-              <Animated.View style={[styles.ring, { transform: [{ rotate }] }]} />
+              <View style={styles.rings}>
+                <Animated.View style={[styles.ring, { transform: [{ rotate }] }]} />
+                <Animated.View style={[styles.ringInner, { transform: [{ rotate: counter }] }]} />
+                <View style={styles.ringCore} />
+              </View>
               <Text style={styles.title}>{t(pack.voice.analysing)}</Text>
-              <Text style={styles.step}>{t(steps[step % steps.length])}</Text>
+              <Animated.Text style={[styles.step, { opacity: fade }]}>
+                {t(steps[step % steps.length])}
+              </Animated.Text>
             </>
           )}
         </View>
@@ -180,26 +209,52 @@ export default function Analyzing() {
 
 const styles = StyleSheet.create({
   centre: { flex: 1, alignItems: "center", justifyContent: "center", gap: 30, paddingHorizontal: 32 },
+  rings: { width: 104, height: 104, alignItems: "center", justifyContent: "center" },
   ring: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
-    borderWidth: 2,
-    borderColor: "#2A2519",
+    position: "absolute",
+    width: 104,
+    height: 104,
+    borderRadius: 52,
+    borderWidth: 1.5,
+    borderColor: "transparent",
     borderTopColor: GOLD,
+    borderRightColor: "rgba(217,190,131,0.22)",
   },
+  ringInner: {
+    position: "absolute",
+    width: 74,
+    height: 74,
+    borderRadius: 37,
+    borderWidth: 1.5,
+    borderColor: "transparent",
+    borderBottomColor: GOLD_DEEP,
+  },
+  ringCore: { width: 7, height: 7, borderRadius: 4, backgroundColor: GOLD, opacity: 0.85 },
+  /* The manuscript face, used here and on the wordmark and nowhere else. */
   title: {
     color: "#F5EEDF",
     fontSize: 34,
-    fontWeight: "600",
-    fontStyle: "italic",
+    fontFamily: FONTS.scriptItalic,
+    lineHeight: 56,
     textAlign: "center",
   },
-  step: { color: "#8E8676", fontSize: 15, textAlign: "center" },
-  errorTitle: { color: "#E8E0CE", fontSize: 17, lineHeight: 32, textAlign: "center" },
+  step: {
+    color: TEXT_FAINT,
+    fontSize: 14,
+    textAlign: "center",
+    fontFamily: FONTS.body,
+    letterSpacing: 0.2,
+  },
+  errorTitle: {
+    color: "#E8E0CE",
+    fontSize: 16,
+    lineHeight: 32,
+    textAlign: "center",
+    fontFamily: FONTS.body,
+  },
   errorActions: { flexDirection: "row", gap: 10 },
   retry: { backgroundColor: GOLD, borderRadius: 999, paddingVertical: 15, paddingHorizontal: 24 },
-  retryText: { color: "#0E0D0B", fontSize: 15, fontWeight: "700" },
+  retryText: { color: "#0E0D0B", fontSize: 15, fontFamily: FONTS.displayBold },
   ghost: {
     backgroundColor: "#17150F",
     borderWidth: 1,
@@ -208,5 +263,5 @@ const styles = StyleSheet.create({
     paddingVertical: 15,
     paddingHorizontal: 24,
   },
-  ghostText: { color: "#E8E0CE", fontSize: 15, fontWeight: "600" },
+  ghostText: { color: "#E8E0CE", fontSize: 15, fontFamily: FONTS.bodyMedium },
 });

@@ -9,6 +9,7 @@ import { pack, isAudio, isProgram, isScanner } from "../src/packs";
 import { t, isRTL } from "../src/i18n";
 import { ui } from "../src/i18n/ui";
 import { initPurchases } from "../src/purchases";
+import { useAppFonts } from "../src/type";
 import { recoverInterruptedLectures } from "../src/lectures";
 
 // Layout direction follows the device language, not the app. Forcing RTL
@@ -22,6 +23,7 @@ export default function RootLayout() {
   const router = useRouter();
   const segments = useSegments();
   const [ready, setReady] = useState(false);
+  const fontsReady = useAppFonts();
 
   useEffect(() => {
     initPurchases();
@@ -48,7 +50,7 @@ export default function RootLayout() {
     };
   }, [segments, router]);
 
-  if (!ready) {
+  if (!ready || !fontsReady) {
     return (
       <View style={{ flex: 1, backgroundColor: theme.bg, justifyContent: "center" }}>
         <ActivityIndicator color={theme.accent} />

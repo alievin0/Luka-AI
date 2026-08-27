@@ -36,7 +36,19 @@ import {
   toIcs,
   toMarkdown,
 } from "../src/lecture-export";
-import { GOLD, INK, audio as s, READ, READ_END } from "../src/components/audio-theme";
+import { FONTS } from "../src/type";
+import {
+  GOLD,
+  GOLD_DEEP,
+  INK,
+  BLOOM,
+  PANEL_GRADIENT,
+  lift,
+  audio as s,
+  READ,
+  READ_END,
+} from "../src/components/audio-theme";
+import { LinearGradient } from "expo-linear-gradient";
 
 type TabKey = "summary" | "tasks" | "terms" | "exam" | "map" | "tone" | "transcript";
 
@@ -225,6 +237,7 @@ export default function LectureScreen() {
 
   return (
     <View style={s.root}>
+      <LinearGradient colors={BLOOM} locations={[0, 0.4, 1]} style={StyleSheet.absoluteFill} />
       <SafeAreaView style={s.safe} edges={["top"]}>
         <ScrollView contentContainerStyle={styles.content}>
           <View style={s.wordmarkWrap}>
@@ -296,7 +309,8 @@ export default function LectureScreen() {
           {hasAudio ? (
             <View style={styles.playerWrap}>
               <Text style={styles.playerHint}>{t(ui.playerHint)}</Text>
-              <View style={[s.panel, styles.player]}>
+              <View style={[s.panel, styles.player, lift]}>
+                <LinearGradient colors={PANEL_GRADIENT} style={StyleSheet.absoluteFill} />
                 <Pressable
                   style={styles.playButton}
                   onPress={() => (status.playing ? player.pause() : player.play())}
@@ -372,7 +386,8 @@ export default function LectureScreen() {
             </View>
           ) : null}
 
-          <View style={[s.panel, styles.body]}>
+          <View style={[s.panel, styles.body, lift]}>
+            <LinearGradient colors={PANEL_GRADIENT} style={StyleSheet.absoluteFill} />
             {tab === "summary" ? (
               <>
                 <Text style={styles.paragraph}>{analysis?.summary}</Text>
@@ -590,8 +605,8 @@ function Action({
 const styles = StyleSheet.create({
   loading: { alignItems: "center", justifyContent: "center" },
   stateCard: { padding: 20, gap: 12, marginBottom: 14 },
-  stateTitle: { color: GOLD, fontSize: 16, fontWeight: "700", textAlign: READ },
-  stateBody: { color: "#9C9382", fontSize: 14, lineHeight: 28, textAlign: READ },
+  stateTitle: { color: GOLD, fontSize: 16, fontFamily: FONTS.displayBold, textAlign: READ },
+  stateBody: { color: "#9C9382", fontSize: 14, fontFamily: FONTS.body, lineHeight: 28, textAlign: READ },
   stateActions: { flexDirection: "row", gap: 8, flexWrap: "wrap", justifyContent: READ_END },
   content: { paddingHorizontal: 20, paddingBottom: 56 },
 
@@ -609,12 +624,12 @@ const styles = StyleSheet.create({
     marginTop: 26,
   },
   dateDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: GOLD },
-  dateText: { color: "#C9BC9A", fontSize: 13 },
+  dateText: { color: "#C9BC9A", fontSize: 12.5, fontFamily: FONTS.body },
 
   title: {
     color: "#F5EEDF",
     fontSize: 40,
-    fontWeight: "800",
+    fontFamily: FONTS.displayBold,
     lineHeight: 60,
     marginTop: 18,
     textAlign: READ,
@@ -628,7 +643,7 @@ const styles = StyleSheet.create({
     padding: 16,
     marginTop: 18,
   },
-  noticeText: { color: "#C9AE73", fontSize: 13, lineHeight: 24, textAlign: READ },
+  noticeText: { color: "#C9AE73", fontSize: 13, fontFamily: FONTS.body, lineHeight: 24, textAlign: READ },
 
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 16, justifyContent: READ_END },
   chip: {
@@ -640,8 +655,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
   },
   chipGold: { borderColor: "#4A3D18", backgroundColor: "#241E0C" },
-  chipText: { color: "#C9BC9A", fontSize: 13 },
-  chipTextGold: { color: GOLD, fontWeight: "700" },
+  chipText: { color: "#C9BC9A", fontSize: 12.5, fontFamily: FONTS.body },
+  chipTextGold: { color: GOLD, fontFamily: FONTS.displayBold },
 
   actions: { gap: 8, paddingVertical: 16, flexDirection: "row" },
   action: {
@@ -658,26 +673,30 @@ const styles = StyleSheet.create({
   actionActive: { backgroundColor: "#241E0C", borderColor: "#4A3D18" },
   actionDanger: { backgroundColor: "#2A1310", borderColor: "#5A2620" },
   actionGlyph: { color: "#C9BC9A", fontSize: 13 },
-  actionText: { color: "#E8E0CE", fontSize: 14, fontWeight: "600" },
+  actionText: { color: "#E8E0CE", fontSize: 14, fontFamily: FONTS.bodyMedium },
   actionDangerText: { color: "#E08878" },
 
   playerWrap: { marginTop: 6, gap: 10 },
-  playerHint: { color: "#6E685C", fontSize: 12, textAlign: READ },
-  player: { flexDirection: "row", alignItems: "center", gap: 14, padding: 16 },
+  playerHint: { color: "#6E685C", fontSize: 12, fontFamily: FONTS.body, textAlign: READ },
+  player: { flexDirection: "row", alignItems: "center", gap: 14, padding: 16, overflow: "hidden" },
   playButton: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     backgroundColor: GOLD,
     alignItems: "center",
     justifyContent: "center",
+    shadowColor: GOLD,
+    shadowOpacity: 0.34,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 5 },
   },
   playGlyph: { color: INK, fontSize: 15 },
-  playerTime: { color: "#8E8676", fontSize: 12, fontVariant: ["tabular-nums"] },
+  playerTime: { color: "#8E8676", fontSize: 12, fontFamily: FONTS.body, fontVariant: ["tabular-nums"] },
   track: { flex: 1, height: 4, backgroundColor: "#241F14", borderRadius: 2, overflow: "hidden" },
   trackFill: { height: 4, backgroundColor: GOLD, borderRadius: 2 },
 
-  tabs: { gap: 8, paddingVertical: 18, flexDirection: "row" },
+  tabs: { gap: 7, paddingTop: 22, paddingBottom: 14, flexDirection: "row" },
   tab: {
     backgroundColor: "#17150F",
     borderWidth: 1,
@@ -686,17 +705,24 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 18,
   },
-  tabActive: { backgroundColor: GOLD, borderColor: GOLD },
-  tabText: { color: "#C9BC9A", fontSize: 14, fontWeight: "600" },
-  tabTextActive: { color: INK, fontWeight: "800" },
+  tabActive: {
+    backgroundColor: GOLD,
+    borderColor: GOLD,
+    shadowColor: GOLD,
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+  },
+  tabText: { color: "#C9BC9A", fontSize: 14, fontFamily: FONTS.bodyMedium },
+  tabTextActive: { color: INK, fontFamily: FONTS.displayBold },
 
-  body: { padding: 20, gap: 14 },
-  paragraph: { color: "#E8E0CE", fontSize: 16, lineHeight: 32, textAlign: READ },
-  empty: { color: "#8E8676", fontSize: 15, lineHeight: 30, textAlign: "center", paddingVertical: 20 },
+  body: { padding: 20, gap: 15, overflow: "hidden" },
+  paragraph: { color: "#E8E0CE", fontSize: 16, fontFamily: FONTS.body, lineHeight: 32, textAlign: READ },
+  empty: { color: "#8E8676", fontSize: 15, fontFamily: FONTS.body, lineHeight: 30, textAlign: "center", paddingVertical: 20 },
 
   bulletRow: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
   bullet: { width: 5, height: 5, borderRadius: 3, backgroundColor: GOLD, marginTop: 13 },
-  bulletText: { color: "#C9BC9A", fontSize: 15, lineHeight: 30, flex: 1, textAlign: READ },
+  bulletText: { color: "#C9BC9A", fontSize: 15, fontFamily: FONTS.body, lineHeight: 30, flex: 1, textAlign: READ },
 
   taskActions: { flexDirection: "row", gap: 8, flexWrap: "wrap", justifyContent: READ_END },
   taskRow: {
@@ -717,24 +743,24 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   checkboxOn: { backgroundColor: GOLD, borderColor: GOLD },
-  checkGlyph: { color: INK, fontSize: 13, fontWeight: "800" },
+  checkGlyph: { color: INK, fontSize: 13, fontFamily: FONTS.displayBold },
   taskBody: { flex: 1, gap: 3 },
-  taskText: { color: "#E8E0CE", fontSize: 15, lineHeight: 28, textAlign: READ },
+  taskText: { color: "#E8E0CE", fontSize: 15, fontFamily: FONTS.body, lineHeight: 28, textAlign: READ },
   taskDone: { color: "#6E685C", textDecorationLine: "line-through" },
-  taskDue: { color: GOLD, fontSize: 12, textAlign: READ },
+  taskDue: { color: GOLD, fontSize: 12, fontFamily: FONTS.body, textAlign: READ },
   taskCal: { fontSize: 13 },
 
   termRow: { borderTopWidth: 1, borderTopColor: "#221D12", paddingTop: 14, gap: 5 },
-  term: { color: "#E8E0CE", fontSize: 16, fontWeight: "700", textAlign: READ },
-  termDef: { color: "#9C9382", fontSize: 14, lineHeight: 28, textAlign: READ },
+  term: { color: "#E8E0CE", fontSize: 16, fontFamily: FONTS.displayBold, textAlign: READ },
+  termDef: { color: "#9C9382", fontSize: 14, fontFamily: FONTS.body, lineHeight: 28, textAlign: READ },
   predictionHead: { flexDirection: "row", alignItems: "center", gap: 10, justifyContent: READ_END },
   tagHigh: { backgroundColor: "#2E2A10" },
   tagLow: { backgroundColor: "#221F19" },
 
   chapter: { borderTopWidth: 1, borderTopColor: "#221D12", paddingTop: 14, gap: 8 },
   chapterHead: { flexDirection: "row", alignItems: "center", gap: 10, justifyContent: READ_END },
-  chapterStamp: { color: GOLD, fontSize: 12, fontVariant: ["tabular-nums"] },
-  chapterTitle: { color: "#E8E0CE", fontSize: 16, fontWeight: "700", flex: 1, textAlign: READ },
+  chapterStamp: { color: GOLD, fontSize: 12, fontFamily: FONTS.body, fontVariant: ["tabular-nums"] },
+  chapterTitle: { color: "#E8E0CE", fontSize: 16, fontFamily: FONTS.displayBold, flex: 1, textAlign: READ },
 
   toneRow: {
     flexDirection: "row",
@@ -744,14 +770,14 @@ const styles = StyleSheet.create({
     borderTopColor: "#221D12",
     paddingTop: 14,
   },
-  toneStamp: { color: GOLD, fontSize: 12, fontVariant: ["tabular-nums"] },
-  toneText: { color: "#E8E0CE", fontSize: 15, lineHeight: 28, textAlign: READ },
-  toneReason: { color: "#8E8676", fontSize: 13, lineHeight: 24, textAlign: READ },
+  toneStamp: { color: GOLD, fontSize: 12, fontFamily: FONTS.body, fontVariant: ["tabular-nums"] },
+  toneText: { color: "#E8E0CE", fontSize: 15, fontFamily: FONTS.body, lineHeight: 28, textAlign: READ },
+  toneReason: { color: "#8E8676", fontSize: 13, fontFamily: FONTS.body, lineHeight: 24, textAlign: READ },
   tonePlay: { color: "#6E685C", fontSize: 12 },
 
   line: { flexDirection: "row", alignItems: "flex-start", gap: 12, paddingVertical: 5 },
-  lineStamp: { color: "#6E685C", fontSize: 12, fontVariant: ["tabular-nums"], marginTop: 5, minWidth: 42 },
-  lineText: { color: "#C9BC9A", fontSize: 15, lineHeight: 30, flex: 1, textAlign: READ },
+  lineStamp: { color: "#6E685C", fontSize: 12, fontFamily: FONTS.body, fontVariant: ["tabular-nums"], marginTop: 5, minWidth: 42 },
+  lineText: { color: "#C9BC9A", fontSize: 15, fontFamily: FONTS.body, lineHeight: 30, flex: 1, textAlign: READ },
   lineLoud: { color: "#E8E0CE" },
   lineMarked: { color: GOLD },
 });

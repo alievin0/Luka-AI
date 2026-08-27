@@ -16,6 +16,8 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.109.1",
+    "@expo-google-fonts/amiri": "^0.4.1",
+    "@expo-google-fonts/readex-pro": "^0.4.1",
     "@react-native-async-storage/async-storage": "2.2.0",
     "expo": "~54.0.37",
     "expo-audio": "~1.1.1",
@@ -23,6 +25,7 @@
     "expo-clipboard": "~8.0.8",
     "expo-constants": "~18.0.14",
     "expo-file-system": "~19.0.24",
+    "expo-font": "~14.0.12",
     "expo-haptics": "~15.0.8",
     "expo-image-manipulator": "~14.0.8",
     "expo-image-picker": "~17.0.11",

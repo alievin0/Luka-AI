@@ -11,6 +11,7 @@ import {
 } from "react-native";
 import { useNavigation, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { LinearGradient } from "expo-linear-gradient";
 import * as Haptics from "expo-haptics";
 import {
   useAudioRecorder,
@@ -35,7 +36,8 @@ import {
   scoreEnergy,
 } from "../src/lectures";
 import { startLiveWriter, recogniserLocale, liveWriterAvailable, type LiveWriter } from "../src/speech";
-import { GOLD, INK, audio as s, READ } from "../src/components/audio-theme";
+import { FONTS } from "../src/type";
+import { BLOOM, GOLD, INK, audio as s, READ } from "../src/components/audio-theme";
 
 /**
  * 16 kHz mono is not a compromise here — every speech recogniser downsamples
@@ -588,6 +590,7 @@ export default function Record() {
 
   return (
     <View style={s.root}>
+      <LinearGradient colors={BLOOM} locations={[0, 0.4, 1]} style={StyleSheet.absoluteFill} />
       <SafeAreaView style={s.safe} edges={["top", "bottom"]}>
         <View style={s.wordmarkWrap}>
           <View style={s.langPill}>
@@ -683,7 +686,7 @@ const styles = StyleSheet.create({
   writerHintDown: { color: "#C9AE73" },
   writerHint: {
     color: "#9C9382",
-    fontSize: 13,
+    fontSize: 13, fontFamily: FONTS.body,
     textAlign: "center",
     marginTop: 16,
     paddingHorizontal: 24,
@@ -697,7 +700,7 @@ const styles = StyleSheet.create({
   },
   dot: { width: 9, height: 9, borderRadius: 5, backgroundColor: "#C8553D" },
   dotPaused: { backgroundColor: "#6E685C" },
-  timer: { color: "#E8E0CE", fontSize: 19, fontWeight: "700", fontVariant: ["tabular-nums"] },
+  timer: { color: "#E8E0CE", fontSize: 19, fontFamily: FONTS.displayBold, fontVariant: ["tabular-nums"] },
   warning: {
     backgroundColor: "#241E0C",
     borderWidth: 1,
@@ -708,7 +711,7 @@ const styles = StyleSheet.create({
     marginHorizontal: 20,
     marginTop: 14,
   },
-  warningText: { color: "#D9BE83", fontSize: 14, textAlign: "center" },
+  warningText: { color: "#D9BE83", fontSize: 14, fontFamily: FONTS.body, textAlign: "center" },
 
   panels: { flex: 1, gap: 12, paddingHorizontal: 20, marginTop: 16 },
   panelsWide: { flexDirection: "row" },
@@ -717,28 +720,28 @@ const styles = StyleSheet.create({
   line: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
   stamp: {
     color: "#6E685C",
-    fontSize: 12,
+    fontSize: 12, fontFamily: FONTS.body,
     fontVariant: ["tabular-nums"],
     marginTop: 4,
     minWidth: 42,
   },
-  lineText: { color: "#E8E0CE", fontSize: 16, lineHeight: 30, flex: 1, textAlign: READ },
+  lineText: { color: "#E8E0CE", fontSize: 16, fontFamily: FONTS.body, lineHeight: 30, flex: 1, textAlign: READ },
   lineMarked: { color: GOLD },
-  interim: { color: "#6E685C", fontSize: 15, fontStyle: "italic", textAlign: READ },
+  interim: { color: "#6E685C", fontSize: 15, fontFamily: FONTS.body, fontStyle: "italic", textAlign: READ },
 
   moments: { maxHeight: 190, padding: 16, gap: 10 },
   momentsWide: { flex: 1, maxHeight: undefined },
-  momentsTitle: { color: "#E8E0CE", fontSize: 15, fontWeight: "700", textAlign: READ },
-  momentsEmpty: { color: "#6E685C", fontSize: 14, textAlign: "center", paddingVertical: 12 },
+  momentsTitle: { color: "#E8E0CE", fontSize: 15, fontFamily: FONTS.displayBold, textAlign: READ },
+  momentsEmpty: { color: "#6E685C", fontSize: 14, fontFamily: FONTS.body, textAlign: "center", paddingVertical: 12 },
   momentsList: { gap: 10 },
   momentRow: { flexDirection: "row", alignItems: "center", gap: 10 },
-  momentStamp: { color: "#6E685C", fontSize: 12, fontVariant: ["tabular-nums"] },
-  momentText: { color: "#C9BC9A", fontSize: 14, flex: 1, textAlign: READ },
+  momentStamp: { color: "#6E685C", fontSize: 12, fontFamily: FONTS.body, fontVariant: ["tabular-nums"] },
+  momentText: { color: "#C9BC9A", fontSize: 14, fontFamily: FONTS.body, flex: 1, textAlign: READ },
   tagMarked: { backgroundColor: "#3A2E12" },
 
   centered: { flex: 1, alignItems: "center", justifyContent: "center", padding: 32, gap: 22 },
   backButton: { alignSelf: "center" },
-  deniedText: { color: "#9C9382", fontSize: 16, lineHeight: 30, textAlign: "center" },
+  deniedText: { color: "#9C9382", fontSize: 16, fontFamily: FONTS.body, lineHeight: 30, textAlign: "center" },
 
   actions: {
     flexDirection: "row",
@@ -759,7 +762,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
   },
   endGlyph: { color: INK, fontSize: 13 },
-  endText: { color: INK, fontSize: 15, fontWeight: "700" },
+  endText: { color: INK, fontSize: 15, fontFamily: FONTS.displayBold },
   ghost: {
     flexDirection: "row",
     alignItems: "center",
@@ -772,5 +775,5 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   ghostGlyph: { color: "#C9BC9A", fontSize: 12 },
-  ghostText: { color: "#E8E0CE", fontSize: 15, fontWeight: "600" },
+  ghostText: { color: "#E8E0CE", fontSize: 15, fontFamily: FONTS.bodyMedium },
 });
