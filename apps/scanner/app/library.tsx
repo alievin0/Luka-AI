@@ -1,9 +1,9 @@
 import { useMemo, useState } from "react";
 import { View, Text, StyleSheet, TextInput, Pressable, SectionList } from "react-native";
-import { pack } from "../src/scanners";
+import { pack, isScanner } from "../src/packs";
 import { theme, severityStyle } from "../src/theme";
 import { normalise } from "../src/countries";
-import type { LibraryEntry } from "../src/scanners";
+import type { LibraryEntry } from "../src/packs";
 
 const SEVERITY_ORDER = ["critical", "warning", "info"] as const;
 const SEVERITY_TITLE = {
@@ -15,12 +15,13 @@ const SEVERITY_TITLE = {
 export default function Library() {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState<string | null>(null);
-  const entries = pack.library ?? [];
+  const scannerPack = isScanner(pack) ? pack : null;
+  const entries = scannerPack?.library ?? [];
 
   const sections = useMemo(() => {
     const q = normalise(query);
     const matches = q
-      ? entries.filter((e) =>
+      ? entries.filter((e: LibraryEntry) =>
           [e.title, e.subtitle, e.summary].some((field) =>
             normalise(field).includes(q),
           ),
@@ -30,7 +31,7 @@ export default function Library() {
     return SEVERITY_ORDER.map((severity) => ({
       title: SEVERITY_TITLE[severity],
       severity,
-      data: matches.filter((e) => e.severity === severity),
+      data: matches.filter((e: LibraryEntry) => e.severity === severity),
     })).filter((section) => section.data.length > 0);
   }, [query, entries]);
 

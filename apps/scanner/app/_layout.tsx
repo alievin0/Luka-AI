@@ -5,7 +5,7 @@ import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { theme } from "../src/theme";
 import { isOnboarded } from "../src/storage";
-import { pack } from "../src/scanners";
+import { pack, isProgram } from "../src/packs";
 import { initPurchases } from "../src/purchases";
 
 // The whole UI is Arabic — force RTL before the first render.
@@ -69,8 +69,13 @@ export default function RootLayout() {
         />
         <Stack.Screen name="result" options={{ title: "النتيجة" }} />
         <Stack.Screen name="history" options={{ title: "الفحوصات السابقة" }} />
-        <Stack.Screen name="library" options={{ title: pack.libraryTitle ?? "الدليل" }} />
+        <Stack.Screen
+          name="library"
+          options={{ title: (pack.kind === "scanner" && pack.libraryTitle) || "الدليل" }}
+        />
         <Stack.Screen name="settings" options={{ title: "الإعدادات" }} />
+        <Stack.Screen name="session" options={{ headerShown: false, presentation: "fullScreenModal" }} />
+        <Stack.Screen name="plan" options={{ title: isProgram(pack) ? pack.nouns.plan : "الخطة" }} />
       </Stack>
     </SafeAreaProvider>
   );

@@ -1,6 +1,7 @@
 import type { ScannerPack } from "./types";
 
 export const bugscan: ScannerPack = {
+  kind: "scanner",
   id: "bugscan",
   appName: "ماسح الحشرات",
   tagline: "شو هالحشرة؟ وهاي القرصة خطيرة ولا لأ؟",
@@ -39,6 +40,14 @@ export const bugscan: ScannerPack = {
       "جواب واضح: خطيرة ولا عادية",
       "خطوات إسعاف أولي مباشرة",
       "علامات تحذيرية لازم تروح فيها للطوارئ",
+    ],
+  },
+  pricing: {
+    entitlement: "pro",
+    defaultProductId: "annual",
+    products: [
+      { id: "weekly", label: "أسبوعي", fallbackPrice: "$4.99", period: "أسبوع", trialDays: 3 },
+      { id: "annual", label: "سنوي", fallbackPrice: "$29.99", period: "سنة", note: "أقل من $0.58 بالأسبوع", badge: "الأوفر" },
     ],
   },
   systemPrompt: ({ profile }) => `أنت خبير في علم الحشرات والإسعافات الأولية. مهمتك: تحليل صورة لحشرة أو لدغة/قرصة على الجلد.

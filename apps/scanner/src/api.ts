@@ -1,5 +1,5 @@
 import Constants from "expo-constants";
-import type { ScanResult } from "./scanners";
+import type { ScanResult } from "./packs";
 
 /**
  * Resolves the scan API origin.

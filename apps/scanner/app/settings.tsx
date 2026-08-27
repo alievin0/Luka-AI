@@ -2,9 +2,11 @@ import { useCallback, useState } from "react";
 import { View, Text, StyleSheet, Pressable, Alert, ScrollView, Linking } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import Constants from "expo-constants";
-import { pack } from "../src/scanners";
+import { pack, isProgram, isScanner } from "../src/packs";
 import { theme } from "../src/theme";
 import { clearHistory, getProfile, updateProfile, type Profile } from "../src/storage";
+import { resetProgress } from "../src/progress";
+import { DEFAULT_HOUR, cancelReminder, getReminderHour, scheduleReminder } from "../src/reminders";
 import { purchasesAvailable, restore } from "../src/purchases";
 import { CountryField } from "../src/components/CountryField";
 
@@ -35,12 +37,49 @@ export default function Settings() {
   const router = useRouter();
   const [profile, setProfile] = useState<Profile>({});
   const [editingCountry, setEditingCountry] = useState(false);
+  const [reminderHour, setReminderHour] = useState<number | null>(null);
 
   useFocusEffect(
     useCallback(() => {
       getProfile().then(setProfile);
+      getReminderHour().then(setReminderHour);
     }, []),
   );
+
+  const toggleReminder = async () => {
+    if (reminderHour !== null) {
+      await cancelReminder();
+      setReminderHour(null);
+      return;
+    }
+    const scheduled = await scheduleReminder(DEFAULT_HOUR);
+    setReminderHour(scheduled);
+    if (scheduled === null) {
+      Alert.alert(
+        "الإشعارات مقفولة",
+        "فعّل الإشعارات لهذا التطبيق من إعدادات جهازك عشان يشتغل التذكير.",
+      );
+    }
+  };
+
+  const shiftReminder = async () => {
+    const next = ((reminderHour ?? DEFAULT_HOUR) + 1) % 24;
+    const scheduled = await scheduleReminder(next);
+    if (scheduled !== null) setReminderHour(scheduled);
+  };
+
+  const confirmReset = () =>
+    Alert.alert("تصفير التقدّم؟", "رح يرجع كل شي للبداية، والسلسلة رح تنكسر.", [
+      { text: "إلغاء", style: "cancel" },
+      {
+        text: "صفّر",
+        style: "destructive",
+        onPress: async () => {
+          await resetProgress();
+          Alert.alert("انصفّر", "رجعت للبداية.");
+        },
+      },
+    ]);
 
   const confirmClear = () =>
     Alert.alert("مسح كل الفحوصات؟", "رح تنمسح كل الفحوصات المحفوظة على جهازك. ما في رجعة.", [
@@ -97,10 +136,32 @@ export default function Settings() {
           value={profile.region || "غير محدد"}
           onPress={() => setEditingCountry(true)}
         />
-        {pack.library ? (
+        {isScanner(pack) && pack.library ? (
           <Row label={pack.libraryTitle ?? "الدليل"} onPress={() => router.push("/library")} />
         ) : null}
+        {isProgram(pack) ? (
+          <Row label={pack.nouns.plan} onPress={() => router.push("/plan")} />
+        ) : null}
       </View>
+
+      {isProgram(pack) ? (
+        <>
+          <Text style={styles.section}>التذكير اليومي</Text>
+          <View style={styles.group}>
+            <Row
+              label={reminderHour !== null ? "التذكير مفعّل" : "فعّل التذكير اليومي"}
+              value={reminderHour !== null ? `${reminderHour}:00` : "مطفي"}
+              onPress={toggleReminder}
+            />
+            {reminderHour !== null ? (
+              <Row label="أخّر ساعة" onPress={shiftReminder} />
+            ) : null}
+          </View>
+          <Text style={styles.note}>
+            تذكير محلي على جهازك — ما بيمر على أي خادم.
+          </Text>
+        </>
+      ) : null}
 
       <Text style={styles.section}>الاشتراك</Text>
       <View style={styles.group}>
@@ -110,10 +171,16 @@ export default function Settings() {
 
       <Text style={styles.section}>البيانات</Text>
       <View style={styles.group}>
-        <Row label="امسح كل الفحوصات" onPress={confirmClear} danger />
+        {isProgram(pack) ? (
+          <Row label="صفّر التقدّم" onPress={confirmReset} danger />
+        ) : (
+          <Row label="امسح كل الفحوصات" onPress={confirmClear} danger />
+        )}
       </View>
       <Text style={styles.note}>
-        الفحوصات بتنحفظ على جهازك بس. ما بنخزّن صورك على خوادمنا.
+        {isProgram(pack)
+          ? "تقدّمك محفوظ على جهازك بس."
+          : "الفحوصات بتنحفظ على جهازك بس. ما بنخزّن صورك على خوادمنا."}
       </Text>
 
       <Text style={styles.section}>عن التطبيق</Text>

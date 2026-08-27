@@ -2,7 +2,7 @@ import { useCallback, useState } from "react";
 import { View, Text, StyleSheet, FlatList, Pressable, Image, Alert } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { theme, severityStyle } from "../src/theme";
-import { pack } from "../src/scanners";
+import { pack } from "../src/packs";
 import { getHistory, removeFromHistory, type HistoryEntry } from "../src/storage";
 
 export default function History() {

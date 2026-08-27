@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { View, Text, Pressable, StyleSheet, ActivityIndicator, Alert } from "react-native";
 import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { pack } from "../src/scanners";
+import { pack } from "../src/packs";
 import { theme } from "../src/theme";
 import { getOffers, purchase, purchasesAvailable, restore, type Offer } from "../src/purchases";
 
@@ -14,16 +14,34 @@ export default function Paywall() {
 
   useEffect(() => {
     (async () => {
-      const available = await getOffers();
-      setOffers(available);
-      setSelected(available[0]?.id ?? null);
+      const live = await getOffers();
+      // Fall back to the pack's configured pricing so the paywall is always
+      // a real screen — in dev, and if offerings fail to load on a bad network.
+      const shown: Offer[] = live.length
+        ? live
+        : pack.pricing.products.map((product) => ({
+            id: product.id,
+            title: product.label,
+            price: product.fallbackPrice,
+            period: product.period,
+          }));
+      setOffers(shown);
+      setSelected(
+        shown.find((o) => o.id === pack.pricing.defaultProductId)?.id ?? shown[0]?.id ?? null,
+      );
     })();
   }, []);
+
+  const trialDays = pack.pricing.products.find((p) => p.id === selected)?.trialDays;
 
   const buy = async () => {
     if (!selected) return;
     setWorking(true);
     try {
+      if (!purchasesAvailable()) {
+        Alert.alert("وضع تجريبي", "الشراء مش مفعّل بهالنسخة.");
+        return;
+      }
       if (await purchase(selected)) {
         router.back();
       } else {
@@ -54,29 +72,50 @@ export default function Paywall() {
           ))}
         </View>
 
-        {!purchasesAvailable() ? (
-          <View style={styles.notice}>
-            <Text style={styles.noticeText}>
-              الاشتراكات مش مفعّلة بهالنسخة. ضيف مفاتيح RevenueCat واعمل dev build
-              عشان تظهر الأسعار وتشتغل عملية الشراء.
-            </Text>
-          </View>
-        ) : offers.length === 0 ? (
+        {offers.length === 0 ? (
           <ActivityIndicator color={theme.accent} style={{ marginTop: 24 }} />
         ) : (
           <View style={styles.offers}>
-            {offers.map((offer) => (
-              <Pressable
-                key={offer.id}
-                style={[styles.offer, selected === offer.id && styles.offerActive]}
-                onPress={() => setSelected(offer.id)}
-              >
-                <Text style={styles.offerTitle}>{offer.title}</Text>
-                <Text style={styles.offerPrice}>{offer.price}</Text>
-              </Pressable>
-            ))}
+            {offers.map((offer) => {
+              const configured = pack.pricing.products.find((p) => p.id === offer.id);
+              const active = selected === offer.id;
+              return (
+                <Pressable
+                  key={offer.id}
+                  style={[styles.offer, active && styles.offerActive]}
+                  onPress={() => setSelected(offer.id)}
+                >
+                  <View style={styles.offerBody}>
+                    <View style={styles.offerTitleRow}>
+                      <Text style={styles.offerTitle}>{offer.title}</Text>
+                      {configured?.badge ? (
+                        <View style={styles.badge}>
+                          <Text style={styles.badgeText}>{configured.badge}</Text>
+                        </View>
+                      ) : null}
+                    </View>
+                    {configured?.note ? (
+                      <Text style={styles.offerNote}>{configured.note}</Text>
+                    ) : null}
+                  </View>
+                  <Text style={styles.offerPrice}>{offer.price}</Text>
+                </Pressable>
+              );
+            })}
           </View>
         )}
+
+        {trialDays ? (
+          <Text style={styles.trialLine}>
+            جرّب {trialDays} أيام مجاناً — بتقدر تلغي بأي وقت قبل ما ينتهي
+          </Text>
+        ) : null}
+
+        {!purchasesAvailable() ? (
+          <Text style={styles.devNote}>
+            وضع تجريبي: ضيف مفاتيح RevenueCat واعمل dev build عشان يشتغل الشراء فعلياً.
+          </Text>
+        ) : null}
       </View>
 
       <View style={styles.footer}>
@@ -121,7 +160,25 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   offerActive: { borderColor: theme.accent, backgroundColor: theme.surfaceAlt },
+  offerBody: { flex: 1, gap: 3 },
+  offerTitleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   offerTitle: { color: theme.text, fontSize: 16, fontWeight: "600" },
+  offerNote: { color: theme.textFaint, fontSize: 12 },
+  badge: {
+    backgroundColor: theme.accent,
+    borderRadius: 999,
+    paddingVertical: 3,
+    paddingHorizontal: 9,
+  },
+  badgeText: { color: theme.bg, fontSize: 10, fontWeight: "800" },
+  trialLine: {
+    color: theme.textSoft,
+    fontSize: 13,
+    textAlign: "center",
+    marginTop: 14,
+    lineHeight: 22,
+  },
+  devNote: { color: theme.textFaint, fontSize: 12, textAlign: "center", marginTop: 10 },
   offerPrice: { color: theme.accent, fontSize: 17, fontWeight: "700" },
   notice: {
     marginTop: 32,

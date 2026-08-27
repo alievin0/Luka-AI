@@ -286,10 +286,63 @@ def build_goldscan(size, scale=1.0, background=(26, 21, 9)):
     return frame + [(bar, gold), (stamp, background)]
 
 
+def build_womensfit(size, scale=1.0, background=(23, 16, 20)):
+    """A figure reaching upward. Arms overhead with the legs close reads as a
+    stretch; arms and legs both flung wide reads as a jumping jack, which is
+    the one thing this app promises you will not have to do."""
+    rose = (201, 115, 143)
+    c = size / 2
+    s = size * scale * 0.86
+
+    head = lambda px, py: sd_circle(px, py, c, c - s * 0.31, s * 0.090)
+    torso = lambda px, py: sd_capsule(px, py, c, c - s * 0.20, c, c + s * 0.06, s * 0.058)
+    arm_l = lambda px, py: sd_capsule(px, py, c - s * 0.02, c - s * 0.16, c - s * 0.15, c - s * 0.44, s * 0.042)
+    arm_r = lambda px, py: sd_capsule(px, py, c + s * 0.02, c - s * 0.16, c + s * 0.15, c - s * 0.44, s * 0.042)
+    leg_l = lambda px, py: sd_capsule(px, py, c - s * 0.01, c + s * 0.05, c - s * 0.10, c + s * 0.38, s * 0.047)
+    leg_r = lambda px, py: sd_capsule(px, py, c + s * 0.01, c + s * 0.05, c + s * 0.10, c + s * 0.38, s * 0.047)
+
+    return [(arm_l, rose), (arm_r, rose), (leg_l, rose), (leg_r, rose),
+            (torso, rose), (head, rose)]
+
+
+def build_dogtrain(size, scale=1.0, background=(14, 20, 32)):
+    """A paw print. A dog's head in profile turns to mush below about 80px —
+    the paw is the mark everyone already reads as 'dog' and it holds shape."""
+    blue = (90, 141, 238)
+    c = size / 2
+    s = size * scale * 0.86
+
+    # Main pad: a rounded triangle, wider at the bottom than a circle.
+    pad = make_polygon(
+        [
+            (c, c + s * 0.02),
+            (c + s * 0.25, c + s * 0.26),
+            (c + s * 0.16, c + s * 0.42),
+            (c - s * 0.16, c + s * 0.42),
+            (c - s * 0.25, c + s * 0.26),
+        ],
+        s * 0.10,
+    )
+    toes = [
+        (c - s * 0.29, c - s * 0.09, s * 0.088),
+        (c - s * 0.11, c - s * 0.24, s * 0.095),
+        (c + s * 0.11, c - s * 0.24, s * 0.095),
+        (c + s * 0.29, c - s * 0.09, s * 0.088),
+    ]
+    shapes = [(pad, blue)]
+    for tx, ty, tr in toes:
+        shapes.append(
+            (lambda px, py, t=(tx, ty, tr): sd_circle(px, py, t[0], t[1], t[2]), blue)
+        )
+    return shapes
+
+
 PACKS = {
     "dashlight": {"bg": (20, 23, 31), "build": build_dashlight},
     "bugscan": {"bg": (15, 23, 20), "build": build_bugscan},
     "goldscan": {"bg": (26, 21, 9), "build": build_goldscan},
+    "womensfit": {"bg": (23, 16, 20), "build": build_womensfit},
+    "dogtrain": {"bg": (14, 20, 32), "build": build_dogtrain},
 }
 
 

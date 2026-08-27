@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { PACKS } from "../../src/scanners/registry";
+import { SCANNER_PACKS } from "../../src/packs/registry";
 import { checkRateLimit, clientKey } from "../../src/rate-limit";
-import type { ScanResult } from "../../src/scanners/types";
+import type { ScanResult } from "../../src/packs/types";
 
 const MODEL = process.env.DASHLIGHT_MODEL || "claude-opus-5";
 
@@ -48,6 +48,18 @@ const RESULT_SCHEMA = {
     causes: { type: "array", items: { type: "string" } },
     actions: { type: "array", items: { type: "string" } },
     seekHelpIf: { type: "array", items: { type: "string" } },
+    alsoDetected: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["title", "severity"],
+        properties: {
+          title: { type: "string" },
+          severity: { type: "string", enum: ["critical", "warning", "info"] },
+        },
+      },
+    },
     cost: {
       type: ["object", "null"],
       additionalProperties: false,
@@ -103,7 +115,7 @@ export async function POST(request: Request) {
     profile?: string;
   } | null;
 
-  const selected = PACKS[body?.packId ?? ""];
+  const selected = SCANNER_PACKS[body?.packId ?? ""];
   if (!selected) {
     return Response.json({ error: "نوع الفحص غير معروف." }, { status: 400 });
   }

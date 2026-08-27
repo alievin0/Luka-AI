@@ -1,5 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { activePackId, type ScanResult } from "./scanners";
+import { activePackId, type ScanResult } from "./packs";
 import { currencyForCountry } from "./countries";
 
 /** Keys are namespaced per pack so the two apps never share state. */

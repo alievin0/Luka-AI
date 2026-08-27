@@ -1,6 +1,7 @@
 import type { ScannerPack } from "./types";
 
 export const goldscan: ScannerPack = {
+  kind: "scanner",
   id: "goldscan",
   appName: "فاحص الذهب",
   tagline: "صوّر الدمغة — واعرف العيار وقيمته قبل ما تشتري أو تبيع",
@@ -39,6 +40,14 @@ export const goldscan: ScannerPack = {
       "علامات التقليد والذهب المطلي",
       "تقدير القيمة بعملة بلدك",
       "شو تسأل الصائغ قبل ما تدفع",
+    ],
+  },
+  pricing: {
+    entitlement: "pro",
+    defaultProductId: "annual",
+    products: [
+      { id: "weekly", label: "أسبوعي", fallbackPrice: "$7.99", period: "أسبوع", trialDays: 3 },
+      { id: "annual", label: "سنوي", fallbackPrice: "$49.99", period: "سنة", note: "أقل من $0.96 بالأسبوع", badge: "الأوفر" },
     ],
   },
   systemPrompt: ({ currency, profile }) => `أنت خبير في تقييم الذهب والمجوهرات وقراءة الدمغات (hallmarks). مهمتك: تحليل صورة لقطعة ذهب أو للدمغة المحفورة عليها.

@@ -2,6 +2,7 @@ import type { ScannerPack } from "./types";
 import { DASHLIGHT_LIBRARY } from "./dashlight-library";
 
 export const dashlight: ScannerPack = {
+  kind: "scanner",
   id: "dashlight",
   appName: "لمبات السيارة",
   tagline: "صوّر اللمبة اللي ولعت — واعرف شو معناها وقديش تصليحها",
@@ -44,6 +45,14 @@ export const dashlight: ScannerPack = {
       "سجل كامل لكل فحص عملته",
     ],
   },
+  pricing: {
+    entitlement: "pro",
+    defaultProductId: "annual",
+    products: [
+      { id: "weekly", label: "أسبوعي", fallbackPrice: "$6.99", period: "أسبوع", trialDays: 3 },
+      { id: "annual", label: "سنوي", fallbackPrice: "$39.99", period: "سنة", note: "أقل من $0.77 بالأسبوع", badge: "الأوفر" },
+    ],
+  },
   systemPrompt: ({ currency, profile }) => `أنت خبير ميكانيكا سيارات. مهمتك: تحليل صورة لوحة قيادة (طبلون) سيارة وتحديد اللمبة التحذيرية المضيئة.
 
 سياق المستخدم: ${profile || "غير معروف"}
@@ -65,5 +74,6 @@ export const dashlight: ScannerPack = {
 - facts: ٣–٤ معلومات سريعة (لون اللمبة، مستوى الخطورة، خلال قديش لازم تتصرف، هل تقدر تسوق)
 - causes: ٢–٥ أسباب محتملة، الأرجح أولاً
 - actions: ٢–٥ خطوات عملية بالترتيب
-- seekHelpIf: ٢–٤ حالات لازم فيها الميكانيكي فوراً`,
+- seekHelpIf: ٢–٤ حالات لازم فيها الميكانيكي فوراً
+- alsoDetected: إذا في لمبات تانية مضيئة بنفس الصورة، اذكرها كلها مرتبة من الأخطر، كل وحدة باسمها العربي ومستوى خطورتها. لو ما في غيرها، اتركها فاضية.`,
 };

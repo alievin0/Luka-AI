@@ -12,7 +12,7 @@ import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Haptics from "expo-haptics";
-import { pack, activePackId } from "../src/scanners";
+import { pack, activePackId, isScanner } from "../src/packs";
 import { theme, withAlpha } from "../src/theme";
 import { completeOnboarding, type Profile } from "../src/storage";
 import { CountryField } from "../src/components/CountryField";
@@ -111,9 +111,9 @@ export default function Onboarding() {
             </Text>
             <Text style={styles.question}>من وين إنت؟</Text>
             <Text style={styles.subQuestion}>
-              {pack.showCost
-                ? "منشان نقدّر كلفة التصليح بعملة بلدك."
-                : "الحشرات بتختلف كتير حسب المنطقة."}
+              {isScanner(pack) && pack.showCost
+                ? "منشان نقدّر التكلفة بعملة بلدك."
+                : "منشان نضبط النتائج على منطقتك."}
             </Text>
             <CountryField onSelect={pickCountry} />
           </View>

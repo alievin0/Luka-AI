@@ -10,7 +10,7 @@ import {
   Share,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { pack } from "../src/scanners";
+import { pack, isScanner } from "../src/packs";
 import { theme, severityStyle, verdictStyle } from "../src/theme";
 import { getHistory, type HistoryEntry } from "../src/storage";
 
@@ -34,6 +34,8 @@ function Section({ title, items }: { title: string; items: string[] }) {
     </View>
   );
 }
+
+const scannerPack = isScanner(pack) ? pack : null;
 
 export default function Result() {
   const router = useRouter();
@@ -66,6 +68,13 @@ export default function Result() {
   }
 
   const { result, imageUri } = entry;
+  const labels = scannerPack?.labels ?? {
+    facts: "معلومات",
+    causes: "الأسباب",
+    actions: "شو تعمل",
+    seekHelp: "متى تطلب مساعدة",
+  };
+  const showCost = scannerPack?.showCost ?? false;
   const sev = severityStyle(result.severity);
   const ver = verdictStyle(result.verdictLevel);
 
@@ -89,7 +98,7 @@ export default function Result() {
 
       {result.facts?.length > 0 && (
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>{pack.labels.facts}</Text>
+          <Text style={styles.cardTitle}>{labels.facts}</Text>
           <View style={styles.factGrid}>
             {result.facts.map((fact, i) => (
               <View key={`${fact.label}-${i}`} style={styles.fact}>
@@ -101,7 +110,7 @@ export default function Result() {
         </View>
       )}
 
-      {pack.showCost && result.cost && (
+      {showCost && result.cost && (
         <View style={styles.card}>
           <Text style={styles.cardTitle}>الكلفة التقديرية</Text>
           <Text style={styles.cost}>
@@ -111,9 +120,9 @@ export default function Result() {
         </View>
       )}
 
-      <Section title={pack.labels.causes} items={result.causes} />
-      <Section title={pack.labels.actions} items={result.actions} />
-      <Section title={pack.labels.seekHelp} items={result.seekHelpIf} />
+      <Section title={labels.causes} items={result.causes} />
+      <Section title={labels.actions} items={result.actions} />
+      <Section title={labels.seekHelp} items={result.seekHelpIf} />
 
       <View style={styles.actions}>
         <Pressable
@@ -132,7 +141,7 @@ export default function Result() {
                 "",
                 result.summary,
                 "",
-                `${pack.labels.actions}:`,
+                `${labels.actions}:`,
                 ...result.actions.map((a, i) => `${i + 1}. ${a}`),
               ].join("\n"),
             })
