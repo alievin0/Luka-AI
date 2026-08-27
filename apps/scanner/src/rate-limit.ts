@@ -29,15 +29,27 @@ function sweep(now: number) {
   }
 }
 
-/** Best-effort client identity from proxy headers. */
+/**
+ * Best-effort client identity from proxy headers.
+ *
+ * There is no socket peer address inside a WinterCG request handler, so
+ * headers are the only source there is. They are ordered by how much the
+ * caller can influence them: `cf-connecting-ip` is written by the Cloudflare
+ * edge and cannot be set by the client, whereas `x-forwarded-for` is a chain
+ * anyone may prepend to. Preferring the trustworthy one where it exists costs
+ * nothing and removes the easiest way to get a fresh bucket per request.
+ *
+ * This does not make the limiter authoritative — see the note above on moving
+ * the counters to a shared store and adding per-device attestation.
+ */
 export function clientKey(request: Request): string {
+  const trusted = request.headers.get("cf-connecting-ip");
+  if (trusted) return trusted.trim();
+
   const forwarded = request.headers.get("x-forwarded-for");
   if (forwarded) return forwarded.split(",")[0].trim();
-  return (
-    request.headers.get("x-real-ip") ??
-    request.headers.get("cf-connecting-ip") ??
-    "unknown"
-  );
+
+  return request.headers.get("x-real-ip") ?? "unknown";
 }
 
 export type RateVerdict =

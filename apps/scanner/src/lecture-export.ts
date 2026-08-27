@@ -66,6 +66,46 @@ const esc = (value: string) =>
 
 const stamp = (date: Date) => date.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
 
+/** UTF-8 length of a single code point. Arabic sits in the two-byte range,
+ *  so a line well under 75 characters can already be over 75 octets. */
+const utf8Len = (codePoint: number) =>
+  codePoint < 0x80 ? 1 : codePoint < 0x800 ? 2 : codePoint < 0x10000 ? 3 : 4;
+
+/**
+ * Folds a content line to RFC 5545's 75-octet recommendation.
+ *
+ * The limit is octets, not characters, so this walks code points and counts
+ * their encoded width — which also means a character can never be split down
+ * the middle, the way a naive byte slice would split an Arabic letter into
+ * two invalid halves. Continuation lines begin with a single space.
+ *
+ * Deliberately written without Buffer or TextEncoder: this module runs on the
+ * device, and neither is guaranteed in the React Native runtime.
+ */
+function fold(line: string): string {
+  const pieces: string[] = [];
+  let current = "";
+  let used = 0;
+  // 75 for the first line; continuations spend one octet on the leading space.
+  let budget = 75;
+
+  // for..of iterates by code point, so surrogate pairs stay whole.
+  for (const character of line) {
+    const width = utf8Len(character.codePointAt(0)!);
+    if (used + width > budget) {
+      pieces.push(current);
+      current = "";
+      used = 0;
+      budget = 74;
+    }
+    current += character;
+    used += width;
+  }
+  pieces.push(current);
+
+  return pieces.join("\r\n ");
+}
+
 /** Tasks the lecturer dated precisely enough to put in a calendar. */
 export const datedTasks = (lecture: Lecture) =>
   (lecture.analysis?.tasks ?? [])
@@ -108,7 +148,7 @@ export function toIcs(lecture: Lecture): string | null {
 
   lines.push("END:VCALENDAR");
   // RFC 5545 wants CRLF; some calendar apps reject LF-only files.
-  return lines.join("\r\n");
+  return lines.map(fold).join("\r\n");
 }
 
 /**

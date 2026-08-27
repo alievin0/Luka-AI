@@ -11,7 +11,8 @@
     "deploy:api": "eas deploy",
     "check:emphasis": "node scripts/check-emphasis.js",
     "check:transcribe": "node scripts/check-transcribe.js",
-    "check": "npm run typecheck && npm run check:emphasis && npm run check:transcribe"
+    "check": "npm run typecheck && npm run check:emphasis && npm run check:transcribe && npm run check:ics",
+    "check:ics": "node scripts/check-ics.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.109.1",
