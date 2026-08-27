@@ -1,5 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { activePackId, type ScanResult } from "./scanners";
+import { currencyForCountry } from "./countries";
 
 /** Keys are namespaced per pack so the two apps never share state. */
 const k = (name: string) => `@${activePackId}:${name}`;
@@ -24,16 +25,8 @@ export type HistoryEntry = {
 
 export type Profile = Record<string, string>;
 
-const CURRENCY_BY_REGION: Record<string, string> = {
-  "الكويت": "د.ك",
-  "السعودية": "ر.س",
-  "الإمارات": "د.إ",
-  "الأردن": "د.أ",
-  "مصر": "ج.م",
-};
-
 export const currencyFor = (profile: Profile) =>
-  CURRENCY_BY_REGION[profile.region ?? ""] ?? "USD";
+  currencyForCountry(profile.region ?? "");
 
 /** Flattens the onboarding answers into one line for the vision prompt. */
 export const profileSummary = (profile: Profile) =>

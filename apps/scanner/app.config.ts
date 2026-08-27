@@ -14,6 +14,7 @@ const VARIANTS = {
     slug: "dashlight",
     bundleId: "com.dashlight.scanner",
     accent: "#F2A33C",
+    splashBg: "#14171F",
     cameraPermission:
       "نحتاج الكاميرا لتصوير لوحة القيادة والتعرّف على اللمبة التحذيرية.",
     photosPermission: "نحتاج الوصول للصور لاختيار صورة لوحة القيادة.",
@@ -23,6 +24,7 @@ const VARIANTS = {
     slug: "bugscan",
     bundleId: "com.bugscan.identifier",
     accent: "#5BC08A",
+    splashBg: "#0F1714",
     cameraPermission: "نحتاج الكاميرا لتصوير الحشرة أو اللدغة والتعرّف عليها.",
     photosPermission: "نحتاج الوصول للصور لاختيار صورة الحشرة أو اللدغة.",
   },
@@ -38,9 +40,15 @@ const config: ExpoConfig = {
   slug: v.slug,
   version: "0.1.0",
   orientation: "portrait",
+  icon: `./assets/${id}/icon.png`,
   scheme: v.slug,
   userInterfaceStyle: "dark",
   newArchEnabled: true,
+  splash: {
+    image: `./assets/${id}/splash-icon.png`,
+    resizeMode: "contain",
+    backgroundColor: v.splashBg,
+  },
   ios: {
     supportsTablet: false,
     bundleIdentifier: v.bundleId,
@@ -52,9 +60,13 @@ const config: ExpoConfig = {
   android: {
     package: v.bundleId,
     edgeToEdgeEnabled: true,
+    adaptiveIcon: {
+      foregroundImage: `./assets/${id}/adaptive-icon.png`,
+      backgroundColor: v.splashBg,
+    },
     permissions: ["CAMERA", "READ_MEDIA_IMAGES"],
   },
-  web: { output: "server" },
+  web: { output: "server", favicon: `./assets/${id}/favicon.png` },
   plugins: [
     "expo-router",
     ["expo-camera", { cameraPermission: v.cameraPermission }],

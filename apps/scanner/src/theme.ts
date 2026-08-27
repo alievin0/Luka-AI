@@ -21,6 +21,14 @@ export const theme = {
   space: (n: number) => n * 4,
 } as const;
 
+/** Hex colour with an alpha channel, for gradients and glows. */
+export const withAlpha = (hex: string, alpha: number) => {
+  const a = Math.round(Math.max(0, Math.min(1, alpha)) * 255)
+    .toString(16)
+    .padStart(2, "0");
+  return `${hex}${a}`;
+};
+
 export const severityStyle = (s: "critical" | "warning" | "info") =>
   s === "critical"
     ? { color: theme.critical, bg: theme.criticalBg, label: "خطر" }

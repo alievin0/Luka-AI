@@ -17,21 +17,28 @@ export default function RootLayout() {
   const router = useRouter();
   const segments = useSegments();
   const [ready, setReady] = useState(false);
-  const [onboarded, setOnboarded] = useState(false);
 
   useEffect(() => {
-    (async () => {
-      await initPurchases();
-      setOnboarded(await isOnboarded());
-      setReady(true);
-    })();
+    initPurchases();
   }, []);
 
+  // Re-read on every navigation rather than caching once at mount: finishing
+  // onboarding writes to storage and navigates, and a cached `false` here
+  // would bounce the user straight back to onboarding forever.
   useEffect(() => {
-    if (!ready) return;
-    const onOnboarding = segments[0] === "onboarding";
-    if (!onboarded && !onOnboarding) router.replace("/onboarding");
-  }, [ready, onboarded, segments, router]);
+    let cancelled = false;
+    (async () => {
+      const done = await isOnboarded();
+      if (cancelled) return;
+      if (!done && segments[0] !== "onboarding") {
+        router.replace("/onboarding");
+      }
+      setReady(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [segments, router]);
 
   if (!ready) {
     return (
