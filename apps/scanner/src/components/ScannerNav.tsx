@@ -20,6 +20,25 @@ import { SURFACE, BORDER, TEXT_FAINT, ACCENT, FONT, TYPE, TAP } from "../scanner
  * one case where the bar is drawn outside the navigator.
  */
 
+/**
+ * The tab bar's own palette and metrics, as the design specifies them.
+ *
+ * Three of these sit within a few percent of tokens the app already has —
+ * accent #F2A33C, surface #182028, ground #0C0E13 — close enough that no eye
+ * separates them. They are written out rather than mapped onto those tokens so
+ * the bar matches its spec exactly and the difference is visible here rather
+ * than buried. The one that genuinely differs is the inactive grey: #8B949E
+ * against the app's #69717F, which is a real step lighter.
+ */
+const SPEC = {
+  accent: "#F5A623",
+  idle: "#8B949E",
+  pill: "#1A2128",
+  height: 72,
+  radius: 24,
+  inset: 20,
+} as const;
+
 type Item = { name: string; path: string; label: string; icon: React.ComponentProps<typeof Feather>["name"] };
 
 export function ScannerNav(props: Partial<BottomTabBarProps>) {
@@ -29,7 +48,9 @@ export function ScannerNav(props: Partial<BottomTabBarProps>) {
   const { state, navigation } = props;
 
   const items: Item[] = [
-    { name: "index", path: "/", label: t(ui.scanTab), icon: "camera" },
+    /* The reticle, not a camera: the spec draws the brackets the viewfinder
+       itself uses, so the tab and the thing it opens are the same mark. */
+    { name: "index", path: "/", label: t(ui.scanTab), icon: "maximize" },
     ...(isScanner(pack) && pack.library?.length
       ? [
           {
@@ -62,7 +83,6 @@ export function ScannerNav(props: Partial<BottomTabBarProps>) {
       <View style={styles.pill}>
         {items.map((item) => {
           const active = current ? current === item.name : pathname === item.path;
-          const scan = item.name === "index";
           return (
             <Pressable
               key={item.name}
@@ -72,21 +92,13 @@ export function ScannerNav(props: Partial<BottomTabBarProps>) {
               accessibilityLabel={item.label}
               style={styles.item}
             >
-              {scan ? (
-                /* Amber, deliberately, and the one place in these apps where
-                   it is. The rule everywhere else is that amber is the caution
-                   grade and may not double as an action, because a driver who
-                   mistakes a button for a warning is the failure this app
-                   cannot afford. A navigation affordance carries no severity,
-                   so the rule does not reach it — do not "correct" this. */
-                <View style={styles.ring}>
-                  <Feather name="maximize" size={17} color={ACCENT} />
-                </View>
-              ) : (
-                <Feather name={item.icon} size={20} color={active ? ACCENT : TEXT_FAINT} />
-              )}
+              <Feather
+                name={item.icon}
+                size={24}
+                color={active ? SPEC.accent : SPEC.idle}
+              />
               <Text
-                style={[styles.label, (active || scan) && styles.labelOn]}
+                style={[styles.label, active && styles.labelOn]}
                 numberOfLines={1}
               >
                 {item.label}
@@ -103,7 +115,7 @@ export function ScannerNav(props: Partial<BottomTabBarProps>) {
 }
 
 /** What scrolling content must clear so the bar never covers the last row. */
-export const NAV_CLEARANCE = 100;
+export const NAV_CLEARANCE = 104;
 
 const styles = StyleSheet.create({
   /* The bar floats. Its own view is padding and nothing else, so the ground
@@ -111,32 +123,19 @@ const styles = StyleSheet.create({
   wrap: { paddingHorizontal: 32, paddingTop: 2, backgroundColor: "transparent" },
   pill: {
     flexDirection: "row",
-    backgroundColor: SURFACE,
-    /* A hairline, not a stroke. Around a floating surface a 1pt border
-       reads as a drawn box; a hairline is just where the surface ends. */
+    alignItems: "center",
+    height: SPEC.height,
+    backgroundColor: SPEC.pill,
+    borderRadius: SPEC.radius,
+    paddingHorizontal: SPEC.inset,
+    /* A hairline, not a stroke. Around a floating surface a full border reads
+       as a drawn box rather than as where the surface ends. */
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: BORDER,
-    borderRadius: 26,
-    paddingVertical: 7,
-    /* Bottom-aligned, which is what puts all four labels on one line while
-       the taller scan ring rises above the other three. */
-    alignItems: "flex-end",
   },
-  item: { flex: 1, minHeight: TAP, alignItems: "center", gap: 2 },
-  /* Quieter than the reference draws it. At full weight the ring is the
-     brightest thing on the screen and the bar is the first thing you see,
-     which is the opposite of what a bar is for. */
-  ring: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    borderWidth: 1.5,
-    borderColor: ACCENT,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  label: { color: TEXT_FAINT, ...TYPE.small, fontFamily: FONT.regular },
-  labelOn: { color: ACCENT, fontFamily: FONT.medium },
-  dot: { width: 3, height: 3, borderRadius: 1.5, backgroundColor: "transparent" },
-  dotOn: { backgroundColor: ACCENT },
+  item: { flex: 1, minHeight: TAP, alignItems: "center", justifyContent: "center", gap: 4 },
+  label: { color: SPEC.idle, ...TYPE.small, fontFamily: FONT.regular },
+  labelOn: { color: SPEC.accent, fontFamily: FONT.medium },
+  dot: { width: 4, height: 4, borderRadius: 2, backgroundColor: "transparent" },
+  dotOn: { backgroundColor: SPEC.accent },
 });
