@@ -9,6 +9,7 @@ import {
   Animated,
   Easing,
   Alert,
+  PanResponder,
 } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import * as ImagePicker from "expo-image-picker";
@@ -79,6 +80,10 @@ async function prepare(uri: string) {
 /** The stages of a scan, in the order they actually happen. */
 type Stage = "preparing" | "reading" | null;
 
+/** How far apart two fingers are, in points. */
+const spreadOf = (touches: readonly { pageX: number; pageY: number }[]) =>
+  Math.hypot(touches[0].pageX - touches[1].pageX, touches[0].pageY - touches[1].pageY);
+
 export function ScannerHome({ pack }: { pack: ScannerPack }) {
   const router = useRouter();
   /** Arriving with pick=1 means the driver chose "from gallery" on a photo we
@@ -91,6 +96,45 @@ export function ScannerHome({ pack }: { pack: ScannerPack }) {
   const [stage, setStage] = useState<Stage>(null);
   const [shot, setShot] = useState<string | null>(null);
   const [torch, setTorch] = useState(false);
+
+  /**
+   * Pinch to zoom.
+   *
+   * A dashboard symbol is small and the driver is often reaching across the
+   * cabin rather than sitting square in front of it, so getting closer is not
+   * always an option — the lens has to do it.
+   *
+   * Built on PanResponder, which is in React Native itself, rather than on a
+   * gesture library this app does not otherwise need. Two fingers are all this
+   * has to understand.
+   */
+  const [zoom, setZoom] = useState(0);
+  const zoomRef = useRef(0);
+  const pinchFrom = useRef({ spread: 0, zoom: 0 });
+
+  const pinch = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: (e) => e.nativeEvent.touches.length === 2,
+      onMoveShouldSetPanResponder: (e) => e.nativeEvent.touches.length === 2,
+      onPanResponderGrant: (e) => {
+        const touches = e.nativeEvent.touches;
+        if (touches.length !== 2) return;
+        pinchFrom.current = { spread: spreadOf(touches), zoom: zoomRef.current };
+      },
+      onPanResponderMove: (e) => {
+        const touches = e.nativeEvent.touches;
+        const from = pinchFrom.current;
+        if (touches.length !== 2 || !from.spread) return;
+        /* A doubling of the spread moves a third of the range. Mapping it
+           one-to-one puts the whole sweep inside one small gesture, which
+           overshoots every time. */
+        const ratio = spreadOf(touches) / from.spread;
+        const next = Math.min(1, Math.max(0, from.zoom + (ratio - 1) * 0.35));
+        zoomRef.current = next;
+        setZoom(next);
+      },
+    }),
+  ).current;
   const [scansLeft, setScansLeft] = useState<number | null>(null);
 
   const busy = stage !== null;
@@ -206,7 +250,18 @@ export function ScannerHome({ pack }: { pack: ScannerPack }) {
 
   return (
     <View style={styles.fill}>
-      <CameraView ref={cameraRef} style={StyleSheet.absoluteFill} facing="back" enableTorch={torch} />
+      <CameraView
+        ref={cameraRef}
+        style={StyleSheet.absoluteFill}
+        facing="back"
+        enableTorch={torch}
+        zoom={zoom}
+      />
+
+      {/* The pinch surface sits under the chrome, so the shutter, the torch
+          and the gallery keep their taps — this only ever claims a gesture
+          that already has two fingers on it. */}
+      <View style={StyleSheet.absoluteFill} {...pinch.panHandlers} />
 
       <SafeAreaView style={styles.overlay} pointerEvents="box-none" edges={["top", "bottom"]}>
         {/* One control up here, and the quota only when there is one to
