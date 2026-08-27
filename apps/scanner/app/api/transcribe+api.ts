@@ -68,22 +68,30 @@ function toSegments(words: ScribeWord[]): Segment[] {
     const text = word.text ?? "";
     if (!text) continue;
 
-    const gap = previousEnd !== null && typeof word.start === "number"
-      ? word.start - previousEnd
-      : 0;
+    // Scribe puts a spacing entry between every pair of words, and that entry
+    // spans the pause. Letting one open a segment stamps the segment with the
+    // previous sentence's end time, and letting one advance previousEnd makes
+    // every gap measure zero — which silently killed the silence split below.
+    const isSpacing = word.type === "spacing";
+    if (isSpacing && current.length === 0) continue;
+
+    const gap =
+      previousEnd !== null && typeof word.start === "number"
+        ? word.start - previousEnd
+        : 0;
 
     if (current.length === 0) {
       startedAt = word.start ?? previousEnd ?? 0;
-    } else if (gap > SPLIT_SILENCE) {
+    } else if (!isSpacing && gap > SPLIT_SILENCE) {
       flush();
       startedAt = word.start ?? 0;
     }
 
     current.push(text);
-    if (word.type !== "spacing" && word.speaker_id) speaker ??= word.speaker_id;
-    if (typeof word.end === "number") previousEnd = word.end;
+    if (!isSpacing && word.speaker_id) speaker ??= word.speaker_id;
+    if (!isSpacing && typeof word.end === "number") previousEnd = word.end;
 
-    const ends = /[.!?؟]\s*$/.test(text);
+    const ends = !isSpacing && /[.!?؟]\s*$/.test(text);
     const tooLong = current.filter((piece) => piece.trim()).length >= MAX_SEGMENT_WORDS;
     if (ends || tooLong) flush();
   }

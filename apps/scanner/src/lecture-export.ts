@@ -127,8 +127,14 @@ export async function scheduleTaskReminders(lecture: Lecture): Promise<number> {
 
   let scheduled = 0;
   for (const { task, index } of datedTasks(lecture)) {
-    const when = new Date(Date.parse(task.dueISO!) - 12 * 60 * 60 * 1000);
-    if (when.getTime() <= Date.now()) continue;
+    const due = Date.parse(task.dueISO!);
+    if (due <= Date.now()) continue;
+    // Twelve hours ahead where there is room, otherwise as soon as we can:
+    // a deadline inside the next twelve hours is the one a student most needs
+    // telling about, and skipping it was leaving exactly those silent.
+    const lead = due - 12 * 60 * 60 * 1000;
+    const when = new Date(Math.max(lead, Date.now() + 60_000));
+    if (when.getTime() >= due) continue;
     try {
       await Notifications.scheduleNotificationAsync({
         identifier: `${lecture.id}-task-${index}`,
@@ -144,6 +150,18 @@ export async function scheduleTaskReminders(lecture: Lecture): Promise<number> {
     }
   }
   return scheduled;
+}
+
+/** Whether this lecture currently has reminders scheduled. Read on load so
+ *  the button reflects the real state rather than resetting to "off" every
+ *  time the screen is opened. */
+export async function remindersScheduled(lecture: Lecture): Promise<boolean> {
+  try {
+    const scheduled = await Notifications.getAllScheduledNotificationsAsync();
+    return scheduled.some((n) => n.identifier.startsWith(`${lecture.id}-task-`));
+  } catch {
+    return false;
+  }
 }
 
 export async function cancelTaskReminders(lecture: Lecture) {

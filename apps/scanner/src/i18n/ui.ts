@@ -31,6 +31,17 @@ export const ui = {
     "We don't store your photos on our servers or link them to you. Scans are saved on your device only.",
     "ما بنخزّن صورك على خوادمنا وما بنربطها باسمك. الفحوصات بتنحفظ على جهازك بس.",
   ),
+  // The lecture app takes no photos and keeps no scans, so the scanner
+  // wording above would be describing something it does not do — in a
+  // consent screen, which is the one place that must be accurate.
+  aiNoticeAudio: L(
+    "Your lecture is turned into text on your device as it's spoken. To summarise it, that text is sent to be analysed by AI.",
+    "كلام المحاضرة بينحوّل لنص على جهازك أول بأول. وعشان يتلخّص، بينبعت النص ليتحلل بالذكاء الاصطناعي.",
+  ),
+  privacyNoticeAudio: L(
+    "The recording stays on your device. We don't store your lectures on our servers or link them to you.",
+    "التسجيل بيضل على جهازك. ما بنخزّن محاضراتك على خوادمنا وما بنربطها باسمك.",
+  ),
   progressLocal: L(
     "Your progress is saved on your device only.",
     "تقدّمك محفوظ على جهازك بس.",
@@ -224,6 +235,22 @@ export const ui = {
   processing: L("Studying", "بيذاكر"),
   failed: L("Failed", "فشل"),
   endLecture: L("End the lecture", "إنهاء المحاضرة"),
+  endLectureConfirm: L(
+    "End the lecture and study it now? The recording stops here.",
+    "ننهي المحاضرة ونذاكرها هلق؟ التسجيل بيوقف هون.",
+  ),
+  stillProcessing: L(
+    "This lecture was left mid-study. Run it again to finish.",
+    "هالمحاضرة وقفت بنص المذاكرة. شغّلها كمان مرة تخلص.",
+  ),
+  interrupted: L(
+    "The recording stopped before the lecture ended.",
+    "التسجيل وقف قبل ما تخلص المحاضرة.",
+  ),
+  liveWriterOff: L(
+    "The live writer isn't running — the lecture is still recording, and the text comes after it ends.",
+    "الكاتب المباشر مش شغال — المحاضرة عم تنسجّل، والنص بيجي بعد ما تخلص.",
+  ),
   markImportant: L("Mark this important", "علّمها مهمة"),
   importantMoments: L("Important moments", "اللقطات المهمة"),
   markedByYou: L("you marked it", "علّمتها إنت"),

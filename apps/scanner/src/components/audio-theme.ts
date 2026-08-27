@@ -1,8 +1,16 @@
 import { StyleSheet } from "react-native";
+import { isRTL } from "../i18n";
 
 /** Mahdar's palette and the chrome every lecture screen repeats: the gold on
  *  near-black, the wordmark pill, the panel. Shared so the record, analysing
  *  and review screens cannot drift away from the home screen. */
+
+/** Body text runs with the reading direction. Hardcoding "right" mirrored
+ *  every Mahdar screen on an English device, which reads as a broken app
+ *  rather than a translated one. */
+export const READ: "left" | "right" = isRTL ? "right" : "left";
+/** Where a row of controls collects — the far edge of the reading direction. */
+export const READ_END: "flex-start" | "flex-end" = isRTL ? "flex-end" : "flex-start";
 
 export const GOLD = "#D9BE83";
 export const INK = "#0E0D0B";

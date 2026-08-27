@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -7,8 +7,9 @@ import {
   ScrollView,
   ActivityIndicator,
   useWindowDimensions,
+  Alert,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useNavigation, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
 import {
@@ -24,9 +25,16 @@ import { pack, isAudio, type Segment } from "../src/packs";
 import { t, locale, isRTL } from "../src/i18n";
 import { ui } from "../src/i18n/ui";
 import { getProfile } from "../src/storage";
-import { clock, newLectureId, persistRecording, saveLecture, scoreEnergy } from "../src/lectures";
+import {
+  bumpLectureCount,
+  clock,
+  newLectureId,
+  persistRecording,
+  saveLecture,
+  scoreEnergy,
+} from "../src/lectures";
 import { startLiveWriter, recogniserLocale, liveWriterAvailable, type LiveWriter } from "../src/speech";
-import { GOLD, INK, audio as s } from "../src/components/audio-theme";
+import { GOLD, INK, audio as s, READ } from "../src/components/audio-theme";
 
 /**
  * 16 kHz mono is not a compromise here — every speech recogniser downsamples
@@ -76,6 +84,7 @@ const AUTOSAVE_MS = 15_000;
 
 export default function Record() {
   const router = useRouter();
+  const navigation = useNavigation();
   const { width } = useWindowDimensions();
   const wide = width >= 700;
 
@@ -91,8 +100,18 @@ export default function Record() {
   const [segments, setSegments] = useState<Segment[]>([]);
   const [interim, setInterim] = useState("");
   const [ending, setEnding] = useState(false);
+  /** The live writer stopped and could not be brought back. The header must
+   *  stop claiming it is running, and the lecture is marked so the accurate
+   *  pass runs instead of trusting a transcript that stops mid-lecture. */
+  const [writerDown, setWriterDown] = useState(false);
 
   const writer = useRef<LiveWriter | null>(null);
+  /** Guards the restart loop: set while ending, so a stop we asked for is not
+   *  mistaken for the recogniser dying and immediately restarted. */
+  const finishing = useRef(false);
+  const restarting = useRef(false);
+  const autosave = useRef<ReturnType<typeof setInterval> | null>(null);
+  const restartAttempts = useRef(0);
   const idRef = useRef(newLectureId());
   const scroller = useRef<ScrollView>(null);
   /** Peak loudness since the current utterance began. A ref because it is
@@ -100,6 +119,13 @@ export default function Record() {
   const peak = useRef(-160);
   const utteranceStart = useRef(0);
   const lastFinalAt = useRef(0);
+  /** True between the first word of an utterance and its final result. It is
+   *  what lets the utterance be stamped when it begins: without it the only
+   *  moment available is when the *previous* one ended, which hands every
+   *  pause to the segment that follows it. A lecturer who writes on the board
+   *  for two minutes would stamp the next sentence two minutes early, and
+   *  tapping it would seek the recording to the wrong place. */
+  const speaking = useRef(false);
   /* durationMillis is the recorder's own clock — the same timeline the ASR
    * word timestamps are offsets into. A tick counter would drift over ninety
    * minutes and take every timestamp in the app with it. */
@@ -123,6 +149,10 @@ export default function Record() {
    * transcript is the part a student actually studies from, and it survives. */
   useEffect(() => {
     const timer = setInterval(() => {
+      // end() has already written the finished lecture; a late autosave would
+      // put it back to "recording" and strand it there, showing a live pill
+      // on the home list for a lecture that finished.
+      if (finishing.current) return;
       if (segmentsRef.current.length === 0) return;
       saveLecture({
         id: idRef.current,
@@ -133,6 +163,7 @@ export default function Record() {
         status: "recording",
       });
     }, AUTOSAVE_MS);
+    autosave.current = timer;
     return () => clearInterval(timer);
   }, []);
 
@@ -157,6 +188,16 @@ export default function Record() {
     typeof state.metering === "number" &&
     state.metering < WEAK_DBFS;
 
+  /** Called on the first sign of speech. Anchors the utterance to now and
+   *  starts the loudness window here, so the peak measures the talking rather
+   *  than the silence in front of it. */
+  const openUtterance = useCallback(() => {
+    if (speaking.current) return;
+    speaking.current = true;
+    utteranceStart.current = secondsRef.current;
+    peak.current = -160;
+  }, []);
+
   const pushSegment = useCallback((text: string) => {
     const trimmed = text.trim();
     if (!trimmed) return;
@@ -165,8 +206,7 @@ export default function Record() {
     // Read the previous final's time before stamping this one, or the gap
     // below is measured against this very call and is always zero.
     const sincePreviousFinal = Date.now() - lastFinalAt.current;
-    peak.current = -160;
-    utteranceStart.current = secondsRef.current;
+    speaking.current = false;
     lastFinalAt.current = Date.now();
     setSegments((prev) => {
       // The recogniser re-emits a growing utterance as it revises it; two
@@ -182,6 +222,82 @@ export default function Record() {
     });
     setInterim("");
   }, []);
+
+  /**
+   * Nothing leaves this screen without going through end().
+   *
+   * `gestureEnabled: false` only suppresses the iOS swipe. Android's back
+   * button still pops the stack, and unmounting tears down the recorder
+   * without stopping it — the .m4a is left unindexed in cache and the only
+   * trace of the lecture is a 15-second autosave stuck at "recording", which
+   * the home list then shows as live forever. The free lecture is spent.
+   */
+  useEffect(() => {
+    const unsubscribe = navigation.addListener("beforeRemove", (event: any) => {
+      if (finishing.current || denied || failed || !ready) return;
+      event.preventDefault();
+      Alert.alert(t(ui.endLecture), t(ui.endLectureConfirm), [
+        { text: t(ui.resume), style: "cancel" },
+        { text: t(ui.endLecture), style: "destructive", onPress: () => void end() },
+      ]);
+    });
+    return unsubscribe;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [navigation, denied, failed, ready, ending, segments, interim, seconds]);
+
+  /**
+   * Brings the live writer back after the recognition session ends.
+   *
+   * It ends far more often than it looks: `continuous` is unsupported on
+   * Android 12 and below, where the session closes after the first final
+   * result, and on any device an incoming call ends the task outright. The
+   * recorder survives both — so without this the audio keeps going while the
+   * transcript stops, and the truncated text is long enough to look fine.
+   */
+  const restartWriter = useCallback(async () => {
+    if (finishing.current || restarting.current) return;
+    restarting.current = true;
+
+    // Back off, but keep trying for the length of a lecture rather than
+    // giving up after a burst: a phone call is a perfectly ordinary reason
+    // for the session to end, and the lecture continues afterwards.
+    const attempt = restartAttempts.current;
+    restartAttempts.current = attempt + 1;
+    const wait = Math.min(8000, 400 * 2 ** Math.min(attempt, 4));
+    await new Promise((resolve) => setTimeout(resolve, wait));
+
+    if (finishing.current) {
+      restarting.current = false;
+      return;
+    }
+
+    try {
+      writer.current?.stop();
+    } catch {
+      // It is already gone; that is why we are here.
+    }
+    writer.current = null;
+
+    const profile = await getProfile();
+    const next = await startLiveWriter({
+      lang: recogniserLocale(profile.lectureLanguage),
+      onResult: ({ text, isFinal }) => {
+        if (finishing.current) return;
+        openUtterance();
+        if (isFinal) pushSegment(text);
+        else setInterim(text);
+      },
+      onEnd: restartWriter,
+      onError: restartWriter,
+    });
+
+    writer.current = next;
+    setWriterDown(next === null);
+    if (next) restartAttempts.current = 0;
+    restarting.current = false;
+    // pushSegment and openUtterance are stable; recursion is intentional.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openUtterance, pushSegment]);
 
   useEffect(() => {
     let cancelled = false;
@@ -226,10 +342,14 @@ export default function Record() {
         lang: recogniserLocale(profile.lectureLanguage),
         onResult: ({ text, isFinal }) => {
           if (cancelled) return;
+          openUtterance();
           if (isFinal) pushSegment(text);
           else setInterim(text);
         },
+        onEnd: restartWriter,
+        onError: restartWriter,
       });
+      if (!writer.current) setWriterDown(true);
     })();
 
     return () => {
@@ -267,6 +387,11 @@ export default function Record() {
   const end = async () => {
     if (ending) return;
     setEnding(true);
+    // Set before anything is torn down: it stops the autosave from reverting
+    // the finished lecture, and stops the writer's own stop() being mistaken
+    // for the recogniser dying and restarted.
+    finishing.current = true;
+    if (autosave.current) clearInterval(autosave.current);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     writer.current?.stop();
     writer.current = null;
@@ -278,7 +403,6 @@ export default function Record() {
 
     const id = idRef.current;
     let uri: string | undefined;
-
     try {
       await recorder.stop();
       uri = recorder.uri ? await persistRecording(recorder.uri, id) : undefined;
@@ -286,6 +410,15 @@ export default function Record() {
       // The recording is lost, but whatever the live writer captured is not.
       uri = undefined;
     }
+
+    // Hand the microphone back. Nothing else in the app resets this, and the
+    // recording category routes playback to the earpiece on the path where
+    // the speech recogniser never ran to override it.
+    await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true }).catch(
+      () => undefined,
+    );
+
+    const segmentsToSave = finished.filter((seg) => seg.text.trim() || seg.marked);
 
     await saveLecture({
       id,
@@ -296,16 +429,33 @@ export default function Record() {
       // Raw dBFS goes to storage. Scoring here would write a 0–1 value into
       // the same field the scorer later reads as dBFS, and every later pass
       // would read those as clipping and zero the whole lecture.
-      segments: finished.filter((seg) => seg.text.trim() || seg.marked),
+      segments: segmentsToSave,
+      // A writer that died mid-lecture leaves text that is long enough to
+      // look complete. Saying so here is what makes the accurate pass run
+      // instead of summarising the first minute as though it were the hour.
+      liveWriterFailed: writerDown || !liveWriterAvailable(),
       status: "processing",
     });
+
+    // Spent here rather than on the button: this is the first moment a
+    // lecture actually exists, so a denied microphone or a student who backed
+    // out never costs them their free one.
+    await bumpLectureCount();
 
     router.replace({ pathname: "/analyzing", params: { id } });
   };
 
-  const marked = scoreEnergy(segments)
-    .map((seg, index) => ({ seg, index }))
-    .filter(({ seg }) => seg.marked || seg.emphasis >= 0.5);
+  /* Memoised because the metering poll re-renders this screen four times a
+   * second, and the scorer walks a rolling window over every segment — an
+   * hour in, that is quadratic work on every tick for a list that only
+   * changes when someone speaks. */
+  const marked = useMemo(
+    () =>
+      scoreEnergy(segments)
+        .map((seg, index) => ({ seg, index }))
+        .filter(({ seg }) => seg.marked || seg.emphasis >= 0.5),
+    [segments],
+  );
 
   const transcript = (
     <ScrollView
@@ -362,8 +512,10 @@ export default function Record() {
           <Text style={s.wordmarkArabic}>{t(pack.appName)}</Text>
         </View>
 
-        <Text style={styles.writerHint}>
-          {liveWriterAvailable() ? t(pack.voice.liveWriterReady) : t(ui.processing)}
+        <Text style={[styles.writerHint, writerDown && styles.writerHintDown]}>
+          {!liveWriterAvailable() || writerDown
+            ? t(ui.liveWriterOff)
+            : t(pack.voice.liveWriterReady)}
         </Text>
 
         {weak ? (
@@ -442,6 +594,7 @@ export default function Record() {
 }
 
 const styles = StyleSheet.create({
+  writerHintDown: { color: "#C9AE73" },
   writerHint: {
     color: "#9C9382",
     fontSize: 13,
@@ -483,18 +636,18 @@ const styles = StyleSheet.create({
     marginTop: 4,
     minWidth: 42,
   },
-  lineText: { color: "#E8E0CE", fontSize: 16, lineHeight: 30, flex: 1, textAlign: "right" },
+  lineText: { color: "#E8E0CE", fontSize: 16, lineHeight: 30, flex: 1, textAlign: READ },
   lineMarked: { color: GOLD },
-  interim: { color: "#6E685C", fontSize: 15, fontStyle: "italic", textAlign: "right" },
+  interim: { color: "#6E685C", fontSize: 15, fontStyle: "italic", textAlign: READ },
 
   moments: { maxHeight: 190, padding: 16, gap: 10 },
   momentsWide: { flex: 1, maxHeight: undefined },
-  momentsTitle: { color: "#E8E0CE", fontSize: 15, fontWeight: "700", textAlign: "right" },
+  momentsTitle: { color: "#E8E0CE", fontSize: 15, fontWeight: "700", textAlign: READ },
   momentsEmpty: { color: "#6E685C", fontSize: 14, textAlign: "center", paddingVertical: 12 },
   momentsList: { gap: 10 },
   momentRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   momentStamp: { color: "#6E685C", fontSize: 12, fontVariant: ["tabular-nums"] },
-  momentText: { color: "#C9BC9A", fontSize: 14, flex: 1, textAlign: "right" },
+  momentText: { color: "#C9BC9A", fontSize: 14, flex: 1, textAlign: READ },
   tagMarked: { backgroundColor: "#3A2E12" },
 
   centered: { flex: 1, alignItems: "center", justifyContent: "center", padding: 32, gap: 22 },

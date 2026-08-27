@@ -4,10 +4,9 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { t, locale } from "../i18n";
 import { ui } from "../i18n/ui";
-import { theme } from "../theme";
+import { GOLD, INK, READ, READ_END } from "./audio-theme";
 import type { AudioPack, Lecture } from "../packs";
-import { bumpLectureCount, getLectureCount, getLectures } from "../lectures";
-import { isPro } from "../purchases";
+import { getLectures, lectureAllowed } from "../lectures";
 
 /**
  * Mahdar's home screen, laid out to match the existing web product: the
@@ -19,15 +18,14 @@ export function AudioHome({ pack }: { pack: AudioPack }) {
   const router = useRouter();
   const [lectures, setLectures] = useState<Lecture[]>([]);
 
-  /** The free tier is counted on lectures ever started, not lectures kept, so
-   *  deleting one doesn't buy another. */
+  /** The free tier is counted on lectures ever recorded, not lectures kept,
+   *  so deleting one doesn't buy another. The count is spent when a lecture
+   *  is actually saved, not here: a denied microphone or a student who backs
+   *  out of the record screen would otherwise burn the only free lecture
+   *  without ever producing one. */
   const startLecture = async () => {
-    if (!(await isPro()) && (await getLectureCount()) >= pack.freeLectures) {
-      router.push("/paywall");
-      return;
-    }
-    await bumpLectureCount();
-    router.push("/record");
+    if (await lectureAllowed()) router.push("/record");
+    else router.push("/paywall");
   };
 
   useFocusEffect(
@@ -125,8 +123,7 @@ export function AudioHome({ pack }: { pack: AudioPack }) {
   );
 }
 
-const GOLD = "#D9BE83";
-const INK = "#0E0D0B";
+
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: INK },
@@ -163,7 +160,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    alignSelf: "flex-end",
+    alignSelf: READ_END,
     backgroundColor: "#17150F",
     borderWidth: 1,
     borderColor: "#2A2519",
@@ -181,17 +178,17 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     lineHeight: 66,
     marginTop: 26,
-    textAlign: "right",
+    textAlign: READ,
   },
   intro: {
     color: "#9C9382",
     fontSize: 16,
     lineHeight: 32,
     marginTop: 22,
-    textAlign: "right",
+    textAlign: READ,
   },
 
-  actions: { flexDirection: "row", gap: 12, marginTop: 34, justifyContent: "flex-end" },
+  actions: { flexDirection: "row", gap: 12, marginTop: 34, justifyContent: READ_END },
   primary: {
     flexDirection: "row",
     alignItems: "center",

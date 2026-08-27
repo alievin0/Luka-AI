@@ -10,6 +10,27 @@ import { activePackId, type Lecture, type Segment } from "./packs";
 
 const KEY = `@${activePackId}:lectures`;
 
+/**
+ * Marks lectures that were still recording when the app went away.
+ *
+ * A lecture only reaches "processing" through end(). One left at "recording"
+ * on a fresh launch is one the app was killed during — the home list would
+ * otherwise show it as live forever, and opening it would offer nothing.
+ * The transcript the autosave captured is still there and still worth
+ * studying, so this routes it into analysis rather than discarding it.
+ */
+export async function recoverInterruptedLectures(): Promise<void> {
+  const lectures = await getLectures();
+  if (!lectures.some((l) => l.status === "recording")) return;
+  await write(
+    lectures.map((l) =>
+      l.status === "recording"
+        ? { ...l, status: transcriptOfSegments(l.segments).length >= 20 ? "processing" : "failed" }
+        : l,
+    ),
+  );
+}
+
 export async function getLectures(): Promise<Lecture[]> {
   const raw = await AsyncStorage.getItem(KEY);
   if (!raw) return [];
@@ -61,6 +82,16 @@ export async function bumpLectureCount() {
   const next = (await getLectureCount()) + 1;
   await AsyncStorage.setItem(COUNT_KEY, String(next));
   return next;
+}
+
+/** Whether another lecture may be started. Both entry points — recording and
+ *  pasting — ask here, so neither can become a way around the other. */
+export async function lectureAllowed(): Promise<boolean> {
+  const { isPro } = require("./purchases") as typeof import("./purchases");
+  const { pack, isAudio } = require("./packs") as typeof import("./packs");
+  if (!isAudio(pack)) return true;
+  if (await isPro()) return true;
+  return (await getLectureCount()) < pack.freeLectures;
 }
 
 /* ------------------------------------------------------------------ helpers */
@@ -161,6 +192,56 @@ export function scoreEnergy(segments: Segment[]): ScoredSegment[] {
     if (rise <= RAISE_DB) return { ...segment, emphasis: 0 };
     return { ...segment, emphasis: Math.max(0, Math.min(1, (rise - RAISE_DB) / RAISE_DB)) };
   });
+}
+
+/**
+ * Folds an accurate server transcript onto what the device already knew.
+ *
+ * The server pass returns better words, but it knows nothing the microphone
+ * knew: not how loud the lecturer was at any moment, and not which passages
+ * the student reached over and marked during the lecture. Replacing the
+ * segments outright throws both away — and the loudness readings cannot be
+ * recovered, because the metering only exists while recording.
+ *
+ * So the new text wins and the old measurements are carried across by time:
+ * each incoming segment takes the loudness of the recorded segments it
+ * overlaps, and inherits a hand mark from any of them.
+ */
+export function mergeTranscript(incoming: Segment[], recorded: Segment[]): Segment[] {
+  const measured = recorded.filter(
+    (s) => typeof s.energy === "number" && Number.isFinite(s.energy),
+  );
+  if (measured.length === 0 || incoming.length === 0) return incoming;
+
+  const merged = incoming.map((segment) => ({ ...segment }));
+
+  // Each recorded segment is attached to the incoming one it is closest to,
+  // rather than to whichever interval it falls inside. The two passes are
+  // transcribing the same audio but do not agree to the second on where a
+  // sentence starts, and with interval bucketing a one-second disagreement
+  // hands a measurement to the neighbouring sentence.
+  for (const source of measured) {
+    let best = -1;
+    let bestGap = Number.POSITIVE_INFINITY;
+    for (let i = 0; i < merged.length; i += 1) {
+      const gap = Math.abs(merged[i].at - source.at);
+      if (gap < bestGap) {
+        bestGap = gap;
+        best = i;
+      }
+    }
+    // Beyond half a minute the two are not describing the same moment.
+    if (best === -1 || bestGap > 30) continue;
+
+    const target = merged[best];
+    target.energy =
+      typeof target.energy === "number"
+        ? Math.max(target.energy, source.energy!)
+        : source.energy;
+    if (source.marked) target.marked = true;
+  }
+
+  return merged;
 }
 
 /** The moments worth handing the model: what the student marked by hand,

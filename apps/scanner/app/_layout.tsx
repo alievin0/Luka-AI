@@ -5,10 +5,11 @@ import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { theme } from "../src/theme";
 import { isOnboarded } from "../src/storage";
-import { pack, isProgram, isScanner } from "../src/packs";
+import { pack, isAudio, isProgram, isScanner } from "../src/packs";
 import { t, isRTL } from "../src/i18n";
 import { ui } from "../src/i18n/ui";
 import { initPurchases } from "../src/purchases";
+import { recoverInterruptedLectures } from "../src/lectures";
 
 // Layout direction follows the device language, not the app. Forcing RTL
 // unconditionally would mirror the entire English UI.
@@ -24,6 +25,9 @@ export default function RootLayout() {
 
   useEffect(() => {
     initPurchases();
+    // A lecture still marked "recording" at launch is one the app was killed
+    // during; without this the home list shows it as live forever.
+    if (isAudio(pack)) recoverInterruptedLectures();
   }, []);
 
   // Re-read on every navigation rather than caching once at mount: finishing

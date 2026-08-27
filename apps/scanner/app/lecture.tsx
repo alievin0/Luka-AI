@@ -28,12 +28,13 @@ import {
 import {
   cancelTaskReminders,
   datedTasks,
+  remindersScheduled,
   scheduleTaskReminders,
   shareFile,
   toIcs,
   toMarkdown,
 } from "../src/lecture-export";
-import { GOLD, INK, audio as s } from "../src/components/audio-theme";
+import { GOLD, INK, audio as s, READ, READ_END } from "../src/components/audio-theme";
 
 type TabKey = "summary" | "tasks" | "terms" | "exam" | "map" | "tone" | "transcript";
 
@@ -58,8 +59,15 @@ export default function LectureScreen() {
   useFocusEffect(
     useCallback(() => {
       let active = true;
-      getLecture(String(id)).then((found) => {
-        if (active) setLecture(found ?? null);
+      getLecture(String(id)).then(async (found) => {
+        if (!active) return;
+        setLecture(found ?? null);
+        // Reflect what is actually scheduled with the OS, rather than
+        // defaulting to "off" and offering to schedule duplicates.
+        if (found) {
+          const on = await remindersScheduled(found);
+          if (active) setRemindersOn(on);
+        }
       });
       return () => {
         active = false;
@@ -214,15 +222,27 @@ export default function LectureScreen() {
               <Action
                 label={t(ui.retranscribe)}
                 glyph="↻"
-                onPress={() =>
-                  router.push({ pathname: "/analyzing", params: { id: lecture.id, retranscribe: "1" } })
-                }
+                onPress={async () => {
+                  await cancelTaskReminders(lecture);
+                  setRemindersOn(false);
+                  router.push({
+                    pathname: "/analyzing",
+                    params: { id: lecture.id, retranscribe: "1" },
+                  });
+                }}
               />
             ) : null}
             <Action
               label={t(ui.reanalyse)}
               glyph="✧"
-              onPress={() => router.push({ pathname: "/analyzing", params: { id: lecture.id } })}
+              onPress={async () => {
+                // The scheduled reminders point at tasks in the list that is
+                // about to be replaced. Left alone they would fire for work
+                // the new analysis no longer contains.
+                await cancelTaskReminders(lecture);
+                setRemindersOn(false);
+                router.push({ pathname: "/analyzing", params: { id: lecture.id } });
+              }}
             />
             <Action label={t(ui.deleteLecture)} glyph="🗑" onPress={confirmDelete} danger />
           </ScrollView>
@@ -275,6 +295,36 @@ export default function LectureScreen() {
               </Pressable>
             ))}
           </ScrollView>
+
+          {lecture.status !== "ready" ? (
+            <View style={[s.panel, styles.stateCard]}>
+              <Text style={styles.stateTitle}>
+                {lecture.status === "failed" ? t(ui.failed) : t(ui.processing)}
+              </Text>
+              <Text style={styles.stateBody}>
+                {lecture.error || (lecture.status === "processing" ? t(ui.stillProcessing) : "")}
+              </Text>
+              <View style={styles.stateActions}>
+                <Action
+                  label={t(ui.reanalyse)}
+                  glyph="✧"
+                  onPress={() => router.push({ pathname: "/analyzing", params: { id: lecture.id } })}
+                />
+                {lecture.audioUri ? (
+                  <Action
+                    label={t(ui.retranscribe)}
+                    glyph="↻"
+                    onPress={() =>
+                      router.push({
+                        pathname: "/analyzing",
+                        params: { id: lecture.id, retranscribe: "1" },
+                      })
+                    }
+                  />
+                ) : null}
+              </View>
+            </View>
+          ) : null}
 
           <View style={[s.panel, styles.body]}>
             {tab === "summary" ? (
@@ -493,13 +543,17 @@ function Action({
 
 const styles = StyleSheet.create({
   loading: { alignItems: "center", justifyContent: "center" },
+  stateCard: { padding: 20, gap: 12, marginBottom: 14 },
+  stateTitle: { color: GOLD, fontSize: 16, fontWeight: "700", textAlign: READ },
+  stateBody: { color: "#9C9382", fontSize: 14, lineHeight: 28, textAlign: READ },
+  stateActions: { flexDirection: "row", gap: 8, flexWrap: "wrap", justifyContent: READ_END },
   content: { paddingHorizontal: 20, paddingBottom: 56 },
 
   datePill: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    alignSelf: "flex-end",
+    alignSelf: READ_END,
     backgroundColor: "#17150F",
     borderWidth: 1,
     borderColor: "#2A2519",
@@ -517,7 +571,7 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     lineHeight: 60,
     marginTop: 18,
-    textAlign: "right",
+    textAlign: READ,
   },
 
   notice: {
@@ -528,9 +582,9 @@ const styles = StyleSheet.create({
     padding: 16,
     marginTop: 18,
   },
-  noticeText: { color: "#C9AE73", fontSize: 13, lineHeight: 24, textAlign: "right" },
+  noticeText: { color: "#C9AE73", fontSize: 13, lineHeight: 24, textAlign: READ },
 
-  chips: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 16, justifyContent: "flex-end" },
+  chips: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 16, justifyContent: READ_END },
   chip: {
     backgroundColor: "#17150F",
     borderWidth: 1,
@@ -562,7 +616,7 @@ const styles = StyleSheet.create({
   actionDangerText: { color: "#E08878" },
 
   playerWrap: { marginTop: 6, gap: 10 },
-  playerHint: { color: "#6E685C", fontSize: 12, textAlign: "right" },
+  playerHint: { color: "#6E685C", fontSize: 12, textAlign: READ },
   player: { flexDirection: "row", alignItems: "center", gap: 14, padding: 16 },
   playButton: {
     width: 46,
@@ -591,14 +645,14 @@ const styles = StyleSheet.create({
   tabTextActive: { color: INK, fontWeight: "800" },
 
   body: { padding: 20, gap: 14 },
-  paragraph: { color: "#E8E0CE", fontSize: 16, lineHeight: 32, textAlign: "right" },
+  paragraph: { color: "#E8E0CE", fontSize: 16, lineHeight: 32, textAlign: READ },
   empty: { color: "#8E8676", fontSize: 15, lineHeight: 30, textAlign: "center", paddingVertical: 20 },
 
   bulletRow: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
   bullet: { width: 5, height: 5, borderRadius: 3, backgroundColor: GOLD, marginTop: 13 },
-  bulletText: { color: "#C9BC9A", fontSize: 15, lineHeight: 30, flex: 1, textAlign: "right" },
+  bulletText: { color: "#C9BC9A", fontSize: 15, lineHeight: 30, flex: 1, textAlign: READ },
 
-  taskActions: { flexDirection: "row", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" },
+  taskActions: { flexDirection: "row", gap: 8, flexWrap: "wrap", justifyContent: READ_END },
   taskRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -619,22 +673,22 @@ const styles = StyleSheet.create({
   checkboxOn: { backgroundColor: GOLD, borderColor: GOLD },
   checkGlyph: { color: INK, fontSize: 13, fontWeight: "800" },
   taskBody: { flex: 1, gap: 3 },
-  taskText: { color: "#E8E0CE", fontSize: 15, lineHeight: 28, textAlign: "right" },
+  taskText: { color: "#E8E0CE", fontSize: 15, lineHeight: 28, textAlign: READ },
   taskDone: { color: "#6E685C", textDecorationLine: "line-through" },
-  taskDue: { color: GOLD, fontSize: 12, textAlign: "right" },
+  taskDue: { color: GOLD, fontSize: 12, textAlign: READ },
   taskCal: { fontSize: 13 },
 
   termRow: { borderTopWidth: 1, borderTopColor: "#221D12", paddingTop: 14, gap: 5 },
-  term: { color: "#E8E0CE", fontSize: 16, fontWeight: "700", textAlign: "right" },
-  termDef: { color: "#9C9382", fontSize: 14, lineHeight: 28, textAlign: "right" },
-  predictionHead: { flexDirection: "row", alignItems: "center", gap: 10, justifyContent: "flex-end" },
+  term: { color: "#E8E0CE", fontSize: 16, fontWeight: "700", textAlign: READ },
+  termDef: { color: "#9C9382", fontSize: 14, lineHeight: 28, textAlign: READ },
+  predictionHead: { flexDirection: "row", alignItems: "center", gap: 10, justifyContent: READ_END },
   tagHigh: { backgroundColor: "#2E2A10" },
   tagLow: { backgroundColor: "#221F19" },
 
   chapter: { borderTopWidth: 1, borderTopColor: "#221D12", paddingTop: 14, gap: 8 },
-  chapterHead: { flexDirection: "row", alignItems: "center", gap: 10, justifyContent: "flex-end" },
+  chapterHead: { flexDirection: "row", alignItems: "center", gap: 10, justifyContent: READ_END },
   chapterStamp: { color: GOLD, fontSize: 12, fontVariant: ["tabular-nums"] },
-  chapterTitle: { color: "#E8E0CE", fontSize: 16, fontWeight: "700", flex: 1, textAlign: "right" },
+  chapterTitle: { color: "#E8E0CE", fontSize: 16, fontWeight: "700", flex: 1, textAlign: READ },
 
   toneRow: {
     flexDirection: "row",
@@ -645,13 +699,13 @@ const styles = StyleSheet.create({
     paddingTop: 14,
   },
   toneStamp: { color: GOLD, fontSize: 12, fontVariant: ["tabular-nums"] },
-  toneText: { color: "#E8E0CE", fontSize: 15, lineHeight: 28, textAlign: "right" },
-  toneReason: { color: "#8E8676", fontSize: 13, lineHeight: 24, textAlign: "right" },
+  toneText: { color: "#E8E0CE", fontSize: 15, lineHeight: 28, textAlign: READ },
+  toneReason: { color: "#8E8676", fontSize: 13, lineHeight: 24, textAlign: READ },
   tonePlay: { color: "#6E685C", fontSize: 12 },
 
   line: { flexDirection: "row", alignItems: "flex-start", gap: 12, paddingVertical: 5 },
   lineStamp: { color: "#6E685C", fontSize: 12, fontVariant: ["tabular-nums"], marginTop: 5, minWidth: 42 },
-  lineText: { color: "#C9BC9A", fontSize: 15, lineHeight: 30, flex: 1, textAlign: "right" },
+  lineText: { color: "#C9BC9A", fontSize: 15, lineHeight: 30, flex: 1, textAlign: READ },
   lineLoud: { color: "#E8E0CE" },
   lineMarked: { color: GOLD },
 });

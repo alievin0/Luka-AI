@@ -12,7 +12,7 @@ import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Haptics from "expo-haptics";
-import { pack, activePackId, isScanner, optionLabel, optionValue } from "../src/packs";
+import { pack, activePackId, isAudio, isScanner, optionLabel, optionValue } from "../src/packs";
 import { t } from "../src/i18n";
 import { ui } from "../src/i18n/ui";
 import { theme, withAlpha } from "../src/theme";
@@ -20,9 +20,16 @@ import { completeOnboarding, type Profile } from "../src/storage";
 import { CountryField } from "../src/components/CountryField";
 import type { Country } from "../src/countries";
 
+/** Every pack that has a generated mark shows it on the intro. A pack absent
+ *  from this map opens on a wordless screen, which reads as an unfinished
+ *  app on the one screen that has to earn the next tap. */
 const MARKS: Record<string, ReturnType<typeof require>> = {
   dashlight: require("../assets/dashlight/splash-icon.png"),
   bugscan: require("../assets/bugscan/splash-icon.png"),
+  goldscan: require("../assets/goldscan/splash-icon.png"),
+  womensfit: require("../assets/womensfit/splash-icon.png"),
+  dogtrain: require("../assets/dogtrain/splash-icon.png"),
+  mahdar: require("../assets/mahdar/splash-icon.png"),
 };
 
 /**
@@ -126,10 +133,10 @@ export default function Onboarding() {
             <Text style={styles.question}>{t(ui.beforeWeStart)}</Text>
             <View style={styles.consentCard}>
               <Text style={styles.consentText}>
-                {t(ui.aiNotice)}
+                {t(isAudio(pack) ? ui.aiNoticeAudio : ui.aiNotice)}
               </Text>
               <Text style={styles.consentText}>
-                {t(ui.privacyNotice)}
+                {t(isAudio(pack) ? ui.privacyNoticeAudio : ui.privacyNotice)}
               </Text>
               <Text style={styles.consentWarn}>{t(pack.disclaimer)}</Text>
             </View>

@@ -62,6 +62,10 @@ export type LiveWriter = {
   stop: () => void;
 };
 
+/** Errors the recogniser raises during any ordinary pause between sentences.
+ *  Treating one as a failure would tear the writer down mid-lecture. */
+const TRANSIENT = new Set(["no-speech", "speech-timeout"]);
+
 /**
  * Starts listening. `onResult` fires continuously with interim text and once
  * more with `isFinal` when a passage settles — that settling is what the
@@ -74,6 +78,16 @@ export async function startLiveWriter(opts: {
   lang: string;
   onResult: (result: LiveResult) => void;
   onError?: (message: string) => void;
+  /**
+   * The recognition session has ended and will produce nothing further.
+   *
+   * This is not optional bookkeeping. `continuous` is unsupported on Android
+   * 12 and below, where the session ends after the first final result, and on
+   * every platform an incoming call ends the task outright. Without this the
+   * writer dies at minute one of a ninety-minute lecture and the screen goes
+   * on claiming it is running.
+   */
+  onEnd?: () => void;
 }): Promise<LiveWriter | null> {
   const speech = load();
   if (!speech) return null;
@@ -86,6 +100,7 @@ export async function startLiveWriter(opts: {
   }
 
   const listeners: Listener[] = [];
+  let stopped = false;
 
   listeners.push(
     speech.addListener("result", (event: { results?: { transcript?: string }[]; isFinal?: boolean }) => {
@@ -96,11 +111,18 @@ export async function startLiveWriter(opts: {
 
   listeners.push(
     speech.addListener("error", (event: { message?: string; error?: string }) => {
-      // "no-speech" fires during any normal pause between sentences; treating
-      // it as a failure would tear the writer down mid-lecture.
       const code = event?.error ?? "";
-      if (code === "no-speech" || code === "speech-timeout") return;
+      if (TRANSIENT.has(code)) return;
       opts.onError?.(event?.message ?? code);
+    }),
+  );
+
+  listeners.push(
+    speech.addListener("end", () => {
+      // A stop() we asked for also raises this; only an unrequested end is
+      // news to the caller.
+      if (stopped) return;
+      opts.onEnd?.();
     }),
   );
 
@@ -122,6 +144,7 @@ export async function startLiveWriter(opts: {
 
   return {
     stop: () => {
+      stopped = true;
       try {
         speech.stop();
       } catch {

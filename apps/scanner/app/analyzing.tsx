@@ -9,6 +9,7 @@ import { getProfile, profileSummary } from "../src/storage";
 import {
   emphasisCandidates,
   getLecture,
+  mergeTranscript,
   transcriptOfSegments,
   updateLecture,
 } from "../src/lectures";
@@ -56,17 +57,22 @@ export default function Analyzing() {
       try {
         let segments = lecture.segments;
 
-        // The accurate pass runs when the student asked for it, or when the
-        // live writer produced nothing worth analysing — never on top of a
-        // transcript that is already usable.
+        // The accurate pass runs when the student asked for it, when the live
+        // writer stopped before the lecture did, or when it produced nothing
+        // worth analysing — never on top of a transcript that is usable.
         const needsTranscription =
-          retranscribe === "1" || transcriptOfSegments(segments).length < 40;
+          retranscribe === "1" ||
+          lecture.liveWriterFailed === true ||
+          transcriptOfSegments(segments).length < 40;
 
         if (needsTranscription && lecture.audioUri) {
           const result = await transcribeLecture({ audioUri: lecture.audioUri });
+          // Persist before honouring the cancel flag. This transcript has
+          // already been paid for; dropping it because the student navigated
+          // away means billing them again for the same audio.
+          segments = mergeTranscript(result.segments, lecture.segments);
+          await updateLecture(lecture.id, { segments, liveWriterFailed: false });
           if (cancelled) return;
-          segments = result.segments;
-          await updateLecture(lecture.id, { segments });
         }
 
         if (transcriptOfSegments(segments).length < 20) {
@@ -93,6 +99,10 @@ export default function Analyzing() {
           analysis,
           // A title the student already typed is theirs; never overwrite it.
           title: lecture.title || title || t(ui.untitledLecture),
+          // done[] holds indices into the previous task list. A re-analysis
+          // returns a different list, so keeping them would tick off whatever
+          // now sits at those positions — unrelated tasks, silently.
+          done: [],
           status: "ready",
           error: undefined,
         });

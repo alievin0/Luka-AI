@@ -8,6 +8,13 @@ const MODEL = process.env.DASHLIGHT_MODEL || "claude-opus-5";
 /** A three-hour lecture transcribed is still well inside the context window,
  *  but an unbounded body is a denial-of-wallet vector on a public route. */
 const MAX_TRANSCRIPT_CHARS = 200_000;
+/* Capping the transcript alone is not a cap: every other client-supplied
+ * field lands in the same prompt and is charged at the same rate. The app
+ * sends at most 24 emphasis moments and a one-line profile; the route is
+ * public, so it enforces that rather than trusting it. */
+const MAX_EMPHASIS_ENTRIES = 24;
+const MAX_EMPHASIS_CHARS = 8_000;
+const MAX_PROFILE_CHARS = 400;
 
 const ANALYSIS_SCHEMA = {
   type: "object",
@@ -158,9 +165,13 @@ export async function POST(request: Request) {
     .join("\n")
     .slice(0, MAX_TRANSCRIPT_CHARS);
 
-  const emphasis = (body?.emphasis ?? [])
+  const emphasis = (Array.isArray(body?.emphasis) ? body!.emphasis : [])
+    .slice(0, MAX_EMPHASIS_ENTRIES)
     .map((e) => `[${clock(e.at)}]${e.marked ? " (the student marked this by hand)" : ""} ${e.text}`)
-    .join("\n");
+    .join("\n")
+    .slice(0, MAX_EMPHASIS_CHARS);
+
+  const profile = (body?.profile || "").slice(0, MAX_PROFILE_CHARS);
 
   const words = transcript.split(/\s+/).filter(Boolean).length;
 
@@ -169,10 +180,10 @@ export async function POST(request: Request) {
   try {
     const response = await client.messages.create({
       model: MODEL,
-      max_tokens: 8000,
+      max_tokens: 16000,
       system: audioPack.systemPrompt({
         locale: body?.locale === "ar" ? "ar" : "en",
-        profile: body?.profile || "",
+        profile,
       }),
       output_config: {
         format: {
@@ -209,12 +220,30 @@ For each task, also set "dueISO" — the deadline resolved into an ISO 8601 time
       return Response.json({ error: "ما قدرنا نحلل هذي المحاضرة." }, { status: 422 });
     }
 
+    // A response cut off at max_tokens is truncated mid-JSON. Letting it fall
+    // through to the catch below would report it as a transient failure and
+    // invite a retry that costs the same and fails identically every time,
+    // burning the hourly allowance for nothing.
+    if (response.stop_reason === "max_tokens") {
+      return Response.json(
+        { error: "المحاضرة طويلة كتير عالتحليل مرة وحدة. جرّب تقسمها." },
+        { status: 413 },
+      );
+    }
+
     const text = response.content.find((b) => b.type === "text");
     if (!text || text.type !== "text") {
       return Response.json({ error: "ما وصلنا رد صالح. جرّب كمان مرة." }, { status: 502 });
     }
 
-    const parsed = JSON.parse(text.text) as LectureAnalysis & { title: string };
+    let parsed: LectureAnalysis & { title: string };
+    try {
+      parsed = JSON.parse(text.text) as LectureAnalysis & { title: string };
+    } catch {
+      // Distinguished from an API failure: retrying this is not free, and a
+      // malformed payload is not something waiting will fix.
+      return Response.json({ error: "ما وصلنا رد صالح. جرّب كمان مرة." }, { status: 502 });
+    }
     const { title, ...analysis } = parsed;
     return Response.json({ title, analysis: clampAnalysis(analysis, words) });
   } catch (error) {

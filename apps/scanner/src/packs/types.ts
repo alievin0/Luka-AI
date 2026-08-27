@@ -194,6 +194,10 @@ export type Lecture = {
   analysis?: LectureAnalysis;
   /** Indices into analysis.tasks the student has ticked off. */
   done?: number[];
+  /** The on-device writer stopped before the lecture did, so the transcript
+   *  it produced is truncated however complete it looks. Forces the accurate
+   *  pass rather than summarising the first minutes as the whole hour. */
+  liveWriterFailed?: boolean;
   status: "recording" | "processing" | "ready" | "failed";
   error?: string;
 };

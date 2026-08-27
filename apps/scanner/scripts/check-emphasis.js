@@ -37,7 +37,7 @@ require.extensions[".ts"] = (mod, filename) => {
   mod._compile(outputText, filename);
 };
 
-const { scoreEnergy, emphasisCandidates } = require(path.join(ROOT, "src/lectures.ts"));
+const { scoreEnergy, emphasisCandidates, mergeTranscript } = require(path.join(ROOT, "src/lectures.ts"));
 
 let failures = 0;
 const check = (label, actual, expected) => {
@@ -97,5 +97,46 @@ check(
   [0, 0],
 );
 
-console.log(failures === 0 ? "\nAll emphasis checks passed." : `\n${failures} check(s) failed.`);
+
+/* ------------------------------------------------------ transcript merging */
+
+// The accurate server pass returns better words but knows nothing the
+// microphone knew. Replacing the segments outright threw away every loudness
+// reading and every moment the student marked during the lecture — and the
+// loudness cannot be recovered, because metering only exists while recording.
+const recorded = [
+  { at: 0, text: "intro", energy: -30 },
+  { at: 10, text: "the important bit", energy: -18, marked: true },
+  { at: 25, text: "aside", energy: -31 },
+];
+const fromServer = [
+  { at: 0, text: "Introduction to the topic." },
+  { at: 11, text: "The important bit, said properly." },
+  { at: 26, text: "An aside." },
+];
+const merged = mergeTranscript(fromServer, recorded);
+
+check("merge keeps the server's better wording", merged.map((m) => m.text), fromServer.map((m) => m.text));
+check("merge carries the loudness readings across", merged.map((m) => m.energy), [-30, -18, -31]);
+check("merge preserves what the student marked by hand", merged[1].marked, true);
+check("merge does not invent marks", [merged[0].marked, merged[2].marked], [undefined, undefined]);
+check(
+  "merged segments still score as emphasis",
+  scoreEnergy(
+    mergeTranscript(
+      Array.from({ length: 40 }, (_, i) => ({ at: i * 12, text: `s${i}` })),
+      lecture(),
+    ),
+  )
+    .filter((s) => s.emphasis >= 0.5)
+    .map((s) => s.at / 12),
+  [8, 20, 33],
+);
+check(
+  "merge passes through untouched when nothing was measured",
+  mergeTranscript(fromServer, []).map((m) => m.energy),
+  [undefined, undefined, undefined],
+);
+
+console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} check(s) failed.`);
 process.exit(failures === 0 ? 0 : 1);

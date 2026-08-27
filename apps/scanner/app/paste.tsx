@@ -14,8 +14,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { pack, isAudio } from "../src/packs";
 import { t, locale, isRTL } from "../src/i18n";
 import { ui } from "../src/i18n/ui";
-import { newLectureId, saveLecture } from "../src/lectures";
-import { GOLD, INK, audio as s } from "../src/components/audio-theme";
+import { bumpLectureCount, lectureAllowed, newLectureId, saveLecture } from "../src/lectures";
+import { GOLD, INK, audio as s, READ, READ_END } from "../src/components/audio-theme";
 
 /** Text pasted in has no timestamps, so it is stored as one segment at zero.
  *  Splitting it into fake timestamps would put times on the screen that point
@@ -36,7 +36,15 @@ export default function Paste() {
       setError(t(ui.needMoreText));
       return;
     }
+    // The same gate the record button uses. Without it this screen is a free
+    // route to the paid analysis for anyone who can paste.
+    if (!(await lectureAllowed())) {
+      router.push("/paywall");
+      return;
+    }
+
     const id = newLectureId();
+    await bumpLectureCount();
     await saveLecture({
       id,
       title: title.trim(),
@@ -124,9 +132,9 @@ const styles = StyleSheet.create({
     fontSize: 32,
     fontWeight: "800",
     marginTop: 30,
-    textAlign: "right",
+    textAlign: READ,
   },
-  hint: { color: "#9C9382", fontSize: 15, lineHeight: 30, marginTop: 14, textAlign: "right" },
+  hint: { color: "#9C9382", fontSize: 15, lineHeight: 30, marginTop: 14, textAlign: READ },
   titleInput: {
     backgroundColor: "#141209",
     borderWidth: 1,
@@ -150,8 +158,8 @@ const styles = StyleSheet.create({
     padding: 16,
     marginTop: 12,
   },
-  error: { color: "#E08878", fontSize: 14, marginTop: 12, textAlign: "right" },
-  actions: { flexDirection: "row", gap: 10, marginTop: 22, justifyContent: "flex-end" },
+  error: { color: "#E08878", fontSize: 14, marginTop: 12, textAlign: READ },
+  actions: { flexDirection: "row", gap: 10, marginTop: 22, justifyContent: READ_END },
   primary: {
     backgroundColor: GOLD,
     borderRadius: 999,

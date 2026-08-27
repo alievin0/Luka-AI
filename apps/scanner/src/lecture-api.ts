@@ -15,6 +15,27 @@ function apiBase(): string {
 
 export class LectureError extends Error {}
 
+/** Generous: this is a whole lecture going up over a phone connection, and
+ *  the server then waits on the transcription. But not unbounded — a request
+ *  that never settles is indistinguishable from a frozen app. */
+const UPLOAD_TIMEOUT_MS = 10 * 60 * 1000;
+
+function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new LectureError("offline")), ms);
+    work.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
 async function post<T>(path: string, body: unknown): Promise<T> {
   let res: Response;
   try {
@@ -56,12 +77,20 @@ export async function transcribeLecture(input: {
 
   let result: { status: number; body: string };
   try {
-    result = await legacy.uploadAsync(`${apiBase()}/api/transcribe`, input.audioUri, {
-      httpMethod: "POST",
-      uploadType: legacy.FileSystemUploadType.MULTIPART,
-      fieldName: "file",
-      mimeType: input.mimeType ?? "audio/m4a",
-    });
+    result = await withTimeout(
+      legacy.uploadAsync(`${apiBase()}/api/transcribe`, input.audioUri, {
+        httpMethod: "POST",
+        uploadType: legacy.FileSystemUploadType.MULTIPART,
+        fieldName: "file",
+        mimeType: input.mimeType ?? "audio/m4a",
+        // The default is a background session, which by design never fails
+        // when the server or the connection is down — it retries silently
+        // forever. On campus Wi-Fi behind a captive portal that leaves the
+        // analysing screen spinning with no error and no way out.
+        sessionType: legacy.FileSystemSessionType.FOREGROUND,
+      }),
+      UPLOAD_TIMEOUT_MS,
+    );
   } catch {
     throw new LectureError("offline");
   }
