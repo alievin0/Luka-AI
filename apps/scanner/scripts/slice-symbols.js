@@ -43,10 +43,23 @@ const INK = 104;
 /** Ground noise below this is the card, not the drawing. */
 const FLOOR = 0.06;
 
-/** file -> that sheet's canvas width, which is what the boxes are measured in. */
+/**
+ * file -> the sheet's own canvas, which is what the boxes are measured in.
+ *
+ * `content` is the bounding box of everything drawn on it. Canva's transparent
+ * PNG export drops the page ground and trims to exactly that box, so a render
+ * can arrive either full-bleed or cropped, and the two need different offsets.
+ * Which one it is gets decided from the render's aspect ratio, not assumed.
+ */
 const SHEETS = {
-  "oem-2": 374, "oem-3": 374, "oem-4": 374, "oem-5": 374, "oem-6": 374, "oem-7": 374,
-  pack48: 800, iconset: 800,
+  "oem-2": { full: [374, 794] },
+  "oem-3": { full: [374, 794] },
+  "oem-4": { full: [374, 794] },
+  "oem-5": { full: [374, 794] },
+  "oem-6": { full: [374, 794] },
+  "oem-7": { full: [374, 794] },
+  pack48: { full: [800, 2000], content: [36, 108, 728, 1632] },
+  iconset: { full: [800, 2000], content: [18, 65, 764, 1262] },
 };
 
 /** key, sheet, left, top, width, height. A null key is a light the library has
@@ -152,25 +165,61 @@ const GRIDS = {
   const page = await browser.newPage();
   await page.setContent("<body></body>");
 
+  const measure = (data) =>
+    page.evaluate(async (d) => {
+      const i = new Image();
+      await new Promise((r) => { i.onload = r; i.src = "data:image/png;base64," + d; });
+      return { w: i.naturalWidth, h: i.naturalHeight };
+    }, data);
+
+  /**
+   * Work out where the boxes land in this particular render. A full-bleed
+   * export and a trimmed transparent one have the same content at different
+   * origins, and their aspect ratios differ, so the ratio picks between them.
+   */
+  const frames = {};
+  for (const [name, spec] of Object.entries(SHEETS)) {
+    if (!sheets[name]) continue;
+    const { w, h } = await measure(sheets[name]);
+    const ratio = w / h;
+    const [fw, fh] = spec.full;
+    const cand = [{ ox: 0, oy: 0, w: fw, h: fh, how: "full page" }];
+    if (spec.content) {
+      const [cx, cy, cw2, ch2] = spec.content;
+      cand.push({ ox: cx, oy: cy, w: cw2, h: ch2, how: "trimmed to content" });
+    }
+    const best = cand
+      .map((c) => ({ ...c, err: Math.abs(ratio - c.w / c.h) / (c.w / c.h) }))
+      .sort((a, b) => a.err - b.err)[0];
+    if (best.err > 0.02) {
+      console.warn(`  ${name}: ${w}x${h} matches neither the full page nor its content box — skipped`);
+      delete sheets[name];
+      continue;
+    }
+    frames[name] = { scale: w / best.w, ox: best.ox, oy: best.oy };
+    console.log(`  ${name}: ${w}x${h}, ${best.how}, ${frames[name].scale.toFixed(2)}x`);
+  }
+  if (Object.keys(frames).length) console.log("");
+
   let done = 0;
   const blank = [];
 
   /** Crop, key and fit one icon. Give it a box in sheet units, or a cell. */
-  const cutOne = (data, canvasW, box, cell) =>
+  const cutOne = (data, frame, box, cell) =>
     page.evaluate(
-      async ({ data, canvasW, box, cell, SIZE, INK, FLOOR }) => {
+      async ({ data, frame, box, cell, SIZE, INK, FLOOR }) => {
         const img = new Image();
         await new Promise((r) => { img.onload = r; img.src = "data:image/png;base64," + data; });
 
         let l, t, w, h;
         if (cell) {
-          w = img.naturalWidth / cell.cols;
-          h = img.naturalHeight / cell.rows;
-          l = cell.col * w;
-          t = cell.row * h;
+          l = cell.x0; t = cell.y0;
+          w = cell.x1 - cell.x0; h = cell.y1 - cell.y0;
         } else {
-          const scale = img.naturalWidth / canvasW;
-          l = box.l * scale; t = box.t * scale; w = box.w * scale; h = box.h * scale;
+          l = (box.l - frame.ox) * frame.scale;
+          t = (box.t - frame.oy) * frame.scale;
+          w = box.w * frame.scale;
+          h = box.h * frame.scale;
         }
 
         const cw = Math.max(1, Math.round(w));
@@ -182,9 +231,21 @@ const GRIDS = {
         const px = cx.getImageData(0, 0, cw, ch);
         const d = px.data;
 
-        // The ground is whatever the border of the box is — white on the OEM
-        // pages, near-black on the 48 pack. Measured, not assumed, so one
-        // routine serves every sheet. Median of the border beats the mean:
+        // A transparent export already carries the mask in its alpha channel,
+        // and nothing derived from colour can beat it — so when the crop has
+        // real alpha, take it and skip the keying entirely. Canva's
+        // "transparent background" PNG lands here; a flat JPEG-style page
+        // render does not.
+        let aMin = 255, aMax = 0;
+        for (let i = 3; i < d.length; i += 4) {
+          if (d[i] < aMin) aMin = d[i];
+          if (d[i] > aMax) aMax = d[i];
+        }
+        const fromAlpha = aMin === 0 && aMax > 250;
+
+        // Otherwise the ground is whatever the border of the box is — white on
+        // the OEM pages, near-black on the 48 pack. Measured, not assumed, so
+        // one routine serves every sheet. Median of the border beats the mean:
         // a stroke that runs to the edge would drag a mean with it.
         const at = (x, y) => (y * cw + x) * 4;
         const edge = [[], [], []];
@@ -199,9 +260,11 @@ const GRIDS = {
         const dist = new Float32Array(cw * ch);
         let peak = 0;
         for (let i = 0, p = 0; i < d.length; i += 4, p++) {
-          const v = Math.max(
-            Math.abs(d[i] - ground[0]), Math.abs(d[i + 1] - ground[1]), Math.abs(d[i + 2] - ground[2]),
-          ) / 255;
+          const v = fromAlpha
+            ? d[i + 3] / 255
+            : Math.max(
+                Math.abs(d[i] - ground[0]), Math.abs(d[i + 1] - ground[1]), Math.abs(d[i + 2] - ground[2]),
+              ) / 255;
           dist[p] = v;
           if (v > peak) peak = v;
         }
@@ -242,7 +305,7 @@ const GRIDS = {
         ox.drawImage(cut, minX, minY, tw, th, Math.round((SIZE - dw) / 2), Math.round((SIZE - dh) / 2), dw, dh);
         return out.toDataURL("image/png").split(",")[1];
       },
-      { data, canvasW, box, cell, SIZE, INK, FLOOR },
+      { data, frame, box, cell, SIZE, INK, FLOOR },
     );
 
   const write = (key, name, png) => {
@@ -254,13 +317,64 @@ const GRIDS = {
 
   for (const [key, sheet, l, t, w, h, label] of PARTS) {
     if (!sheets[sheet]) continue;
-    write(key, key ?? label, await cutOne(sheets[sheet], SHEETS[sheet], { l, t, w, h }, null));
+    write(key, key ?? label, await cutOne(sheets[sheet], frames[sheet], { l, t, w, h }, null));
   }
+
+  /**
+   * Where one cell of a grid actually ends. Splitting at exact fractions
+   * assumes every icon stays inside its share, and they do not — the turtle
+   * runs past its column and its head lands in the neighbour's crop. So the
+   * boundary is searched for instead: within a window around the nominal
+   * split, take the line carrying the least ink. A real gutter is empty, and
+   * the search finds it wherever it happens to be.
+   */
+  const gutters = (data, cols, rows) =>
+    page.evaluate(
+      async ({ data, cols, rows }) => {
+        const img = new Image();
+        await new Promise((r) => { img.onload = r; img.src = "data:image/png;base64," + data; });
+        const W = img.naturalWidth, H = img.naturalHeight;
+        const c = document.createElement("canvas");
+        c.width = W; c.height = H;
+        const x = c.getContext("2d", { willReadFrequently: true });
+        x.drawImage(img, 0, 0);
+        const px = x.getImageData(0, 0, W, H).data;
+
+        const colInk = new Float64Array(W), rowInk = new Float64Array(H);
+        for (let y = 0, i = 3; y < H; y++) {
+          for (let xx = 0; xx < W; xx++, i += 4) {
+            const a = px[i];
+            if (a > 20) { colInk[xx] += a; rowInk[y] += a; }
+          }
+        }
+        // A window of a third of a cell either side is wide enough to clear an
+        // overflowing neighbour and too narrow to jump into the wrong gutter.
+        const findAll = (ink, span, n) => {
+          const outs = [0];
+          for (let k = 1; k < n; k++) {
+            const nominal = Math.round((k * span) / n);
+            const reach = Math.round(span / n / 3);
+            let bestAt = nominal, best = Infinity;
+            for (let q = Math.max(1, nominal - reach); q < Math.min(span - 1, nominal + reach); q++) {
+              if (ink[q] < best) { best = ink[q]; bestAt = q; }
+            }
+            outs.push(bestAt);
+          }
+          outs.push(span);
+          return outs;
+        };
+        return { xs: findAll(colInk, W, cols), ys: findAll(rowInk, H, rows) };
+      },
+      { data, cols, rows },
+    );
 
   for (const [name, g] of Object.entries(GRIDS)) {
     if (!sheets[name]) continue;
+    const { xs, ys } = await gutters(sheets[name], g.cols, g.rows);
+    console.log(`  ${name}: columns split at ${xs.join(", ")}`);
     for (let i = 0; i < g.keys.length; i++) {
-      const cell = { col: i % g.cols, row: Math.floor(i / g.cols), cols: g.cols, rows: g.rows };
+      const col = i % g.cols, row = Math.floor(i / g.cols);
+      const cell = { x0: xs[col], x1: xs[col + 1], y0: ys[row], y1: ys[row + 1] };
       write(g.keys[i], g.keys[i], await cutOne(sheets[name], null, null, cell));
     }
   }
