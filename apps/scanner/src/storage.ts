@@ -1,4 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { Directory, File, Paths } from "expo-file-system";
 import { activePackId, type ScanResult } from "./packs";
 import { countryFor, currencyForCountry } from "./countries";
 
@@ -93,13 +94,73 @@ export async function getHistory(): Promise<HistoryEntry[]> {
   }
 }
 
+/**
+ * Where a scan's photo lives once the scan is kept.
+ *
+ * ImageManipulator writes its output into the OS cache directory, and that is
+ * the path history used to store. iOS reclaims Library/Caches under disk
+ * pressure and Android clears cacheDir the same way, so a list holding fifty
+ * scans would degrade into grey squares on its own — soonest for the oldest
+ * entries, which are the ones someone is scrolling back to find.
+ *
+ * Everything here is best-effort: on the web build there is no such directory,
+ * and a runtime that cannot copy is not a reason to lose the scan. Failing
+ * falls back to the cache path, which is exactly the old behaviour.
+ */
+const PHOTOS = "scans";
+
+function photoDir(): Directory {
+  const dir = new Directory(Paths.document, PHOTOS);
+  if (!dir.exists) dir.create({ intermediates: true, idempotent: true });
+  return dir;
+}
+
+function keepPhoto(sourceUri: string, id: string): string {
+  if (!sourceUri) return sourceUri;
+  try {
+    const source = new File(sourceUri);
+    if (!source.exists) return sourceUri;
+    const target = new File(photoDir(), `${id}.jpg`);
+    source.copy(target);
+    return target.uri;
+  } catch {
+    return sourceUri;
+  }
+}
+
+/** Only ever deletes a file this module wrote. An entry whose uri still points
+ *  at the camera cache — or, one day, at a gallery original — is left alone. */
+function dropPhoto(uri: string) {
+  try {
+    if (!uri.startsWith(photoDir().uri)) return;
+    const file = new File(uri);
+    if (file.exists) file.delete();
+  } catch {
+    // Already gone, or no filesystem here. Either way there is nothing owed.
+  }
+}
+
 export async function addToHistory(entry: HistoryEntry) {
-  const history = [entry, ...(await getHistory())].slice(0, 50);
+  const kept = { ...entry, imageUri: keepPhoto(entry.imageUri, entry.id) };
+  const previous = await getHistory();
+  const history = [kept, ...previous].slice(0, 50);
+
+  // The fifty-first scan pushes the oldest one out; its photo goes with it,
+  // or the directory grows without bound behind a list that has forgotten it.
+  const surviving = new Set(history.map((h) => h.id));
+  for (const dropped of previous) {
+    if (!surviving.has(dropped.id)) dropPhoto(dropped.imageUri);
+  }
+
   await AsyncStorage.setItem(KEYS.history, JSON.stringify(history));
 }
 
 export async function removeFromHistory(id: string) {
-  const history = (await getHistory()).filter((entry) => entry.id !== id);
+  const previous = await getHistory();
+  const history = previous.filter((entry) => entry.id !== id);
+  for (const gone of previous) {
+    if (gone.id === id) dropPhoto(gone.imageUri);
+  }
   await AsyncStorage.setItem(KEYS.history, JSON.stringify(history));
   return history;
 }
@@ -111,6 +172,7 @@ export async function updateProfile(patch: Profile) {
 }
 
 export async function clearHistory() {
+  for (const entry of await getHistory()) dropPhoto(entry.imageUri);
   await AsyncStorage.removeItem(KEYS.history);
 }
 

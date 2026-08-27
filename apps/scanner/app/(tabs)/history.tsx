@@ -80,7 +80,14 @@ export default function History() {
                     ])
                   }
                 >
-                  <Image source={{ uri: item.imageUri }} style={styles.thumb} />
+                  {/* The glyph sits behind the photo rather than replacing
+                      it on error: scans saved before photos were copied out
+                      of the cache directory may have lost their file, and a
+                      row with an empty square reads as a broken app. */}
+                  <View style={styles.thumb}>
+                    <Text style={styles.thumbGlyph}>▣</Text>
+                    <Image source={{ uri: item.imageUri }} style={StyleSheet.absoluteFill} />
+                  </View>
                   <View style={styles.rowBody}>
                     <Text style={[styles.rowTitle, !reading && { color: TEXT_FAINT }]} numberOfLines={1}>
                       {name}
@@ -126,7 +133,16 @@ const styles = StyleSheet.create({
     borderColor: BORDER,
     padding: SP.md,
   },
-  thumb: { width: 54, height: 54, borderRadius: RADIUS.sm, backgroundColor: SURFACE_HIGH },
+  thumb: {
+    width: 54,
+    height: 54,
+    borderRadius: RADIUS.sm,
+    backgroundColor: SURFACE_HIGH,
+    overflow: "hidden",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  thumbGlyph: { color: TEXT_FAINT, fontSize: 18 },
   rowBody: { flex: 1, gap: 3 },
   rowTitle: { color: TEXT, ...TYPE.body, fontFamily: FONT.semibold, textAlign: READ },
   rowMeta: { color: TEXT_FAINT, ...TYPE.small, fontFamily: FONT.regular, textAlign: READ },
