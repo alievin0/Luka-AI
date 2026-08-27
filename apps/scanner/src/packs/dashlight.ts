@@ -5,24 +5,24 @@ import { DASHLIGHT_LIBRARY } from "./dashlight-library";
 export const dashlight: ScannerPack = {
   kind: "scanner",
   id: "dashlight",
-  appName: L("Dash Light Scanner", "لمبات السيارة"),
+  appName: L("Dash Light Scanner", "مصابيح السيارة"),
   tagline: L(
     "A light came on. Can you keep driving, and what will it cost?",
-    "ولعت لمبة. بتقدر تكمل سواقة؟ وقديش رح تكلفك؟",
+    "أضاء مصباح تحذيري. هل تستطيع متابعة القيادة؟ وكم سيكلّفك ذلك؟",
   ),
   accent: "#F2A33C",
   captureHint: L(
     "Point the camera at the lit symbol on your dashboard",
-    "وجّه الكاميرا على اللمبة اللي ولعت بالطبلون",
+    "وجّه الكاميرا نحو المصباح المضاء في لوحة القيادة",
   ),
   labels: {
     facts: L("At a glance", "معلومات سريعة"),
     causes: L("Likely causes", "الأسباب المحتملة"),
-    actions: L("What to do now", "شو تعمل هلق"),
-    seekHelp: L("See a mechanic if", "روح على الميكانيكي إذا"),
+    actions: L("What to do now", "ما العمل الآن"),
+    seekHelp: L("See a mechanic if", "راجع الميكانيكي إذا"),
   },
   showCost: true,
-  libraryTitle: L("Light guide", "دليل اللمبات"),
+  libraryTitle: L("Light guide", "دليل المصابيح"),
   library: DASHLIGHT_LIBRARY,
   disclaimer: L(
     "This is guidance from a photo, not a technical diagnosis. It does not replace inspection by a qualified mechanic — never rely on it alone for a safety decision.",
@@ -31,46 +31,46 @@ export const dashlight: ScannerPack = {
   onboarding: [
     {
       key: "brand",
-      question: L("What do you drive?", "شو نوع سيارتك؟"),
+      question: L("What do you drive?", "ما نوع سيارتك؟"),
       options: [
         L("Toyota / Lexus", "تويوتا / لكزس"),
         L("Ford / Chevrolet", "فورد / شيفروليه"),
         L("VW / Audi / BMW / Mercedes", "فولكس / أودي / BMW / مرسيدس"),
         L("Hyundai / Kia / Nissan", "هيونداي / كيا / نيسان"),
-        L("Something else", "شي تاني"),
+        L("Something else", "نوع آخر"),
       ],
     },
     {
       key: "model",
-      question: L("Which model?", "شو الموديل؟"),
+      question: L("Which model?", "ما طراز السيارة؟"),
       hint: L(
         "So the estimate is for your car, not for cars in general.",
-        "عشان التقدير يطلع على سيارتك إنت، مش على السيارات بشكل عام.",
+        "لكي يكون التقدير مبنياً على سيارتك تحديداً، لا على السيارات عموماً.",
       ),
       input: { placeholder: L("Camry, Corolla, Patrol…", "كامري، كورولا، باترول…"), maxLength: 40 },
     },
     {
       key: "year",
-      question: L("What year?", "سنة كم؟"),
+      question: L("What year?", "ما سنة الصنع؟"),
       input: { placeholder: L("2019", "2019"), keyboard: "number-pad", maxLength: 4 },
     },
     {
       key: "age",
-      question: L("How old is it?", "قديش عمر السيارة؟"),
+      question: L("How old is it?", "كم عمر السيارة؟"),
       options: [
-        L("Under 3 years", "أقل من 3 سنين"),
-        L("3–7 years", "3 – 7 سنين"),
+        L("Under 3 years", "أقل من 3 سنوات"),
+        L("3–7 years", "3 – 7 سنوات"),
         L("7–15 years", "7 – 15 سنة"),
         L("Over 15 years", "أكثر من 15 سنة"),
       ],
     },
     {
       key: "fuel",
-      question: L("Petrol, diesel or electric?", "بنزين، ديزل، ولا كهربا؟"),
+      question: L("Petrol, diesel or electric?", "بنزين أم ديزل أم كهرباء؟"),
       options: [
         L("Petrol", "بنزين"),
         L("Diesel", "ديزل"),
-        L("Hybrid", "هايبرد"),
+        L("Hybrid", "هجينة"),
         L("Electric", "كهربائية"),
       ],
     },
@@ -78,20 +78,20 @@ export const dashlight: ScannerPack = {
       key: "worry",
       question: L(
         "What worries you most when a light comes on?",
-        "شو أكثر شي بقلقك لما تولع لمبة؟",
+        "ما أكثر ما يقلقك عند إضاءة مصباح تحذيري؟",
       ),
       options: [
-        L("Whether I can keep driving", "إذا بقدر أكمل سواقة"),
-        L("How much it will cost", "قديش رح تكلفني"),
-        L("Whether the engine is at risk", "إذا في خطر على المحرك"),
-        L("All of it", "كلهم"),
+        L("Whether I can keep driving", "هل أستطيع متابعة القيادة"),
+        L("How much it will cost", "كم سيكلّفني الإصلاح"),
+        L("Whether the engine is at risk", "هل المحرك في خطر"),
+        L("All of it", "كل ما سبق"),
       ],
     },
   ],
   paywall: {
     headline: L(
       "Am I in trouble, and can I keep driving?",
-      "أنا بورطة؟ وبقدر أكمل سواقة؟",
+      "هل المشكلة خطيرة؟ وهل أستطيع متابعة القيادة؟",
     ),
     // Each line is a title and the promise under it, marked with the file
     // the design itself uses — see src/design-assets.ts.
@@ -99,7 +99,7 @@ export const dashlight: ScannerPack = {
       {
         symbol: "benefitSeconds",
         text: L("In seconds", "خلال ثوانٍ"),
-        detail: L("Photograph the light, get the answer", "صوّر اللمبة ونعطيك الجواب"),
+        detail: L("Photograph the light, get the answer", "صوّر المصباح واحصل على الجواب"),
       },
       {
         symbol: "benefitCar",
@@ -109,17 +109,17 @@ export const dashlight: ScannerPack = {
       {
         symbol: "benefitGuide",
         text: L("The whole guide", "دليل كامل"),
-        detail: L("48 warning lights, offline", "دليل واضح لـ48 لمبة"),
+        detail: L("48 warning lights, offline", "دليل واضح لـ48 مصباحاً"),
       },
       {
         symbol: "benefitCost",
         text: L("What it costs", "تكلفة تقريبية"),
-        detail: L("Know the repair before the workshop does", "اعرف كم ممكن يكلّف إصلاحها"),
+        detail: L("Know the repair before the workshop does", "اعرف الكلفة المتوقعة للإصلاح"),
       },
       {
         symbol: "benefitSteps",
         text: L("Clear steps", "خطوات واضحة"),
-        detail: L("What to do now, in order", "شو تعمل الآن خطوة بخطوة"),
+        detail: L("What to do now, in order", "ما العمل الآن، خطوة بخطوة"),
       },
     ],
   },
@@ -133,7 +133,7 @@ export const dashlight: ScannerPack = {
         label: L("Yearly", "سنوي"),
         fallbackPrice: "$39.99",
         period: L("year", "سنة"),
-        note: L("Under $0.77 a week", "أقل من $0.77 بالأسبوع"),
+        note: L("Under $0.77 a week", "أقل من $0.77 أسبوعياً"),
         badge: L("Best value", "الأفضل"),
         trialDays: 3,
       },
@@ -144,7 +144,7 @@ export const dashlight: ScannerPack = {
 User context: ${profile || "unknown"}
 Currency for estimates: ${currency}
 
-WRITE EVERY USER-FACING STRING IN ${locale === "ar" ? "ARABIC (simple spoken Arabic any driver understands — not formal MSA)" : "ENGLISH (plain, direct, no jargon without explanation)"}.
+WRITE EVERY USER-FACING STRING IN ${locale === "ar" ? "MODERN STANDARD ARABIC (فصحى) — clear and direct, at the level of a car owner's manual. Never colloquial or dialect. Use standard terms: مصباح تحذيري, لوحة القيادة, المحوّل الحفّاز, ناقل الحركة, المقود, العادم, غطاء المحرك" : "ENGLISH (plain, direct, no jargon without explanation)"}.
 
 Mandatory rules:
 1. Identify the most prominent LIT symbol. If several are lit, lead with the most dangerous.

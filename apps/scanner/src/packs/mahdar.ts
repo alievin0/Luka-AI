@@ -15,11 +15,11 @@ export const mahdar: AudioPack = {
   badge: L("Your companion in the lecture hall", "رفيقك داخل القاعة"),
   headline: L(
     "Record the lecture.\nLet AI study with you.",
-    "سجّل المحاضرة.\nوخل الذكاء يذاكر معك.",
+    "سجّل المحاضرة.\nودع الذكاء الاصطناعي يذاكر معك.",
   ),
   intro: L(
     "Open Mahdar the moment the lecturer starts: it turns speech into text as it happens, catches the assignments, the dates and the moments they raised their voice, and at the end hands you the summary, the tasks and what to expect on the exam.",
-    "افتح مَحضَر أول ما يبدأ الدكتور: يحوّل كلامه إلى نص لحظة بلحظة، يلتقط الواجبات والتواريخ ولحظات رفع الصوت، وبنهاية المحاضرة يعطيك الملخص والمهام وتوقعات الامتحان.",
+    "افتح مَحضَر ما إن يبدأ المحاضر: يحوّل كلامه إلى نص لحظة بلحظة، ويلتقط الواجبات والتواريخ ولحظات ارتفاع الصوت، وفي نهاية المحاضرة يقدّم لك الملخص والمهام وتوقعات الامتحان.",
   ),
   tagline: L("Your companion in the lecture hall", "رفيقك داخل القاعة"),
   primaryAction: L("Start a new lecture", "بدء محاضرة جديدة"),
@@ -27,23 +27,23 @@ export const mahdar: AudioPack = {
   emptyTitle: L("The hall is quiet…", "القاعة هادئة..."),
   emptyBody: L(
     "The moment you start a lecture, you'll find it saved here with its summary and tasks.",
-    "أول ما تبدأ محاضرة، بتلاقيها محفوظة هني مع ملخصها ومهامها.",
+    "ما إن تبدأ محاضرة، تجدها محفوظة هنا مع ملخصها ومهامها.",
   ),
   accent: "#D9BE83",
   disclaimer: L(
     "Mahdar summarises what it heard — it can mishear, and it is not a substitute for attending or for the lecturer's own material. Recording a lecture may require permission at your institution.",
-    "مَحضَر بيلخّص اللي سمعه — وممكن يسمع غلط، وهو مش بديل عن الحضور ولا عن مادة الدكتور. وتسجيل المحاضرة ممكن يحتاج إذن من جامعتك.",
+    "يلخّص مَحضَر ما سمعه، وقد يخطئ في السماع، وهو ليس بديلاً عن الحضور ولا عن مادة المحاضر. وقد يتطلب تسجيل المحاضرة إذناً من جامعتك.",
   ),
   onboarding: [
     {
       key: "study",
-      question: L("What are you studying?", "شو بتدرس؟"),
+      question: L("What are you studying?", "ماذا تدرس؟"),
       options: [
         L("Engineering or computing", "هندسة أو حاسوب"),
         L("Medicine or health sciences", "طب أو علوم صحية"),
         L("Business or law", "إدارة أو حقوق"),
         L("Humanities or social sciences", "إنسانيات أو علوم اجتماعية"),
-        L("Something else", "شي تاني"),
+        L("Something else", "تخصص آخر"),
       ],
     },
     {
@@ -54,27 +54,27 @@ export const mahdar: AudioPack = {
       options: [
         { label: L("Arabic", "عربي"), value: "ar" },
         { label: L("English", "إنجليزي"), value: "en" },
-        { label: L("Both, mixed", "الاتنين مخلوطين"), value: "mixed" },
+        { label: L("Both, mixed", "كلتاهما معاً"), value: "mixed" },
       ],
     },
     {
       key: "struggle",
-      question: L("What's hardest right now?", "شو أصعب شي عليك هلق؟"),
+      question: L("What's hardest right now?", "ما أصعب ما تواجهه الآن؟"),
       options: [
-        L("I can't write fast enough", "ما بلحق أكتب"),
-        L("I miss what's important", "بيفوتني المهم"),
-        L("I forget the assignments", "بنسى الواجبات"),
-        L("I don't know what to revise", "ما بعرف شو أذاكر"),
+        L("I can't write fast enough", "لا ألحق بالكتابة"),
+        L("I miss what's important", "يفوتني المهم"),
+        L("I forget the assignments", "أنسى الواجبات"),
+        L("I don't know what to revise", "لا أعرف ماذا أذاكر"),
       ],
     },
   ],
   paywall: {
     headline: L("Never miss what matters in a lecture", "لا يفوتك المهم بأي محاضرة"),
     bullets: [
-      L("Records with the screen locked, in your pocket", "بيسجّل والشاشة مقفلة وبجيبك"),
-      L("Catches the moments the lecturer raised their voice", "بيلتقط لحظات رفع صوت الدكتور"),
-      L("Assignments and dates pulled out automatically", "الواجبات والتواريخ بتنسحب لحالها"),
-      L("What to expect on the exam, and why", "شو متوقع بالامتحان، وليش"),
+      L("Records with the screen locked, in your pocket", "يسجّل والشاشة مقفلة وهو في جيبك"),
+      L("Catches the moments the lecturer raised their voice", "يلتقط لحظات ارتفاع صوت المحاضر"),
+      L("Assignments and dates pulled out automatically", "استخراج الواجبات والتواريخ تلقائياً"),
+      L("What to expect on the exam, and why", "ما المتوقع في الامتحان، ولماذا"),
     ],
   },
   pricing: {
@@ -87,7 +87,7 @@ export const mahdar: AudioPack = {
         label: L("Yearly", "سنوي"),
         fallbackPrice: "$79.99",
         period: L("year", "سنة"),
-        note: L("Under $1.54 a week", "أقل من $1.54 بالأسبوع"),
+        note: L("Under $1.54 a week", "أقل من $1.54 أسبوعياً"),
         badge: L("Best value", "الأوفر"),
       },
     ],
@@ -100,15 +100,15 @@ export const mahdar: AudioPack = {
     ),
     micWeak: L(
       "🎤 The audio is coming in weak — move closer to the lecturer.",
-      "🎤 الصوت واصل ضعيف — قرّب الجهاز من الدكتور.",
+      "🎤 الصوت ضعيف — قرّب الجهاز من المحاضر.",
     ),
-    listening: L("Listening to the lecturer…", "أسمع الدكتور..."),
-    analysing: L("Studying it for you…", "قاعد نذاكر عنك..."),
+    listening: L("Listening to the lecturer…", "أستمع إلى المحاضر..."),
+    analysing: L("Studying it for you…", "نذاكر عنك الآن..."),
     analysingSteps: [
       L("Reading the transcript…", "نقرأ النص..."),
       L("Analysing the tone of voice…", "نحلل نبرة الصوت..."),
-      L("Pulling out the assignments and dates…", "نطلع الواجبات والتواريخ..."),
-      L("Working out what the exam will ask…", "نشوف شو رح يجي بالامتحان..."),
+      L("Pulling out the assignments and dates…", "نستخرج الواجبات والتواريخ..."),
+      L("Working out what the exam will ask…", "نستنتج ما سيرد في الامتحان..."),
     ],
     footer: L(
       "Mahdar • studies with you, lecture by lecture",
@@ -119,7 +119,7 @@ export const mahdar: AudioPack = {
 
 Student context: ${profile || "unknown"}
 
-WRITE EVERY USER-FACING STRING IN ${locale === "ar" ? "ARABIC (simple, natural student Arabic — keep technical terms in English where a student would)" : "ENGLISH (plain and direct)"}.
+WRITE EVERY USER-FACING STRING IN ${locale === "ar" ? "MODERN STANDARD ARABIC (فصحى) — clear and direct, the register of a well-written textbook. Never colloquial or dialect. Keep technical terms in English where a student would" : "ENGLISH (plain and direct)"}.
 
 What matters, in order:
 

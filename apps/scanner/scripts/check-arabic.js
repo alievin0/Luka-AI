@@ -155,8 +155,11 @@ for (const file of files) {
     if (a !== e) {
       problems.push(`${file}:${line}  placeholders differ — en {${e || "—"}} vs ar {${a || "—"}}`);
     }
-    // The two language toggles are the same word in both halves by design.
-    if (ar === en && !/^(العربية|English)$/.test(ar)) {
+    // Identical halves are usually an untranslated string, but not always:
+    // the language toggles name themselves, and a numeric placeholder like
+    // "2019" has nothing to translate.
+    const sameOnPurpose = /^(العربية|English)$/.test(ar) || !/\p{L}/u.test(ar);
+    if (ar === en && !sameOnPurpose) {
       problems.push(`${file}:${line}  Arabic is identical to English — "${ar}"`);
     }
     for (const [name, re] of DIALECT) {
