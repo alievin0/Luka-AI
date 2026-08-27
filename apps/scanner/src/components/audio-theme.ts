@@ -58,6 +58,40 @@ export const lift = {
   elevation: 6,
 };
 
+/**
+ * One spacing scale. Every gap and pad comes from here, so vertical rhythm is
+ * a decision made once rather than a number guessed per screen — which is
+ * what made the first pass feel loose and inconsistent.
+ */
+export const SP = { xs: 4, sm: 8, md: 12, lg: 16, xl: 22, xxl: 30, section: 38 } as const;
+
+export const RADIUS = { sm: 8, md: 12, lg: 16, xl: 20, pill: 999 } as const;
+
+/**
+ * Semantic states.
+ *
+ * Gold is the accent and means "act on this" — it cannot also mean "warning",
+ * or it stops meaning anything. These are the other things the interface has
+ * to say, each with a colour AND a label, because colour alone is not a
+ * signal a colour-blind student can read.
+ */
+export const STATE = {
+  /** The model worked this out. Never dressed up as something that was said. */
+  inferred: { fg: "#8FA8C4", bg: "#16202C", line: "#24374C" },
+  /** The lecturer said this, and we can play it back. */
+  stated: { fg: "#7FC49B", bg: "#13251B", line: "#1F3A2B" },
+  /** A deadline close enough to matter today. */
+  urgent: { fg: "#E0A05C", bg: "#2A1D0E", line: "#43301A" },
+  /** Something failed and the student has to know. */
+  danger: { fg: "#E08878", bg: "#2A1310", line: "#4A241E" },
+  /** Work in flight. */
+  busy: { fg: "#C9BC9A", bg: "#221E14", line: "#332C1E" },
+  /** Finished, and quiet about it. */
+  done: { fg: "#6F6757", bg: "#191712", line: "#241F17" },
+} as const;
+
+export type StateName = keyof typeof STATE;
+
 export const audio = StyleSheet.create({
   root: { flex: 1, backgroundColor: INK },
   safe: { flex: 1 },

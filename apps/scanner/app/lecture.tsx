@@ -64,9 +64,18 @@ const TABS: { key: TabKey; label: I18nText }[] = [
 
 export default function LectureScreen() {
   const router = useRouter();
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, at, tab: requestedTab } = useLocalSearchParams<{ id: string; at?: string; tab?: string }>();
   const [lecture, setLecture] = useState<Lecture | null>(null);
-  const [tab, setTab] = useState<TabKey>("summary");
+  const [tab, setTab] = useState<TabKey>(
+    (["summary", "tasks", "terms", "exam", "map", "tone", "transcript"] as TabKey[]).includes(
+      requestedTab as TabKey,
+    )
+      ? (requestedTab as TabKey)
+      : "summary",
+  );
+  /** A deep link carries the moment it came from; honoured once, so scrolling
+   *  away and coming back does not drag the student to it again. */
+  const jumped = useRef(false);
   const [copied, setCopied] = useState(false);
   const [remindersOn, setRemindersOn] = useState(false);
   const [autoplay, setAutoplay] = useState(false);
@@ -200,6 +209,18 @@ export default function LectureScreen() {
       },
     ]);
   };
+
+  /* Landing from a task or an exam signal: go to the moment it came from as
+   * soon as there is audio to go to. This is the link the whole provenance
+   * idea rests on — a claim you can hear. */
+  useEffect(() => {
+    if (jumped.current || !lecture || chunks.length === 0) return;
+    const target = Number(at);
+    if (!Number.isFinite(target)) return;
+    jumped.current = true;
+    seek(target);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lecture, chunks.length, at]);
 
   /** Seeks the lecture's timeline, crossing into another slice if needed. */
   const seek = (seconds: number) => {

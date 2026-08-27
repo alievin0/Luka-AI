@@ -97,6 +97,8 @@ export default function RootLayout() {
           options={{ headerShown: false, presentation: "fullScreenModal", gestureEnabled: false }}
         />
         <Stack.Screen name="lecture" options={{ headerShown: false }} />
+        <Stack.Screen name="lectures" options={{ headerShown: false }} />
+        <Stack.Screen name="tasks" options={{ headerShown: false }} />
         <Stack.Screen name="paste" options={{ headerShown: false }} />
       </Stack>
     </SafeAreaProvider>

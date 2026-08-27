@@ -228,7 +228,28 @@ export type Lecture = {
   error?: string;
 };
 
-export type LectureTask = {
+/**
+ * Where a piece of AI output came from.
+ *
+ * This is the product. Anything can summarise a lecture; what makes the
+ * summary worth trusting is being able to hear the lecturer say it. Every
+ * derived claim carries the second it was said and the words that were said,
+ * so a student can go from "solve chapter 4" back to the moment it was set
+ * and play it.
+ *
+ * `quote` is the lecturer's own words, never a paraphrase — a paraphrase
+ * presented as a quotation is exactly the trust failure this exists to avoid.
+ * Both fields are optional because a model that cannot locate a claim must be
+ * able to say so rather than inventing a timestamp.
+ */
+export type Provenance = {
+  /** Seconds into the lecture, on the same timeline as the segments. */
+  atSeconds?: number;
+  /** Verbatim from the transcript. */
+  quote?: string;
+};
+
+export type LectureTask = Provenance & {
   text: string;
   /** The due date exactly as the lecturer said it, not a parsed one. */
   due?: string;
@@ -236,6 +257,9 @@ export type LectureTask = {
    *  the lecturer was specific enough to resolve it. Drives the calendar
    *  export and the reminders; absent means "don't guess". */
   dueISO?: string;
+  /** Whether the deadline was stated or worked out. A student planning a week
+   *  needs to know which of their deadlines are real. */
+  dueIsExplicit?: boolean;
   difficulty?: "easy" | "medium" | "hard";
 };
 
@@ -246,9 +270,19 @@ export type LectureAnalysis = {
   tasks: LectureTask[];
   /** What the lecturer emphasised — the app's whole reason to exist. */
   emphasised: { text: string; atSeconds: number; reason: string }[];
-  /** What is likely to appear on the exam, and why. */
-  examPredictions: { topic: string; confidence: "high" | "medium" | "low"; why: string }[];
-  terms: { term: string; definition: string }[];
+  /** What is likely to appear on the exam, and why.
+   *
+   *  `basis` separates what the lecturer actually said from what the model
+   *  worked out. Presenting an inference as a direct statement is the fastest
+   *  way to lose a student's trust, and the one thing this feature cannot
+   *  afford to get wrong. */
+  examPredictions: (Provenance & {
+    topic: string;
+    confidence: "high" | "medium" | "low";
+    why: string;
+    basis?: "stated" | "inferred";
+  })[];
+  terms: (Provenance & { term: string; definition: string })[];
   /** خريطة المحاضرة — the lecture in chapters, each anchored to a timestamp. */
   chapters: { title: string; atSeconds: number; points: string[] }[];
   /** How much of the transcript the model could actually rely on, 0–100.

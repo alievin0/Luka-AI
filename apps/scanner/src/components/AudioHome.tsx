@@ -36,6 +36,9 @@ import {
 import { FONTS, SCALE } from "../type";
 import type { AudioPack, Lecture } from "../packs";
 import { getLectures, lectureAllowed, clock, scoreEnergy } from "../lectures";
+import { tasksOf, taskSummary } from "../tasks";
+import { TabBar, TAB_CLEARANCE } from "./TabBar";
+import { STATE, SP, RADIUS } from "./audio-theme";
 
 /**
  * Mahdar's home screen.
@@ -48,6 +51,18 @@ import { getLectures, lectureAllowed, clock, scoreEnergy } from "../lectures";
 export function AudioHome({ pack }: { pack: AudioPack }) {
   const router = useRouter();
   const [lectures, setLectures] = useState<Lecture[]>([]);
+  const [summary, setSummary] = useState(taskSummary([]));
+
+  /** The lecture worth returning to: the newest one that still has work in
+   *  it, or that never finished processing. */
+  const resumable = useMemo(() => {
+    const unfinished = lectures.find((l) => l.status !== "ready");
+    if (unfinished) return unfinished;
+    return lectures.find((l) => {
+      const total = l.analysis?.tasks.length ?? 0;
+      return total > 0 && (l.done?.length ?? 0) < total;
+    });
+  }, [lectures]);
 
   /** The free tier is counted on lectures ever recorded, not lectures kept,
    *  so deleting one doesn't buy another. The count is spent when a lecture
@@ -75,7 +90,10 @@ export function AudioHome({ pack }: { pack: AudioPack }) {
 
   useFocusEffect(
     useCallback(() => {
-      getLectures().then(setLectures);
+      getLectures().then((list) => {
+        setLectures(list);
+        setSummary(taskSummary(tasksOf(list)));
+      });
     }, []),
   );
 
@@ -128,17 +146,36 @@ export function AudioHome({ pack }: { pack: AudioPack }) {
             </View>
           </Animated.View>
 
-          <Animated.View style={rise(16)}>
-            <View style={styles.badge}>
-              <View style={styles.badgeDot} />
-              <Text style={styles.badgeText}>{t(pack.badge)}</Text>
-            </View>
+          {/* The pitch is for someone who has never recorded a lecture. Once
+              they have, the screen owes them their work instead of the sales
+              copy they already read. */}
+          {lectures.length === 0 ? (
+            <Animated.View style={rise(16)}>
+              <View style={styles.badge}>
+                <View style={styles.badgeDot} />
+                <Text style={styles.badgeText}>{t(pack.badge)}</Text>
+              </View>
 
-            <Text style={styles.headline}>{t(pack.headline)}</Text>
-            <View style={styles.rule} />
-            <Text style={styles.intro}>{t(pack.intro)}</Text>
-          </Animated.View>
+              <Text style={styles.headline}>{t(pack.headline)}</Text>
+              <View style={styles.rule} />
+              <Text style={styles.intro}>{t(pack.intro)}</Text>
+            </Animated.View>
+          ) : (
+            <Animated.View style={rise(16)}>
+              <Text style={styles.greeting}>{t(ui.todaysWork)}</Text>
+              <TodayStrip summary={summary} onTasks={() => router.replace("/tasks")} />
+              {resumable ? (
+                <ResumeCard
+                  lecture={resumable}
+                  onPress={() =>
+                    router.push({ pathname: "/lecture", params: { id: resumable.id } })
+                  }
+                />
+              ) : null}
+            </Animated.View>
+          )}
 
+          {lectures.length === 0 ? (
           <Animated.View style={[styles.actions, rise(24)]}>
             <Pressable
               style={({ pressed }) => [styles.primaryWrap, pressed && s.pressed]}
@@ -167,17 +204,20 @@ export function AudioHome({ pack }: { pack: AudioPack }) {
               <Text style={styles.secondaryChevron}>{locale === "ar" ? "‹" : "›"}</Text>
             </Pressable>
           </Animated.View>
+          ) : null}
 
           {lectures.length === 0 ? (
             <EmptyHall pack={pack} style={rise(32)} />
           ) : (
             <Animated.View style={[styles.list, rise(32)]}>
               <View style={styles.listHead}>
-                <Text style={styles.listLabel}>{t(ui.pastScans)}</Text>
+                <Text style={styles.listLabel}>{t(ui.recentLectures)}</Text>
                 <View style={styles.listRule} />
-                <Text style={styles.listCount}>{lectures.length}</Text>
+                <Pressable onPress={() => router.replace("/lectures")} hitSlop={8}>
+                  <Text style={styles.seeAll}>{t(ui.seeAll)}</Text>
+                </Pressable>
               </View>
-              {lectures.map((lecture) => (
+              {lectures.slice(0, 3).map((lecture) => (
                 <LectureRow
                   key={lecture.id}
                   lecture={lecture}
@@ -189,10 +229,95 @@ export function AudioHome({ pack }: { pack: AudioPack }) {
             </Animated.View>
           )}
 
-          <Text style={styles.disclaimer}>{t(pack.disclaimer)}</Text>
+          {lectures.length === 0 ? (
+            <Text style={styles.disclaimer}>{t(pack.disclaimer)}</Text>
+          ) : null}
         </ScrollView>
       </SafeAreaView>
+
+      <TabBar onRecord={startLecture} />
     </View>
+  );
+}
+
+/**
+ * What today actually needs.
+ *
+ * Only counts that change what a student does next, and only when they are
+ * non-zero — a row of zeroes is dashboard decoration, and it pushes the real
+ * work off the screen.
+ */
+function TodayStrip({
+  summary,
+  onTasks,
+}: {
+  summary: ReturnType<typeof taskSummary>;
+  onTasks: () => void;
+}) {
+  const cells = [
+    { n: summary.overdue, label: t(ui.overdue), tone: "danger" as const },
+    { n: summary.today, label: t(ui.dueToday), tone: "urgent" as const },
+    { n: summary.soon, label: t(ui.dueSoon), tone: "busy" as const },
+  ].filter((cell) => cell.n > 0);
+
+  if (cells.length === 0) {
+    return (
+      <Pressable style={styles.calm} onPress={onTasks}>
+        <Text style={styles.calmText}>
+          {summary.open > 0
+            ? `${summary.open} ${t(ui.openTasks)}`
+            : t(ui.noTasks)}
+        </Text>
+      </Pressable>
+    );
+  }
+
+  return (
+    <Pressable style={styles.today} onPress={onTasks}>
+      {cells.map((cell) => (
+        <View key={cell.label} style={styles.todayCell}>
+          <Text style={[styles.todayValue, { color: STATE[cell.tone].fg }]}>{cell.n}</Text>
+          <Text style={styles.todayLabel}>{cell.label}</Text>
+        </View>
+      ))}
+    </Pressable>
+  );
+}
+
+/**
+ * The lecture to go back to.
+ *
+ * "Where did I stop" is the question a student opens a study app with, and
+ * answering it in one tap is worth more than any amount of chrome.
+ */
+function ResumeCard({ lecture, onPress }: { lecture: Lecture; onPress: () => void }) {
+  const total = lecture.analysis?.tasks.length ?? 0;
+  const done = lecture.done?.length ?? 0;
+  const pending = lecture.status !== "ready";
+
+  return (
+    <Pressable style={({ pressed }) => [styles.resume, lift, pressed && s.pressed]} onPress={onPress}>
+      <LinearGradient colors={PANEL_GRADIENT} style={StyleSheet.absoluteFill} />
+      <Text style={styles.resumeLabel}>{t(ui.continueStudying)}</Text>
+      <Text style={styles.resumeTitle} numberOfLines={2}>
+        {lecture.title || t(ui.untitledLecture)}
+      </Text>
+      <View style={styles.resumeFoot}>
+        <Text style={styles.resumeMeta}>
+          {pending
+            ? t(ui.processing)
+            : total > 0
+              ? `${total - done} ${t(ui.openTasks)}`
+              : clock(lecture.duration)}
+        </Text>
+        <Text style={styles.resumeGo}>{t(ui.resumeStudy)} {locale === "ar" ? "‹" : "›"}</Text>
+      </View>
+      {total > 0 ? (
+        <View style={styles.progressTrack}>
+          <View style={[styles.progressFill, { width: `${Math.round((done / total) * 100)}%` }]} />
+        </View>
+      ) : null}
+    </Pressable>
   );
 }
 
@@ -328,7 +453,7 @@ function LectureRow({ lecture, onPress }: { lecture: Lecture; onPress: () => voi
 }
 
 const styles = StyleSheet.create({
-  content: { paddingHorizontal: 22, paddingBottom: 60, paddingTop: 6 },
+  content: { paddingHorizontal: 22, paddingBottom: TAB_CLEARANCE + 24, paddingTop: 6 },
 
   badge: {
     flexDirection: "row",
@@ -435,6 +560,91 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.body,
     maxWidth: 300,
   },
+
+  greeting: {
+    color: TEXT_SOFT,
+    fontSize: SCALE.label,
+    fontFamily: FONTS.bodyMedium,
+    letterSpacing: 0.5,
+    textAlign: READ,
+    marginTop: SP.xl,
+  },
+
+  today: {
+    flexDirection: "row",
+    gap: SP.sm,
+    marginTop: SP.md,
+  },
+  todayCell: {
+    flex: 1,
+    backgroundColor: "rgba(26,22,15,0.8)",
+    borderWidth: 1,
+    borderColor: PANEL_BORDER,
+    borderRadius: RADIUS.md,
+    paddingVertical: SP.md,
+    alignItems: "center",
+    gap: 1,
+  },
+  todayValue: { fontSize: SCALE.title, fontFamily: FONTS.displayBold },
+  todayLabel: { color: TEXT_FAINT, fontSize: SCALE.micro, fontFamily: FONTS.body },
+
+  calm: {
+    backgroundColor: "rgba(26,22,15,0.8)",
+    borderWidth: 1,
+    borderColor: PANEL_BORDER,
+    borderRadius: RADIUS.md,
+    paddingVertical: SP.lg,
+    paddingHorizontal: SP.lg,
+    marginTop: SP.md,
+  },
+  calmText: {
+    color: TEXT_SOFT,
+    fontSize: SCALE.body,
+    fontFamily: FONTS.body,
+    textAlign: READ,
+  },
+
+  resume: {
+    borderWidth: 1,
+    borderColor: PANEL_BORDER,
+    borderRadius: RADIUS.lg,
+    padding: SP.lg,
+    marginTop: SP.md,
+    gap: 6,
+    overflow: "hidden",
+  },
+  resumeLabel: {
+    color: GOLD_DEEP,
+    fontSize: SCALE.micro,
+    fontFamily: FONTS.bodyMedium,
+    letterSpacing: 0.6,
+    textAlign: READ,
+  },
+  resumeTitle: {
+    color: TEXT,
+    fontSize: SCALE.section + 1,
+    lineHeight: SCALE.sectionLine,
+    fontFamily: FONTS.bodyMedium,
+    textAlign: READ,
+  },
+  resumeFoot: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 2,
+  },
+  resumeMeta: { color: TEXT_FAINT, fontSize: SCALE.micro, fontFamily: FONTS.body },
+  resumeGo: { color: GOLD, fontSize: SCALE.micro, fontFamily: FONTS.bodyMedium },
+  progressTrack: {
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: "#2A2318",
+    marginTop: SP.sm,
+    overflow: "hidden",
+  },
+  progressFill: { height: 3, borderRadius: 2, backgroundColor: GOLD },
+
+  seeAll: { color: GOLD_DEEP, fontSize: SCALE.micro, fontFamily: FONTS.bodyMedium },
 
   /* ----------------------------------------------------------------- list */
   list: { marginTop: 28, gap: 10 },

@@ -44,7 +44,10 @@ const ANALYSIS_SCHEMA = {
           text: { type: "string" },
           due: { type: "string" },
           dueISO: { type: "string" },
+          dueIsExplicit: { type: "boolean" },
           difficulty: { type: "string", enum: ["easy", "medium", "hard"] },
+          atSeconds: { type: "number" },
+          quote: { type: "string" },
         },
       },
     },
@@ -71,6 +74,9 @@ const ANALYSIS_SCHEMA = {
           topic: { type: "string" },
           confidence: { type: "string", enum: ["high", "medium", "low"] },
           why: { type: "string" },
+          basis: { type: "string", enum: ["stated", "inferred"] },
+          atSeconds: { type: "number" },
+          quote: { type: "string" },
         },
       },
     },
@@ -80,7 +86,12 @@ const ANALYSIS_SCHEMA = {
         type: "object",
         additionalProperties: false,
         required: ["term", "definition"],
-        properties: { term: { type: "string" }, definition: { type: "string" } },
+        properties: {
+          term: { type: "string" },
+          definition: { type: "string" },
+          atSeconds: { type: "number" },
+          quote: { type: "string" },
+        },
       },
     },
     chapters: {
@@ -112,14 +123,40 @@ const clock = (seconds: number) =>
  * to the student as a quality signal, so it cannot exceed what the transcript
  * actually supports: a near-empty transcript cannot produce a confident read.
  */
-function clampAnalysis(analysis: LectureAnalysis, words: number): LectureAnalysis {
+function clampAnalysis(
+  analysis: LectureAnalysis,
+  words: number,
+  transcript: string,
+): LectureAnalysis {
+  /* A quotation the transcript does not contain is a fabrication, and the
+   * whole provenance feature rests on it being real. Compared loosely —
+   * collapsed whitespace, no punctuation — because the model reproduces the
+   * words faithfully far more often than it reproduces the commas. */
+  const flat = transcript.replace(/[\s\p{P}]+/gu, " ").toLowerCase();
+  const grounded = <T extends { quote?: string; atSeconds?: number }>(item: T): T => {
+    if (!item.quote) return item;
+    const needle = item.quote.replace(/[\s\p{P}]+/gu, " ").toLowerCase().trim();
+    if (needle.length >= 8 && flat.includes(needle)) return item;
+    // Drop the quote, keep the timestamp: the claim may still be right, but
+    // it will not be presented as something the lecturer was heard to say.
+    const { quote, ...rest } = item;
+    return rest as T;
+  };
+
   const ceiling = words < 120 ? 35 : words < 400 ? 65 : 100;
   return {
     ...analysis,
     confidence: Math.max(0, Math.min(ceiling, Math.round(analysis.confidence ?? 0))),
-    examPredictions: (analysis.examPredictions ?? []).map((p) =>
-      p.confidence === "high" && !p.why?.trim() ? { ...p, confidence: "medium" as const } : p,
-    ),
+    tasks: (analysis.tasks ?? []).map(grounded),
+    terms: (analysis.terms ?? []).map(grounded),
+    examPredictions: (analysis.examPredictions ?? [])
+      .map(grounded)
+      .map((p) =>
+        p.confidence === "high" && !p.why?.trim() ? { ...p, confidence: "medium" as const } : p,
+      )
+      // A prediction claiming the lecturer stated it, with nothing quoted to
+      // show for it, is downgraded to what it actually is.
+      .map((p) => (p.basis === "stated" && !p.quote ? { ...p, basis: "inferred" as const } : p)),
   };
 }
 
@@ -245,7 +282,7 @@ For each task, also set "dueISO" — the deadline resolved into an ISO 8601 time
       return Response.json({ error: "ما وصلنا رد صالح. جرّب كمان مرة." }, { status: 502 });
     }
     const { title, ...analysis } = parsed;
-    return Response.json({ title, analysis: clampAnalysis(analysis, words) });
+    return Response.json({ title, analysis: clampAnalysis(analysis, words, transcript) });
   } catch (error) {
     if (error instanceof Anthropic.RateLimitError) {
       return Response.json({ error: "في ضغط على الخدمة هلق. جرّب بعد شوي." }, { status: 429 });
