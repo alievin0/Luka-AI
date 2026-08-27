@@ -291,7 +291,7 @@ export const ui = {
   cardStopLine: L("Stop the car now", "أوقف السيارة الآن"),
   cardCautionTitle: L("WARNING", "تحذير"),
   cardCautionLine: L("Keep going, carefully", "تقدر تكمل بحذر"),
-  cardOkTitle: L("All clear", "ما في داعي"),
+  cardOkTitle: L("ALL CLEAR", "ما في داعي"),
   cardOkLine: L("Safe to keep driving", "تقدر تكمل بأمان"),
 
   trialSafeTitle: L("Try {n} days free — no risk", "جرّب {n} أيام مجاناً — بدون أي مخاطرة"),

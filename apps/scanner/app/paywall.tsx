@@ -36,8 +36,17 @@ import { getOffers, purchase, purchasesAvailable, restore, type Offer } from "..
  * buyer discovers on their statement.
  */
 
-/** Wide margins are part of the design, not slack. */
-const GUTTER = 28;
+/**
+ * Measured off the design file, not guessed from a screenshot.
+ *
+ * Its canvas is 853x1844 — a 390x844 phone at 2.187x — so every value in it
+ * divides down cleanly. The cards sit 38px from each edge, which is 17pt here;
+ * the headline column is inset further, to 85px, which is 39pt. Two different
+ * insets, and the difference between them is the reason the screen reads as
+ * composed rather than merely padded.
+ */
+const GUTTER = 18;
+const HEAD_INSET = 21;
 
 export default function Paywall() {
   const router = useRouter();
@@ -121,6 +130,10 @@ export default function Paywall() {
                       styles.cell,
                       index % 2 === 0 && index < benefits.length - 1 && styles.cellDivided,
                       index >= 2 && styles.cellRow,
+                      // An odd count leaves one cell alone on the last row.
+                      // Half a hairline hanging in space reads as a mistake,
+                      // so it takes the whole row and the rule runs full width.
+                      index === benefits.length - 1 && index % 2 === 0 && styles.cellWide,
                     ]}
                   >
                     {icon ? (
@@ -260,7 +273,7 @@ function GradeCard({
         {title}
       </Text>
       <Feather name={icon} size={24} color={grade.fg} />
-      <Text style={styles.gradeLine} numberOfLines={2}>
+      <Text style={styles.gradeLine} numberOfLines={3}>
         {line}
       </Text>
     </View>
@@ -300,17 +313,19 @@ const styles = StyleSheet.create({
 
   headline: {
     color: TEXT,
-    fontSize: 34,
-    lineHeight: 50,
+    fontSize: 26,
+    lineHeight: 36,
     fontFamily: UI_FONT.bold,
     textAlign: "center",
+    paddingHorizontal: HEAD_INSET,
   },
   sub: {
     color: TEXT_SOFT,
-    fontSize: 17,
-    lineHeight: 29,
+    fontSize: 15,
+    lineHeight: 25,
     fontFamily: UI_FONT.regular,
     textAlign: "center",
+    paddingHorizontal: HEAD_INSET,
   },
 
   grades: { flexDirection: "row", gap: 10 },
@@ -319,12 +334,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 12,
     borderWidth: 1.5,
-    borderRadius: 20,
+    borderRadius: 24,
     paddingVertical: 18,
     paddingHorizontal: 8,
   },
   gradeTitle: { fontSize: 13, lineHeight: 19, fontFamily: UI_FONT.bold, textAlign: "center" },
-  gradeLine: { color: TEXT, fontSize: 13, lineHeight: 20, fontFamily: UI_FONT.regular, textAlign: "center" },
+  gradeLine: { color: TEXT, fontSize: 12.5, lineHeight: 19, fontFamily: UI_FONT.regular, textAlign: "center" },
 
   card: {
     backgroundColor: SURFACE,
@@ -335,20 +350,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     gap: 20,
   },
-  cardTitle: { color: TEXT, fontSize: 19, fontFamily: UI_FONT.bold, textAlign: READ },
+  cardTitle: { color: TEXT, fontSize: 16, fontFamily: UI_FONT.bold, textAlign: READ },
 
   /* Two columns rather than five: five across a phone gives each about sixty
      points, and a benefit nobody can read is not one. */
   grid: { flexDirection: "row", flexWrap: "wrap" },
   cell: { width: "50%", gap: 7, paddingVertical: 14, paddingHorizontal: 10, alignItems: "center" },
+  cellWide: { width: "100%" },
   cellDivided: { borderRightWidth: 1, borderRightColor: BORDER },
   cellRow: { borderTopWidth: 1, borderTopColor: BORDER },
   cellGlyph: { color: TEXT_SOFT, fontSize: 17 },
-  cellTitle: { color: TEXT, fontSize: 14.5, fontFamily: UI_FONT.bold, textAlign: "center" },
+  cellTitle: { color: TEXT, fontSize: 14, fontFamily: UI_FONT.bold, textAlign: "center" },
   cellDetail: {
     color: TEXT_FAINT,
-    fontSize: 12.5,
-    lineHeight: 19,
+    fontSize: 13,
+    lineHeight: 20,
     fontFamily: UI_FONT.regular,
     textAlign: "center",
   },
@@ -359,9 +375,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 16,
-    minHeight: 82,
+    minHeight: 72,
     backgroundColor: SURFACE,
-    borderRadius: 22,
+    borderRadius: 24,
     borderWidth: 1.5,
     borderColor: BORDER,
     paddingHorizontal: 18,
@@ -380,10 +396,10 @@ const styles = StyleSheet.create({
   radioOn: { borderColor: "#F2A33C" },
   radioDot: { width: 11, height: 11, borderRadius: 6, backgroundColor: "#F2A33C" },
   offerBody: { flex: 1, gap: 3 },
-  offerTitle: { color: TEXT, fontSize: 19, fontFamily: UI_FONT.bold, textAlign: READ },
+  offerTitle: { color: TEXT, fontSize: 17, fontFamily: UI_FONT.bold, textAlign: READ },
   offerNote: { color: TEXT_FAINT, fontSize: 12.5, fontFamily: UI_FONT.regular, textAlign: READ },
   offerPriceWrap: { alignItems: "flex-end", gap: 2 },
-  offerPrice: { color: TEXT, fontSize: 22, fontFamily: UI_FONT.bold },
+  offerPrice: { color: TEXT, fontSize: 19, fontFamily: UI_FONT.bold },
   offerPeriod: { color: TEXT_FAINT, fontSize: 11.5, fontFamily: UI_FONT.regular },
   badge: {
     position: "absolute",
@@ -403,7 +419,7 @@ const styles = StyleSheet.create({
     backgroundColor: SURFACE,
     borderWidth: 1.5,
     borderColor: GRADE.info.line,
-    borderRadius: 20,
+    borderRadius: 24,
     paddingVertical: 16,
     paddingHorizontal: 18,
   },

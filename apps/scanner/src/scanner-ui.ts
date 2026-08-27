@@ -17,7 +17,7 @@ import { isRTL } from "./i18n";
 /* ---- ground ------------------------------------------------------------ */
 
 export const BG = "#0C0E13";
-export const SURFACE = "#141B20";
+export const SURFACE = "#182028";
 export const SURFACE_HIGH = "#1F2831";
 export const BORDER = "#2A3039";
 export const TEXT = "#F2F4F8";
@@ -109,7 +109,9 @@ export const TYPE = {
 /** A 4pt grid, used everywhere so vertical rhythm is decided once. */
 export const SP = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32, section: 48 } as const;
 
-export const RADIUS = { sm: 8, md: 12, lg: 16, xl: 20, pill: 999 } as const;
+/** Card corners are 26: the reference sits in the 24–28 band and every card
+ *  in the app is cut from the same radius so none reads as a different part. */
+export const RADIUS = { sm: 8, md: 14, lg: 20, xl: 26, pill: 999 } as const;
 
 /** The smallest a tappable thing may be. One hand, in the dark, rattled. */
 export const TAP = 44;
