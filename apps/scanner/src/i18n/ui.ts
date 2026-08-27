@@ -106,7 +106,7 @@ export const ui = {
   startNow: L("Start now", "ابدأ الآن"),
   startNext: L("Start next", "ابدأ التالي"),
   dayStreak: L("day streak", "يوم متواصل"),
-  completed: L("completed", "خلصت"),
+  completed: L("completed", "مكتملة"),
   ofPlan: L("of plan", "من الخطة"),
   tipOfDay: L("Tip of the day", "نصيحة اليوم"),
   seeFullPlan: L("See the full plan", "اعرض الخطة كاملة"),
@@ -228,7 +228,7 @@ export const ui = {
   dueSoon: L("This week", "هذا الأسبوع"),
   dueLater: L("Later", "لاحقاً"),
   noDeadline: L("No deadline", "بدون موعد"),
-  completed2: L("Done", "خلصت"),
+  completed2: L("Done", "مكتملة"),
   fromLecture: L("from", "من"),
   saidAt: L("said at", "قالها في"),
   jumpToMoment: L("Play this moment", "شغّل هذه اللحظة"),
@@ -424,7 +424,7 @@ export const ui = {
 
   downloadIcs: L("Download calendar (.ics)", "تحميل التقويم (.ics)"),
   enableReminders: L("Turn on reminders", "فعّل التذكيرات"),
-  remindersOn: L("Reminders on", "التذكيرات شغالة"),
+  remindersOn: L("Reminders on", "التذكيرات مفعّلة"),
   easy: L("Easy", "بسيط"),
   medium: L("Medium", "متوسط"),
   hard: L("Hard", "صعب"),
@@ -476,7 +476,7 @@ export const ui = {
   continueLearning: L("Continue learning", "تابع من حيث توقفت"),
   todayPriorities: L("Today's priorities", "أولويات اليوم"),
   insights: L("What Mahdar noticed", "ما لاحظه مَحضَر"),
-  percentDone: L("done", "خلصت"),
+  percentDone: L("done", "مكتمل"),
 
   // Priorities. Counts come from the student's own data — never a placeholder.
   tasksDueSoon: L("tasks due soon", "مهام اقترب موعدها"),
@@ -518,7 +518,7 @@ export const ui = {
   addedTask: L("Added", "أُضيفت"),
   filterAll: L("All", "الكل"),
   filterDueSoon: L("Due soon", "اقترب موعدها"),
-  filterDone: L("Completed", "خلصت"),
+  filterDone: L("Completed", "المكتملة"),
   source: L("Source", "المصدر"),
 
   // Concepts panel.
