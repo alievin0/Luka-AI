@@ -1,21 +1,22 @@
 #!/usr/bin/env python3
 """
-Generates the dashboard warning-light pictograms.
+SUPERSEDED — this no longer produces what the app ships.
 
-A dashboard-light app that shows no dashboard lights is asking the driver to
-match the shape in front of them against a paragraph of text. These are the
-actual symbols, drawn from the same signed-distance primitives the app icons
-use, since no image library is available here.
+assets/symbols now holds the real artwork, cut from the design sheets by
+scripts/slice-symbols.js. Running this would overwrite all 41 of those files
+with these drawings, so it refuses unless you pass --overwrite-real-artwork
+and mean it.
 
-They are rendered as white on transparent and tinted at display time, so one
-asset serves a red, an amber and a green state — and the severity colour can
-never disagree with the entry's own severity, because it comes from the same
-field.
+It is kept because it still documents the contract every symbol has to meet —
+128x128, white on transparent, tinted at display time so one asset serves a
+red, an amber and a green state — and because the drawings are a usable
+fallback if a sheet is ever lost.
 
-Run: python3 scripts/make-symbols.py
+Run: python3 scripts/make-symbols.py --overwrite-real-artwork
 """
 import importlib.util
 import math
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -566,6 +567,9 @@ GLYPHS = {
 
 
 def main():
+    if "--overwrite-real-artwork" not in sys.argv:
+        print(__doc__.strip())
+        return 1
     out = ROOT / "assets" / "symbols"
     out.mkdir(parents=True, exist_ok=True)
     pen = Pen(SIZE)
@@ -574,7 +578,8 @@ def main():
         write_png(out / f"{name}.png", render(SIZE, None, shapes), SIZE, SIZE)
         print(f"symbols/{name}.png")
     print(f"\n{len(GLYPHS)} symbols")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
