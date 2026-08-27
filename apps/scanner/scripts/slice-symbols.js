@@ -137,6 +137,21 @@ const GRIDS = {
     rows: 2,
     keys: ["catalytic", "coolant", "pad-wear", "suspension", "turtle", "water-in-fuel"],
   },
+  "sheet-a": {
+    cols: 3,
+    rows: 3,
+    keys: ["engine", "oil-can", "battery", "abs", "airbag", "tyre", "steering", "skid-car", "epb"],
+  },
+  "sheet-b": {
+    cols: 3,
+    rows: 3,
+    keys: ["key", "radar-car", "cruise", "door-ajar", "high-beam", "rear-fog", "washer", "fuel-pump", "glow-plug"],
+  },
+  "sheet-c": {
+    cols: 4,
+    rows: 2,
+    keys: ["dpf", "droplet", "hybrid", "ev-fault", "regen", "ev-ready", "spanner", "snowflake"],
+  },
 };
 
 (async () => {
@@ -200,6 +215,16 @@ const GRIDS = {
     console.log(`  ${name}: ${w}x${h}, ${best.how}, ${frames[name].scale.toFixed(2)}x`);
   }
   if (Object.keys(frames).length) console.log("");
+
+  // Sheets A, B and C cover lights the OEM pages also draw. Only one source is
+  // ever present in practice, but if both were, the grids run last and would
+  // silently overwrite — so an overlap is named rather than left to be noticed
+  // later in a contact sheet.
+  const fromParts = new Set(PARTS.filter(([k, sheet]) => k && sheets[sheet]).map(([k]) => k));
+  const clash = Object.entries(GRIDS)
+    .filter(([name]) => sheets[name])
+    .flatMap(([name, g]) => g.keys.filter((k) => fromParts.has(k)).map((k) => `${k} (${name} over the box table)`));
+  if (clash.length) console.warn(`  two sources for: ${clash.join(", ")}\n`);
 
   let done = 0;
   const blank = [];
