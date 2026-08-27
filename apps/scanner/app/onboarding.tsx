@@ -1,5 +1,6 @@
 import { useState } from "react";
 import {
+  Linking,
   View,
   Text,
   Pressable,
@@ -18,6 +19,7 @@ import { ui } from "../src/i18n/ui";
 import { theme, withAlpha } from "../src/theme";
 import { completeOnboarding, type Profile } from "../src/storage";
 import { CountryField } from "../src/components/CountryField";
+import { privacyUrl } from "../src/legal";
 import type { Country } from "../src/countries";
 
 /** Every pack that has a generated mark shows it on the intro. A pack absent
@@ -139,6 +141,12 @@ export default function Onboarding() {
                 {t(isAudio(pack) ? ui.privacyNoticeAudio : ui.privacyNotice)}
               </Text>
               <Text style={styles.consentWarn}>{t(pack.disclaimer)}</Text>
+              <Pressable
+                onPress={() => Linking.openURL(privacyUrl()).catch(() => undefined)}
+                hitSlop={8}
+              >
+                <Text style={styles.consentLink}>{t(ui.readPrivacyPolicy)}</Text>
+              </Pressable>
             </View>
           </ScrollView>
         )}
@@ -226,6 +234,12 @@ const styles = StyleSheet.create({
     gap: 14,
   },
   consentText: { color: theme.textSoft, fontSize: 15, lineHeight: 27 },
+  consentLink: {
+    color: theme.accent,
+    fontSize: 14,
+    textDecorationLine: "underline",
+    marginTop: 4,
+  },
   consentWarn: {
     color: theme.textFaint,
     fontSize: 13,

@@ -12,6 +12,7 @@ import {
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { pack, isScanner } from "../src/packs";
 import { theme, severityStyle, verdictStyle } from "../src/theme";
+import { SymbolBadge } from "../src/components/SymbolBadge";
 import { getHistory, type HistoryEntry } from "../src/storage";
 import { t } from "../src/i18n";
 import { ui } from "../src/i18n/ui";
@@ -85,8 +86,18 @@ export default function Result() {
       <Image source={{ uri: imageUri }} style={styles.photo} resizeMode="cover" />
 
       <View style={styles.headline}>
-        <View style={[styles.badge, { backgroundColor: sev.bg }]}>
-          <Text style={[styles.badgeText, { color: sev.color }]}>{sev.label}</Text>
+        <View style={styles.headlineTop}>
+          {result.glyph ? (
+            <SymbolBadge
+              glyph={result.glyph}
+              colour={sev.color}
+              background={sev.bg}
+              size={44}
+            />
+          ) : null}
+          <View style={[styles.badge, { backgroundColor: sev.bg }]}>
+            <Text style={[styles.badgeText, { color: sev.color }]}>{sev.label}</Text>
+          </View>
         </View>
         <Text style={styles.title}>{result.title}</Text>
         <Text style={styles.subtitle}>{result.subtitle}</Text>
@@ -204,6 +215,7 @@ const styles = StyleSheet.create({
   center: { flex: 1, backgroundColor: theme.bg, alignItems: "center", justifyContent: "center" },
   muted: { color: theme.textSoft, fontSize: 16 },
   photo: { width: "100%", height: 200, borderRadius: theme.radius, backgroundColor: theme.surface },
+  headlineTop: { flexDirection: "row", alignItems: "center", gap: 12 },
   headline: { gap: 6 },
   badge: { alignSelf: "flex-start", paddingVertical: 5, paddingHorizontal: 12, borderRadius: 999 },
   badgeText: { fontSize: 12, fontWeight: "700" },

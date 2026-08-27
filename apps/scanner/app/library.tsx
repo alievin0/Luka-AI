@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { View, Text, StyleSheet, TextInput, Pressable, SectionList } from "react-native";
+import { SymbolBadge } from "../src/components/SymbolBadge";
 import { pack, isScanner } from "../src/packs";
 import { theme, severityStyle } from "../src/theme";
 import { normalise } from "../src/countries";
@@ -54,7 +55,7 @@ export default function Library() {
         onPress={() => setOpen(expanded ? null : item.id)}
       >
         <View style={styles.rowHead}>
-          <View style={[styles.dot, { backgroundColor: sev.color }]} />
+          <SymbolBadge glyph={item.glyph} colour={sev.color} background={sev.bg} />
           <View style={styles.rowTitles}>
             <Text style={styles.rowTitle}>{t(item.title)}</Text>
             <Text style={styles.rowSubtitle}>{item.subtitle}</Text>
@@ -145,7 +146,6 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   rowHead: { flexDirection: "row", alignItems: "center", gap: 12 },
-  dot: { width: 10, height: 10, borderRadius: 5 },
   rowTitles: { flex: 1, gap: 2 },
   rowTitle: { color: theme.text, fontSize: 16, fontWeight: "600" },
   rowSubtitle: { color: theme.textFaint, fontSize: 12, writingDirection: "ltr", textAlign: "right" },

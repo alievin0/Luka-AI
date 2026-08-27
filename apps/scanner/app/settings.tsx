@@ -2,7 +2,8 @@ import { useCallback, useState } from "react";
 import { View, Text, StyleSheet, Pressable, Alert, ScrollView, Linking } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import Constants from "expo-constants";
-import { pack, isProgram, isScanner } from "../src/packs";
+import { pack, activePackId, isAudio, isProgram, isScanner } from "../src/packs";
+import { privacyUrl } from "../src/legal";
 import { t } from "../src/i18n";
 import { ui } from "../src/i18n/ui";
 import { theme } from "../src/theme";
@@ -165,34 +166,38 @@ export default function Settings() {
         </>
       ) : null}
 
-      <Text style={styles.section}>الاشتراك</Text>
+      <Text style={styles.section}>{t(ui.sectionSubscription)}</Text>
       <View style={styles.group}>
-        <Row label="ترقية" onPress={() => router.push("/paywall")} />
-        <Row label="استعادة عملية شراء" onPress={doRestore} />
+        <Row label={t(ui.upgrade)} onPress={() => router.push("/paywall")} />
+        <Row label={t(ui.restorePurchase)} onPress={doRestore} />
       </View>
 
-      <Text style={styles.section}>البيانات</Text>
+      <Text style={styles.section}>{t(ui.sectionData)}</Text>
       <View style={styles.group}>
         {isProgram(pack) ? (
-          <Row label="صفّر التقدّم" onPress={confirmReset} danger />
+          <Row label={t(ui.resetProgress)} onPress={confirmReset} danger />
         ) : (
-          <Row label="امسح كل الفحوصات" onPress={confirmClear} danger />
+          <Row label={t(ui.clearScans)} onPress={confirmClear} danger />
         )}
       </View>
       <Text style={styles.note}>
-        {isProgram(pack)
-          ? "تقدّمك محفوظ على جهازك بس."
-          : "الفحوصات بتنحفظ على جهازك بس. ما بنخزّن صورك على خوادمنا."}
+        {t(
+          isProgram(pack)
+            ? ui.dataStaysLocalProgram
+            : isAudio(pack)
+              ? ui.dataStaysLocalAudio
+              : ui.dataStaysLocalScanner,
+        )}
       </Text>
 
-      <Text style={styles.section}>عن التطبيق</Text>
+      <Text style={styles.section}>{t(ui.sectionAbout)}</Text>
       <View style={styles.group}>
-        <Row label="النسخة" value={Constants.expoConfig?.version ?? "—"} />
+        <Row label={t(ui.version)} value={Constants.expoConfig?.version ?? "—"} />
         <Row
-          label="سياسة الخصوصية"
+          label={t(ui.privacyPolicy)}
           onPress={() =>
-            Linking.openURL("https://example.com/privacy").catch(() =>
-              Alert.alert("ما فتحت", "ضيف رابط سياسة الخصوصية قبل الإطلاق."),
+            Linking.openURL(privacyUrl()).catch(() =>
+              Alert.alert(t(ui.couldNotOpen), privacyUrl()),
             )
           }
         />

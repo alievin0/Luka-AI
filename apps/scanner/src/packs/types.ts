@@ -45,6 +45,10 @@ export const optionValue = (option: OnboardingOption, resolve: (text: Text) => s
 
 /** An entry in a pack's offline reference library. */
 export type LibraryEntry = {
+  /** Which generated pictogram this entry shows. A dashboard-light app that
+   *  shows no dashboard lights asks the driver to match the shape in front of
+   *  them against a paragraph of prose. Names index `src/symbols.ts`. */
+  glyph?: string;
   id: string;
   title: Text;
   /** Technical name — the same in both languages, so not a pair. */
@@ -93,6 +97,10 @@ export type ScanResult = {
   seekHelpIf: string[];
   /** What happens if this is ignored — the consequence that drives urgency. */
   ifIgnored?: string;
+  /** Which shipped pictogram matches the light identified, so the result can
+   *  show the driver the symbol rather than only describing it. Indexes
+   *  `src/symbols.ts`; absent when nothing in the set matches. */
+  glyph?: string;
   /** How this reads on the user's specific car, from their onboarding answers. */
   carContext?: string;
   cost?: { min: number; max: number; currency: string; note: string } | null;

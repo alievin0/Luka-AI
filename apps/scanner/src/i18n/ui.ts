@@ -168,12 +168,25 @@ export const ui = {
   backToStart: L("You're back at the start.", "رجعت للبداية."),
   about: L("About", "عن التطبيق"),
   version: L("Version", "النسخة"),
-  privacyPolicy: L("Privacy policy", "سياسة الخصوصية"),
-  linkFailed: L("Couldn't open", "ما فتحت"),
-  addPrivacyUrl: L(
-    "Add a real privacy policy URL before launch.",
-    "ضيف رابط سياسة الخصوصية قبل الإطلاق.",
+  sectionSubscription: L("Subscription", "الاشتراك"),
+  sectionData: L("Your data", "بياناتك"),
+  sectionAbout: L("About", "عن التطبيق"),
+  dataStaysLocalProgram: L(
+    "Your progress is saved on this device only.",
+    "تقدّمك محفوظ على جهازك بس.",
   ),
+  dataStaysLocalScanner: L(
+    "Scans are saved on this device only. We don't store your photos on our servers.",
+    "الفحوصات بتنحفظ على جهازك بس. ما بنخزّن صورك على خوادمنا.",
+  ),
+  dataStaysLocalAudio: L(
+    "Your lectures and recordings are saved on this device only.",
+    "محاضراتك وتسجيلاتك محفوظة على جهازك بس.",
+  ),
+  couldNotOpen: L("Couldn't open the link", "ما قدرنا نفتح الرابط"),
+  privacyPolicy: L("Privacy policy", "سياسة الخصوصية"),
+  readPrivacyPolicy: L("Read the privacy policy", "اقرأ سياسة الخصوصية"),
+  linkFailed: L("Couldn't open", "ما فتحت"),
 
   trialLine: L(
     "Try {n} days free — cancel any time before it ends",

@@ -9,6 +9,7 @@ import type { LibraryEntry } from "./types";
 export const DASHLIGHT_LIBRARY: LibraryEntry[] = [
   {
     id: "check-engine-flashing",
+    glyph: "engine",
     title: L("Check Engine — Flashing", "لمبة المحرك ترمش"),
     subtitle: "Check Engine Light (Flashing)",
     severity: "critical",
@@ -17,6 +18,7 @@ export const DASHLIGHT_LIBRARY: LibraryEntry[] = [
   },
   {
     id: "check-engine-steady",
+    glyph: "engine",
     title: L("Check Engine — Steady", "لمبة المحرك ثابتة"),
     subtitle: "Check Engine Light (Steady)",
     severity: "warning",
@@ -25,6 +27,7 @@ export const DASHLIGHT_LIBRARY: LibraryEntry[] = [
   },
   {
     id: "oil-pressure",
+    glyph: "oil-can",
     title: L("Oil Pressure", "ضغط زيت المحرك"),
     subtitle: "Engine Oil Pressure",
     severity: "critical",
@@ -33,6 +36,7 @@ export const DASHLIGHT_LIBRARY: LibraryEntry[] = [
   },
   {
     id: "coolant-temp-high",
+    glyph: "thermometer",
     title: L("Engine Temperature — High", "حرارة المحرك مرتفعة"),
     subtitle: "Engine Coolant Temperature (Red)",
     severity: "critical",
@@ -41,6 +45,7 @@ export const DASHLIGHT_LIBRARY: LibraryEntry[] = [
   },
   {
     id: "brake-warning-red",
+    glyph: "brake",
     title: L("Brake System", "نظام الفرامل"),
     subtitle: "Brake System Warning",
     severity: "critical",
@@ -49,6 +54,7 @@ export const DASHLIGHT_LIBRARY: LibraryEntry[] = [
   },
   {
     id: "master-warning-red",
+    glyph: "warning-triangle",
     title: L("Master Warning", "تحذير عام (مثلث أحمر)"),
     subtitle: "Master Warning (Red Triangle)",
     severity: "critical",
@@ -57,6 +63,7 @@ export const DASHLIGHT_LIBRARY: LibraryEntry[] = [
   },
   {
     id: "transmission-overheat",
+    glyph: "thermometer",
     title: L("Transmission Overheating", "حرارة ناقل الحركة (الجير)"),
     subtitle: "Transmission Temperature / Fault",
     severity: "critical",
@@ -65,6 +72,7 @@ export const DASHLIGHT_LIBRARY: LibraryEntry[] = [
   },
   {
     id: "ev-hv-fault",
+    glyph: "ev-fault",
     title: L("High-Voltage System Fault", "عطل بنظام الجهد العالي"),
     subtitle: "High-Voltage System Fault (EV/Hybrid)",
     severity: "critical",
@@ -73,6 +81,7 @@ export const DASHLIGHT_LIBRARY: LibraryEntry[] = [
   },
   {
     id: "catalytic-overheat",
+    glyph: "catalytic",
     title: L("Catalyst Overheat", "سخونة الكتالايست"),
     subtitle: "Catalytic Converter Overheat",
     severity: "critical",
@@ -81,6 +90,7 @@ export const DASHLIGHT_LIBRARY: LibraryEntry[] = [
   },
   {
     id: "abs",
+    glyph: "abs",
     title: L("Anti-lock Brakes", "نظام منع انغلاق الفرامل"),
     subtitle: "Anti-lock Braking System (ABS)",
     severity: "warning",
@@ -89,6 +99,7 @@ export const DASHLIGHT_LIBRARY: LibraryEntry[] = [
   },
   {
     id: "charging-system",
+    glyph: "battery",
     title: L("Charging System", "نظام الشحن"),
     subtitle: "Battery / Charging System",
     severity: "warning",
@@ -97,6 +108,7 @@ export const DASHLIGHT_LIBRARY: LibraryEntry[] = [
   },
   {
     id: "airbag-srs",
+    glyph: "airbag",
     title: L("Airbag System", "نظام الوسائد الهوائية"),
     subtitle: "Airbag / SRS",
     severity: "warning",
@@ -105,6 +117,7 @@ export const DASHLIGHT_LIBRARY: LibraryEntry[] = [
   },
   {
     id: "tpms",
+    glyph: "tyre",
     title: L("Tyre Pressure", "ضغط الإطارات"),
     subtitle: "Tyre Pressure Monitoring (TPMS)",
     severity: "warning",
@@ -113,6 +126,7 @@ export const DASHLIGHT_LIBRARY: LibraryEntry[] = [
   },
   {
     id: "brake-pad-wear",
+    glyph: "pad-wear",
     title: L("Brake Pads Worn", "فحمات الفرامل مستهلكة"),
     subtitle: "Brake Pad Wear",
     severity: "warning",
@@ -121,6 +135,7 @@ export const DASHLIGHT_LIBRARY: LibraryEntry[] = [
   },
   {
     id: "power-steering-fault",
+    glyph: "steering",
     title: L("Power Steering Fault", "عطل بمقود الباور"),
     subtitle: "Electric Power Steering (EPS)",
     severity: "warning",
@@ -129,6 +144,7 @@ export const DASHLIGHT_LIBRARY: LibraryEntry[] = [
   },
   {
     id: "esc-fault",
+    glyph: "skid-car",
     title: L("Stability Control Fault", "عطل بنظام الثبات"),
     subtitle: "Stability Control Fault (ESC/ESP/VSC)",
     severity: "warning",
@@ -137,6 +153,7 @@ export const DASHLIGHT_LIBRARY: LibraryEntry[] = [
   },
   {
     id: "esc-off",
+    glyph: "esc-off",
     title: L("Stability Control Off", "نظام الثبات مطفي"),
     subtitle: "Stability Control Off",
     severity: "warning",
@@ -145,6 +162,7 @@ export const DASHLIGHT_LIBRARY: LibraryEntry[] = [
   },
   {
     id: "dpf",
+    glyph: "dpf",
     title: L("Diesel Particulate Filter", "فلتر جزيئات الديزل"),
     subtitle: "Diesel Particulate Filter (DPF)",
     severity: "warning",
@@ -153,6 +171,7 @@ export const DASHLIGHT_LIBRARY: LibraryEntry[] = [
   },
   {
     id: "adblue",
+    glyph: "droplet",
     title: L("AdBlue Low", "سائل الأدبلو ناقص"),
     subtitle: "AdBlue / DEF Level",
     severity: "warning",
@@ -161,6 +180,7 @@ export const DASHLIGHT_LIBRARY: LibraryEntry[] = [
   },
   {
     id: "water-in-fuel",
+    glyph: "water-in-fuel",
     title: L("Water in Fuel", "ماء بخزان الديزل"),
     subtitle: "Water in Fuel (Diesel)",
     severity: "warning",
@@ -169,6 +189,7 @@ export const DASHLIGHT_LIBRARY: LibraryEntry[] = [
   },
   {
     id: "oil-level-low",
+    glyph: "oil-can",
     title: L("Oil Level Low", "مستوى الزيت منخفض"),
     subtitle: "Engine Oil Level Low",
     severity: "warning",
@@ -177,6 +198,7 @@ export const DASHLIGHT_LIBRARY: LibraryEntry[] = [
   },
   {
     id: "coolant-level-low",
+    glyph: "coolant",
     title: L("Coolant Low", "ماء التبريد ناقص"),
     subtitle: "Coolant Level Low",
     severity: "warning",
@@ -185,6 +207,7 @@ export const DASHLIGHT_LIBRARY: LibraryEntry[] = [
   },
   {
     id: "bulb-failure",
+    glyph: "bulb",
     title: L("Bulb Out", "لمبة خارجية محروقة"),
     subtitle: "Exterior Light Failure",
     severity: "warning",
@@ -193,6 +216,7 @@ export const DASHLIGHT_LIBRARY: LibraryEntry[] = [
   },
   {
     id: "epb-fault",
+    glyph: "epb",
     title: L("Parking Brake Fault", "عطل بفرامل اليد الكهربائية"),
     subtitle: "Electronic Parking Brake Fault",
     severity: "warning",
@@ -201,6 +225,7 @@ export const DASHLIGHT_LIBRARY: LibraryEntry[] = [
   },
   {
     id: "immobiliser",
+    glyph: "key",
     title: L("Immobiliser", "نظام الحماية (الإيموبلايزر)"),
     subtitle: "Immobiliser / Security",
     severity: "warning",
@@ -209,6 +234,7 @@ export const DASHLIGHT_LIBRARY: LibraryEntry[] = [
   },
   {
     id: "key-not-detected",
+    glyph: "key",
     title: L("Key Not Detected", "المفتاح غير موجود"),
     subtitle: "Key Not Detected",
     severity: "warning",
@@ -217,6 +243,7 @@ export const DASHLIGHT_LIBRARY: LibraryEntry[] = [
   },
   {
     id: "aeb-fault",
+    glyph: "radar-car",
     title: L("Collision Assist Fault", "عطل بنظام منع التصادم"),
     subtitle: "Forward Collision / AEB Fault",
     severity: "warning",
@@ -225,6 +252,7 @@ export const DASHLIGHT_LIBRARY: LibraryEntry[] = [
   },
   {
     id: "air-suspension-fault",
+    glyph: "suspension",
     title: L("Air Suspension Fault", "عطل بالتعليق الهوائي"),
     subtitle: "Air Suspension Fault",
     severity: "warning",
@@ -233,6 +261,7 @@ export const DASHLIGHT_LIBRARY: LibraryEntry[] = [
   },
   {
     id: "ev-low-charge",
+    glyph: "ev-battery",
     title: L("Battery Charge Low", "شحن البطارية منخفض"),
     subtitle: "Low State of Charge (EV)",
     severity: "warning",
@@ -241,6 +270,7 @@ export const DASHLIGHT_LIBRARY: LibraryEntry[] = [
   },
   {
     id: "reduced-power-turtle",
+    glyph: "turtle",
     title: L("Reduced Power", "قدرة محدودة (لمبة السلحفاة)"),
     subtitle: "Reduced Power (Turtle)",
     severity: "warning",
@@ -249,6 +279,7 @@ export const DASHLIGHT_LIBRARY: LibraryEntry[] = [
   },
   {
     id: "regen-brake-fault",
+    glyph: "regen",
     title: L("Regen Braking Fault", "عطل بالفرملة المسترجعة"),
     subtitle: "Regenerative Braking Fault",
     severity: "warning",
@@ -257,6 +288,7 @@ export const DASHLIGHT_LIBRARY: LibraryEntry[] = [
   },
   {
     id: "hybrid-system-warning",
+    glyph: "hybrid",
     title: L("Hybrid System", "تحذير النظام الهجين"),
     subtitle: "Hybrid System Warning",
     severity: "warning",
@@ -265,6 +297,7 @@ export const DASHLIGHT_LIBRARY: LibraryEntry[] = [
   },
   {
     id: "ev-12v-battery",
+    glyph: "battery",
     title: L("12V Battery", "بطارية ١٢ فولت"),
     subtitle: "12V Battery (EV/Hybrid)",
     severity: "warning",
@@ -273,6 +306,7 @@ export const DASHLIGHT_LIBRARY: LibraryEntry[] = [
   },
   {
     id: "master-caution-amber",
+    glyph: "warning-triangle",
     title: L("Master Caution", "تنبيه عام أصفر"),
     subtitle: "Master Caution (Amber)",
     severity: "warning",
@@ -281,6 +315,7 @@ export const DASHLIGHT_LIBRARY: LibraryEntry[] = [
   },
   {
     id: "glow-plug",
+    glyph: "glow-plug",
     title: L("Glow Plug Preheat", "تسخين البوجيهات (ديزل)"),
     subtitle: "Glow Plug / Preheat (Diesel)",
     severity: "info",
@@ -289,6 +324,7 @@ export const DASHLIGHT_LIBRARY: LibraryEntry[] = [
   },
   {
     id: "ev-ready",
+    glyph: "ev-ready",
     title: L("Ready", "جاهزة للسير"),
     subtitle: "Ready to Drive (EV/Hybrid)",
     severity: "info",
@@ -297,6 +333,7 @@ export const DASHLIGHT_LIBRARY: LibraryEntry[] = [
   },
   {
     id: "charging-cable-connected",
+    glyph: "plug",
     title: L("Plugged In", "الشاحن موصول"),
     subtitle: "Charging Cable Connected",
     severity: "info",
@@ -305,6 +342,7 @@ export const DASHLIGHT_LIBRARY: LibraryEntry[] = [
   },
   {
     id: "esc-active-flashing",
+    glyph: "skid-car",
     title: L("Stability Control Working", "نظام الثبات يشتغل"),
     subtitle: "Stability Control Active (Flashing)",
     severity: "info",
@@ -313,6 +351,7 @@ export const DASHLIGHT_LIBRARY: LibraryEntry[] = [
   },
   {
     id: "service-due",
+    glyph: "spanner",
     title: L("Service Due", "موعد الصيانة"),
     subtitle: "Service Due (Spanner)",
     severity: "info",
@@ -321,6 +360,7 @@ export const DASHLIGHT_LIBRARY: LibraryEntry[] = [
   },
   {
     id: "low-fuel",
+    glyph: "fuel-pump",
     title: L("Low Fuel", "الوقود قارب على الانتهاء"),
     subtitle: "Low Fuel",
     severity: "info",
@@ -329,6 +369,7 @@ export const DASHLIGHT_LIBRARY: LibraryEntry[] = [
   },
   {
     id: "washer-fluid-low",
+    glyph: "washer",
     title: L("Washer Fluid", "ماء المساحات ناقص"),
     subtitle: "Washer Fluid Low",
     severity: "info",
@@ -337,6 +378,7 @@ export const DASHLIGHT_LIBRARY: LibraryEntry[] = [
   },
   {
     id: "door-ajar",
+    glyph: "door-ajar",
     title: L("Door Open", "في باب غير مغلق"),
     subtitle: "Door / Bonnet / Boot Open",
     severity: "warning",
@@ -345,6 +387,7 @@ export const DASHLIGHT_LIBRARY: LibraryEntry[] = [
   },
   {
     id: "high-beam",
+    glyph: "high-beam",
     title: L("High Beams On", "الأضواء العالية شغالة"),
     subtitle: "Main Beam / High Beam",
     severity: "info",
@@ -353,6 +396,7 @@ export const DASHLIGHT_LIBRARY: LibraryEntry[] = [
   },
   {
     id: "rear-fog-light",
+    glyph: "rear-fog",
     title: L("Rear Fog Light", "ضوء الضباب الخلفي"),
     subtitle: "Rear Fog Light",
     severity: "info",
@@ -361,6 +405,7 @@ export const DASHLIGHT_LIBRARY: LibraryEntry[] = [
   },
   {
     id: "cruise-control-set",
+    glyph: "cruise",
     title: L("Cruise Control On", "مثبت السرعة شغال"),
     subtitle: "Cruise Control Set",
     severity: "info",
@@ -369,6 +414,7 @@ export const DASHLIGHT_LIBRARY: LibraryEntry[] = [
   },
   {
     id: "ice-warning",
+    glyph: "snowflake",
     title: L("Ice Warning", "تحذير من الجليد"),
     subtitle: "Low Temperature / Ice Warning",
     severity: "info",
@@ -377,6 +423,7 @@ export const DASHLIGHT_LIBRARY: LibraryEntry[] = [
   },
   {
     id: "seatbelt-reminder",
+    glyph: "seatbelt",
     title: L("Seat Belt", "تذكير حزام الأمان"),
     subtitle: "Seat Belt Reminder",
     severity: "info",
@@ -385,6 +432,7 @@ export const DASHLIGHT_LIBRARY: LibraryEntry[] = [
   },
   {
     id: "start-stop",
+    glyph: "start-stop",
     title: L("Auto Stop/Start", "نظام الإطفاء والتشغيل التلقائي"),
     subtitle: "Stop/Start System",
     severity: "info",
