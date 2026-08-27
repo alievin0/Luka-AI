@@ -98,6 +98,37 @@ export default function Result() {
 
       <Text style={styles.summary}>{result.summary}</Text>
 
+      {result.ifIgnored ? (
+        <View style={[styles.consequence, { borderColor: ver.color }]}>
+          <Text style={[styles.consequenceLabel, { color: ver.color }]}>
+            {t(ui.ifIgnored)}
+          </Text>
+          <Text style={styles.consequenceText}>{result.ifIgnored}</Text>
+        </View>
+      ) : null}
+
+      {result.carContext ? (
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>{t(ui.onYourCar)}</Text>
+          <Text style={styles.summary}>{result.carContext}</Text>
+        </View>
+      ) : null}
+
+      {result.alsoDetected && result.alsoDetected.length > 0 ? (
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>{t(ui.alsoDetected)}</Text>
+          {result.alsoDetected.map((other, i) => {
+            const s2 = severityStyle(other.severity);
+            return (
+              <View key={`${other.title}-${i}`} style={styles.alsoRow}>
+                <View style={[styles.alsoDot, { backgroundColor: s2.color }]} />
+                <Text style={styles.rowText}>{other.title}</Text>
+              </View>
+            );
+          })}
+        </View>
+      ) : null}
+
       {result.facts?.length > 0 && (
         <View style={styles.card}>
           <Text style={styles.cardTitle}>{t(labels.facts)}</Text>
@@ -133,6 +164,14 @@ export default function Result() {
         >
           <Text style={styles.primaryActionText}>{t(ui.scanAgain)}</Text>
         </Pressable>
+        {scannerPack?.id === "goldscan" ? (
+          <Pressable
+            style={styles.secondaryAction}
+            onPress={() => router.push("/price-check")}
+          >
+            <Text style={styles.secondaryActionText}>{t(ui.priceCheck)}</Text>
+          </Pressable>
+        ) : null}
         <Pressable
           style={styles.secondaryAction}
           onPress={() =>
@@ -173,6 +212,17 @@ const styles = StyleSheet.create({
   verdict: { borderRadius: theme.radius, borderWidth: 1, padding: 16 },
   verdictText: { fontSize: 19, fontWeight: "700", lineHeight: 30 },
   summary: { color: theme.textSoft, fontSize: 16, lineHeight: 28 },
+  consequence: {
+    borderWidth: 1,
+    borderRadius: theme.radius,
+    padding: 16,
+    gap: 6,
+    backgroundColor: theme.surface,
+  },
+  consequenceLabel: { fontSize: 12, fontWeight: "800", letterSpacing: 0.4 },
+  consequenceText: { color: theme.text, fontSize: 16, lineHeight: 28 },
+  alsoRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  alsoDot: { width: 8, height: 8, borderRadius: 4 },
   card: {
     backgroundColor: theme.surface,
     borderRadius: theme.radius,

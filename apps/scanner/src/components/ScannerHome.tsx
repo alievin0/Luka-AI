@@ -171,6 +171,11 @@ export function ScannerHome({ pack }: { pack: ScannerPack }) {
                 <Text style={styles.pillText}>{pack.libraryTitle ? t(pack.libraryTitle) : t(ui.guide)}</Text>
               </Pressable>
             ) : null}
+            {pack.showCost && pack.id === "goldscan" ? (
+              <Pressable style={styles.pill} onPress={() => router.push("/price-check")} hitSlop={8}>
+                <Text style={styles.pillText}>{t(ui.priceCheck)}</Text>
+              </Pressable>
+            ) : null}
             <Pressable style={styles.pill} onPress={() => router.push("/settings")} hitSlop={8}>
               <Text style={styles.pillText}>⚙</Text>
             </Pressable>

@@ -48,6 +48,8 @@ const RESULT_SCHEMA = {
     causes: { type: "array", items: { type: "string" } },
     actions: { type: "array", items: { type: "string" } },
     seekHelpIf: { type: "array", items: { type: "string" } },
+    ifIgnored: { type: "string" },
+    carContext: { type: "string" },
     alsoDetected: {
       type: "array",
       items: {

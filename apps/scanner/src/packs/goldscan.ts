@@ -5,10 +5,10 @@ import { GOLDSCAN_LIBRARY } from "./goldscan-library";
 export const goldscan: ScannerPack = {
   kind: "scanner",
   id: "goldscan",
-  appName: L("Gold Hallmark Scanner", "فاحص الذهب"),
+  appName: L("Gold Buying Assistant", "مساعد شراء الذهب"),
   tagline: L(
-    "Photograph the hallmark — know the karat and what it's worth before you buy or sell",
-    "صوّر الدمغة — واعرف العيار وقيمته قبل ما تشتري أو تبيع",
+    "Read the hallmark, then check whether the price you're being asked is fair",
+    "اقرا الدمغة، وبعدها افحص إذا السعر المطلوب منك عادل",
   ),
   accent: "#D9A441",
   captureHint: L(
@@ -62,11 +62,12 @@ export const goldscan: ScannerPack = {
     },
   ],
   paywall: {
-    headline: L("Don't buy gold unsure", "لا تشتري ذهب وإنت مش متأكد"),
+    headline: L("Know what the gold is worth before you pay", "اعرف قديش بيسوى الذهب قبل ما تدفع"),
     bullets: [
+      L("Is the making charge fair, or are you overpaying?", "المصنعية عادلة ولا إنت بتدفع زيادة؟"),
       L("Instant hallmark and karat reading", "قراءة فورية للدمغة والعيار"),
       L("Spots plated and gold-filled markings", "بيكشف الذهب المطلي والمغطى"),
-      L("Per-gram value estimated in your currency", "تقدير قيمة الغرام بعملة بلدك"),
+      L("What you'd actually get selling it back", "قديش فعلاً بتاخذ لو بعتها"),
       L("A guide to 38 hallmarks worldwide, offline", "دليل ٣٨ دمغة عالمية بدون إنترنت"),
     ],
   },

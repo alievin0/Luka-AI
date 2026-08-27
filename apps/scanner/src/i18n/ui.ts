@@ -65,6 +65,9 @@ export const ui = {
   ),
   notFound: L("We couldn't find that scan.", "ما لقينا هذا الفحص."),
 
+  ifIgnored: L("If you ignore it", "إذا تجاهلتها"),
+  onYourCar: L("On your car", "على سيارتك إنت"),
+
   // history
   pastScans: L("Past scans", "الفحوصات السابقة"),
   noScansYet: L("No scans yet", "ما في فحوصات بعد"),
@@ -190,6 +193,31 @@ export const ui = {
     "وقت تمرين اليوم — لا تكسر السلسلة",
   ),
   reminderBodyScanner: L("Open the app and see what's new", "افتح التطبيق وشوف الجديد"),
+
+  // gold assistant
+  priceCheck: L("Price check", "فحص السعر"),
+  todaysRate: L("Today's gold rate", "سعر الذهب اليوم"),
+  perGram24k: L("per gram, 24K", "للغرام، عيار ٢٤"),
+  rateStale: L("Rate is over a day old — update it", "السعر أقدم من يوم — حدّثه"),
+  setRate: L("Set rate", "حدّد السعر"),
+  weightGrams: L("Weight in grams", "الوزن بالغرام"),
+  karat: L("Karat", "العيار"),
+  askingPrice: L("Price they're asking", "السعر المطلوب"),
+  optional: L("optional", "اختياري"),
+  metalValue: L("Gold value", "قيمة الذهب"),
+  makingCharge: L("Making charge", "المصنعية"),
+  ofGoldValue: L("of gold value", "من قيمة الذهب"),
+  sellBackToday: L("If you sold it back today", "لو بعتها اليوم"),
+  pureGoldIn: L("Pure gold in the piece", "الذهب الصافي بالقطعة"),
+  verdictFair: L("Fair — this is a normal making charge", "معقول — مصنعية طبيعية"),
+  verdictHigh: L("High — worth negotiating", "عالية — تستاهل مفاوضة"),
+  verdictVeryHigh: L("Very high — you're paying for the shop, not the gold", "عالية جداً — إنت بتدفع للمحل مش للذهب"),
+  verdictBelow: L("Below metal value — check the karat and weight again", "أقل من قيمة المعدن — راجع العيار والوزن"),
+  enterRateFirst: L("Enter today's gold rate to check a price", "حط سعر الذهب اليوم عشان تفحص السعر"),
+  goldDisclaimer: L(
+    "A photo cannot prove gold is solid rather than plated — only an acid, XRF or density test can. This reads the stamp and checks the maths on the price.",
+    "الصورة ما بتقدر تثبت إن الذهب خالص مش مطلي — بس فحص الحمض أو XRF أو الكثافة بيقدر. هذا بيقرا الدمغة وبيفحص حساب السعر.",
+  ),
 
   // errors
   rateLimited: L(

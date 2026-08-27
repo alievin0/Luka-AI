@@ -78,6 +78,7 @@ export default function RootLayout() {
         />
         <Stack.Screen name="settings" options={{ title: t(ui.settings) }} />
         <Stack.Screen name="session" options={{ headerShown: false, presentation: "fullScreenModal" }} />
+        <Stack.Screen name="price-check" options={{ title: t(ui.priceCheck) }} />
         <Stack.Screen name="plan" options={{ title: isProgram(pack) ? t(pack.nouns.plan) : t(ui.noPlan) }} />
       </Stack>
     </SafeAreaProvider>

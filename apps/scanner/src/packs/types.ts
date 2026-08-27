@@ -69,6 +69,10 @@ export type ScanResult = {
   causes: string[];
   actions: string[];
   seekHelpIf: string[];
+  /** What happens if this is ignored — the consequence that drives urgency. */
+  ifIgnored?: string;
+  /** How this reads on the user's specific car, from their onboarding answers. */
+  carContext?: string;
   cost?: { min: number; max: number; currency: string; note: string } | null;
   /** Anything else lit/visible in the same photo, most severe first. */
   alsoDetected?: { title: string; severity: Severity }[];

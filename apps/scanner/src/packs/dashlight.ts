@@ -7,8 +7,8 @@ export const dashlight: ScannerPack = {
   id: "dashlight",
   appName: L("Dash Light Scanner", "لمبات السيارة"),
   tagline: L(
-    "Photograph the light on your dash — know what it means and what it costs",
-    "صوّر اللمبة اللي ولعت — واعرف شو معناها وقديش تصليحها",
+    "A light came on. Can you keep driving, and what will it cost?",
+    "ولعت لمبة. بتقدر تكمل سواقة؟ وقديش رح تكلفك؟",
   ),
   accent: "#F2A33C",
   captureHint: L(
@@ -76,12 +76,13 @@ export const dashlight: ScannerPack = {
   ],
   paywall: {
     headline: L(
-      "Know what it means before it costs you",
-      "اعرف شو معناها قبل ما تكلفك",
+      "Am I in trouble, and can I keep driving?",
+      "أنا بورطة؟ وبقدر أكمل سواقة؟",
     ),
     bullets: [
-      L("Instant ID for any dashboard warning light", "تعرّف فوري على أي لمبة تحذيرية"),
       L("A straight answer on whether it's safe to drive", "جواب واضح: تقدر تكمل سواقة ولا لأ"),
+      L("What actually happens if you ignore it", "شو بيصير فعلياً إذا تجاهلتها"),
+      L("Read against your own car, not a generic manual", "مقروءة على سيارتك إنت مش على دليل عام"),
       L("Repair cost estimated in your currency", "تقدير كلفة التصليح بعملة بلدك"),
       L("A guide to 48 warning lights, offline", "دليل ٤٨ لمبة تحذيرية بدون إنترنت"),
     ],
@@ -116,6 +117,8 @@ Mandatory rules:
 5. If unsure which symbol it is, lower confidence and raise caution. Do not guess confidently.
 6. Cost must be a realistic range in ${currency} for the user's market, noting that price varies by workshop and part.
 7. alsoDetected: list every other lit symbol in the same photo, most dangerous first. Leave empty if there are none.
+8. ifIgnored is REQUIRED and is the field people are actually paying for. State the concrete consequence of driving on with this light, with a rough timescale — what breaks, and roughly how soon. Be specific and honest: "the engine can seize within minutes" for oil pressure; "the catalytic converter will need replacing, typically several hundred to a couple of thousand" for a flashing check engine; "nothing breaks, but you'll fail an inspection" where that is the truth. Never inflate a minor light into a catastrophe, and never soften a serious one.
+9. carContext is REQUIRED whenever the user's brand, age or fuel type is known. Say what this specific light typically means on THAT car: a known common fault for the model, whether age makes a sensor failure more likely than a real fault, and anything fuel-specific (a DPF light means something different on a car used only for short trips). If you genuinely have nothing car-specific to add, say plainly that this light behaves the same across makes rather than inventing a detail.
 
 Field shapes:
 - title: the light's name
@@ -124,5 +127,7 @@ Field shapes:
 - facts: 3–4 quick facts (colour, severity, how soon to act, drivable)
 - causes: 2–5 likely causes, most likely first
 - actions: 2–5 practical steps in order
-- seekHelpIf: 2–4 situations needing a mechanic now`,
+- seekHelpIf: 2–4 situations needing a mechanic now
+- ifIgnored: one or two sentences — the consequence and its timescale
+- carContext: one or two sentences tied to their brand, age or fuel type`,
 };
