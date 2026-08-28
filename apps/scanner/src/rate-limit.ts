@@ -83,12 +83,21 @@ let warnedAboutStore = false;
  * the transcribe route already reaches an external service with plain `fetch`,
  * and a TCP client would be one more native-ish dependency for two commands.
  *
- * **The wire format below was written without being able to load Upstash's
- * documentation** — this container's egress policy blocks the host. It matches
- * their REST API as I understand it, and `scripts/check-ratelimit.js --probe`
- * exercises it against a real instance in one command. Run that once before
- * trusting this in production; until it passes, every request quietly falls
- * back to the in-memory limiter below, which is what shipped before.
+ * The wire format below was written without being able to load Upstash's
+ * documentation — this container's egress policy blocks the host — and was
+ * therefore a guess until 28 Aug 2026, when `scripts/check-ratelimit.js --probe`
+ * ran it against a real database and it came back:
+ *
+ *     HTTP 200
+ *     [{"result":1},{"result":1},{"result":60}]
+ *
+ * INCR's count at [0], EXPIRE's `NX` accepted, TTL's remaining seconds at [2] —
+ * the three positions this function reads. Confirmed, not assumed.
+ *
+ * Re-run the probe against any new database or after an Upstash API change; it
+ * is one command and it is the only thing that checks this. A failure is not an
+ * outage either way: every unreachable request falls back to the in-memory
+ * limiter below, which is what shipped before this existed.
  */
 async function hitRedis(key: string, max: number): Promise<RateVerdict | null> {
   if (!REDIS_URL || !REDIS_TOKEN) return null;

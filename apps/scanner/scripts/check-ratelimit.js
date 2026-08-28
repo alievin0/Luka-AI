@@ -11,11 +11,15 @@
  *
  *   node scripts/check-ratelimit.js --probe <rest-url> <token>
  *     Sends the real pipeline request to a real Upstash instance and prints
- *     what came back. **Run this once before trusting the shared store.** The
- *     wire format in src/rate-limit.ts was written without access to Upstash's
- *     documentation — this container's egress policy blocks the host — so this
- *     is the only thing that confirms it. Until it passes, the shared path
- *     fails safe into memory and the limiter behaves exactly as it did before.
+ *     what came back. The wire format in src/rate-limit.ts was written without
+ *     access to Upstash's documentation — this container's egress policy blocks
+ *     the host — so this is the only thing that confirms it. It was confirmed
+ *     on 28 Aug 2026: HTTP 200, [{result:1},{result:1},{result:60}], which is
+ *     the shape hitRedis() reads.
+ *
+ *     Run it again for a new database, or if Upstash changes its API. A failure
+ *     is not an outage: the shared path fails safe into memory and the limiter
+ *     behaves exactly as it did before.
  */
 const fs = require("fs");
 const path = require("path");

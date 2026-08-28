@@ -144,9 +144,12 @@ it resets on its own.
    a real ceiling at this size. The only cost of sharing is blast radius: flush
    or delete that database while working on the other project and this app's
    limiter silently drops back to memory.
-2. Open the database, find its **REST API** section, and copy the URL and token
-   into `.env`. The two lines are already there, commented out, carrying the
-   example values — uncomment them and **replace the `xxx`**:
+2. On the database's **Details** tab, scroll to the **Connect** panel, choose
+   the **REST** tab, and leave **Read-Only Token** unchecked — the limiter
+   writes (`INCR`, `EXPIRE`), so a read-only token is refused. Reveal the token
+   with the eye icon and copy. Put both into `.env`; the two lines are already
+   there, commented out, carrying the example values — uncomment them and
+   **replace the `xxx`**:
    ```
    UPSTASH_REDIS_REST_URL=https://<your-database>.upstash.io
    UPSTASH_REDIS_REST_TOKEN=<your-token>
@@ -159,9 +162,11 @@ it resets on its own.
    set -a; source .env; set +a
    echo "$UPSTASH_REDIS_REST_URL"     # must print your database, not xxx
    ```
-4. **Run the probe.** I wrote the Redis request without being able to reach
-   Upstash's documentation — this container's network policy blocks the host —
-   so this command is what confirms the shape is right:
+4. **Run the probe.** The Redis request was written without being able to
+   reach Upstash's documentation — this container's network policy blocks the
+   host — so this command is the only thing that confirms the shape. It passed
+   on 28 Aug 2026 against `moved-dory-149679.upstash.io`; run it again for a
+   new database:
    ```bash
    node scripts/check-ratelimit.js --probe "$UPSTASH_REDIS_REST_URL" "$UPSTASH_REDIS_REST_TOKEN"
    ```
@@ -169,14 +174,33 @@ it resets on its own.
    the code reads. If it fails, it says which part is wrong.
 5. **Put both variables in the deployment's environment**, the same place
    `ANTHROPIC_API_KEY` went — the limiter runs in the deployed server, not on
-   your machine. Then redeploy, because a deployment reads its environment when
-   it is created:
+   your machine, and a passing probe on your laptop says nothing about it. A
+   deployment reads its environment when it is created, so set them *first*,
+   then redeploy:
    ```bash
    npx expo export --platform web
    npx eas-cli@latest deploy --prod
    ```
-   Skipping this is the quiet failure: the probe passes locally, and production
-   is still counting in one instance's memory.
+6. **Prove production is using it.** Send one request to the deployed origin:
+   ```bash
+   curl -sS -X POST "$EXPO_PUBLIC_API_URL/api/scan" \
+     -H 'Content-Type: application/json' -d '{"packId":"dashlight"}'
+   ```
+   `checkRateLimit` runs at `app/api/scan+api.ts:158`, before the key check
+   (`:169`) and the image check (`:189`), so this costs nothing at the model and
+   still spends one unit of the allowance.
+
+   Then open the database's **Data Browser** and look for a key named
+   `ratelimit:…`.
+
+   - **Key there** → production wrote to the shared store. Done.
+   - **No key** → it fell back to memory. Read the deployment log for
+     `[rate-limit] shared store unavailable (…)`; the reason is in the
+     parentheses, and it is logged once per instance, not once per request.
+
+   Do not prove the limit by hitting it. `MAX_PER_WINDOW` is 30 an hour per IP,
+   so the thirty-first request locks your own address out for the rest of the
+   hour, and the key's presence is the same evidence for free.
 
 Until it passes, nothing breaks — the limiter falls back to per-instance memory
 and logs a warning once. That is what shipped before, so this is safe to leave
