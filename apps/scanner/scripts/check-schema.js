@@ -128,8 +128,50 @@ for (const name of renderedFields()) {
 for (const name of ["facts", "causes", "actions", "seekHelpIf"]) {
   const field = schema.properties[name];
   if (!field) fail(`RESULT_SCHEMA has no ${name}`);
-  else if (!(field.minItems > 0)) fail(`RESULT_SCHEMA.${name} has no minItems — [] would pass`);
+  else if (field.minItems !== 1) {
+    fail(
+      `RESULT_SCHEMA.${name}.minItems is ${field.minItems}, and 1 is the only value that ` +
+        `both works and means anything — 0 lets [] through, and anything higher is rejected ` +
+        `by the API (see the unsupported-keyword check below)`,
+    );
+  }
 }
+
+/**
+ * Constraints structured outputs will not accept.
+ *
+ * This check exists because the one above did not have it. `minItems: 2` and
+ * `minItems: 3` looked right, typechecked, and passed every test — and the API
+ * answered every scan with
+ *
+ *   400 output_config.format.schema: For 'array' type, 'minItems' values other
+ *   than 0 or 1 are not supported (got: [2, 5])
+ *
+ * which the route turns into "Something went wrong during analysis". Scanning
+ * was broken in production and nothing here noticed, because asserting that the
+ * schema says what we meant is not the same as asserting the API will take it.
+ *
+ * Source: structured outputs' JSON Schema limitations — numerical constraints
+ * (minimum/maximum/multipleOf), string constraints (minLength/maxLength), and
+ * array constraints beyond minItems 0 or 1.
+ */
+const UNSUPPORTED = ["maxItems", "minLength", "maxLength", "minimum", "maximum", "multipleOf", "pattern"];
+
+(function walk(node, path) {
+  if (Array.isArray(node)) return node.forEach((n, i) => walk(n, `${path}[${i}]`));
+  if (!node || typeof node !== "object") return;
+  for (const key of UNSUPPORTED) {
+    if (key in node) fail(`RESULT_SCHEMA${path} has "${key}" — structured outputs rejects the request`);
+  }
+  if ("minItems" in node && node.minItems !== 0 && node.minItems !== 1) {
+    fail(`RESULT_SCHEMA${path}.minItems is ${node.minItems} — only 0 and 1 are accepted`);
+  }
+  if (node.type === "object" && node.additionalProperties !== false) {
+    fail(`RESULT_SCHEMA${path} is an object without additionalProperties:false — required for all objects`);
+  }
+  for (const [key, value] of Object.entries(node.properties ?? {})) walk(value, `${path}.${key}`);
+  if (node.items) walk(node.items, `${path}[]`);
+})(schema, "");
 
 /* ------------------------------------------------------------ the glyph set */
 

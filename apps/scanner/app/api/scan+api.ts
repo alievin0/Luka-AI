@@ -81,7 +81,7 @@ const RESULT_SCHEMA = {
     summary: { type: "string" },
     facts: {
       type: "array",
-      minItems: 3,
+      minItems: 1,
       items: {
         type: "object",
         additionalProperties: false,
@@ -90,10 +90,21 @@ const RESULT_SCHEMA = {
       },
     },
     // Without a minimum, `[]` satisfies "required" and the screen quietly
-    // drops a whole tab. The numbers are the ones the prompt asks for.
-    causes: { type: "array", minItems: 2, items: { type: "string" } },
-    actions: { type: "array", minItems: 2, items: { type: "string" } },
-    seekHelpIf: { type: "array", minItems: 2, items: { type: "string" } },
+    // drops a whole tab.
+    //
+    // The minimum is 1 and cannot be more: structured outputs rejects any
+    // other value outright —
+    //
+    //   400 output_config.format.schema: For 'array' type, 'minItems' values
+    //   other than 0 or 1 are not supported (got: [2, 5])
+    //
+    // which failed every scan, in production, with the route's generic
+    // "something went wrong" and nothing in the logs. The larger counts the
+    // prompt asks for are the prompt's to ask for; the schema's job here is
+    // only to make an empty array impossible. check-schema.js holds the line.
+    causes: { type: "array", minItems: 1, items: { type: "string" } },
+    actions: { type: "array", minItems: 1, items: { type: "string" } },
+    seekHelpIf: { type: "array", minItems: 1, items: { type: "string" } },
     ifIgnored: { type: "string" },
     glyph: {
       type: "string",
