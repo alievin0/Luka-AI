@@ -206,7 +206,7 @@ export const womensfit: ProgramPack = {
     entitlement: "pro",
     defaultProductId: "annual",
     products: [
-      { id: "weekly", label: L("Weekly", "أسبوعي"), fallbackPrice: "$5.99", period: L("week", "أسبوع"), trialDays: 7 },
+      { id: "weekly", label: L("Weekly", "أسبوعي"), fallbackPrice: "$5.99", period: L("week", "أسبوع"), storeTrialDays: 7 },
       { id: "annual", label: L("Yearly", "سنوي"), fallbackPrice: "$34.99", period: L("year", "سنة"), note: L("Under $0.68 a week", "أقل من $0.68 أسبوعياً"), badge: L("Best value", "الأوفر") },
     ],
   },

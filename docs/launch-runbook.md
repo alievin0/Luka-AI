@@ -287,22 +287,66 @@ account qualifies. On $4.99 a week it is the difference between $3.49 and $4.24.
 
 ### 4b. Create the products
 
-In **App Store Connect** (and Play Console if shipping Android), under the app
-`com.dashlight.scanner`, create the auto-renewable subscriptions you decided on.
-The store-side product ids are yours to choose — the app never sees them.
+**App Store Connect → the app → Monetization → Subscriptions.** Apple moves
+these labels; what matters is the shape, not the button names.
+
+**One subscription group** holding both plans. A group is what lets a
+subscriber move between weekly and yearly without cancelling, and Apple counts
+the free trial per group — which is why both plans cannot each hand out a
+separate trial, and why the paywall asks before promising one (§4e). The
+group's reference name is internal; its **localized display name is shown to
+buyers**, so set English and Arabic, as the app is bilingual.
+
+Then two auto-renewable subscriptions inside it. The product ids are yours to
+choose and the app never sees them — it reads RevenueCat's package
+identifiers — so pick ones that stay legible in the RevenueCat dashboard:
+
+| | Product id | Duration | Price (US) | Introductory offer |
+|---|---|---|---|---|
+| Weekly | `com.dashlight.scanner.weekly` | 1 week | $4.99 | Free trial, 3 days, all territories |
+| Yearly | `com.dashlight.scanner.annual` | 1 year | $29.99 | Free trial, 3 days, all territories |
+
+Set the US price and Apple fills the other storefronts from its own matrix.
+Each product also needs a localized **display name and description** — these
+appear in Apple's own purchase sheet and in Settings → Subscriptions, so write
+them in both languages.
+
+**The ordering trap.** Each subscription needs a **review screenshot of the
+paywall** before it can be submitted, and you cannot take one until the paywall
+runs — which needs the dev build in §5. So §4 and §5 interleave: create the
+products and wire RevenueCat, build, screenshot the paywall, then come back and
+attach it. Nothing here is wasted by doing it in that order; it just is not a
+straight line.
+
+The per-app trial lengths live in each pack's `storeTrialDays` (3 days for
+dashlight, bugscan and goldscan; 7 for mahdar, womensfit and dogtrain). That
+field is configuration intent only — no screen renders it, and
+`npm run check:trial` fails if one starts to.
 
 ### 4c. Wire RevenueCat
 
-1. Create the app in RevenueCat, attach the store products.
-2. Create an **entitlement named exactly `pro`** — lowercase, no spaces. The app
-   reads `pack.pricing.entitlement`, which is `"pro"` for all three apps.
-3. Create an offering, and name its packages either way — the code accepts both:
-   - RevenueCat's standard `$rc_weekly` / `$rc_annual` / `$rc_monthly`, **or**
-   - custom identifiers `weekly` / `annual` / `monthly`
+1. Create the project, add an **App Store app**, bundle id
+   `com.dashlight.scanner`.
+2. **Give RevenueCat its App Store credential.** In App Store Connect,
+   Users and Access → Integrations → In-App Purchase, generate a key and upload
+   the `.p8` to RevenueCat (the app-specific shared secret is the older path and
+   also works). Without it RevenueCat cannot validate receipts: purchases
+   succeed at Apple, the entitlement never turns on, and the money has already
+   moved. This step was missing from earlier drafts of this runbook.
+3. Import both product ids from step 4b.
+4. Create an **entitlement named exactly `pro`** — lowercase, no spaces — and
+   attach both products. The app reads `pack.pricing.entitlement`, which is
+   `"pro"` for all six packs.
+5. Create an offering, **mark it current**, with two packages:
+   - RevenueCat's standard `$rc_weekly` / `$rc_annual`, **or**
+   - custom identifiers `weekly` / `annual`
 
-   If they match neither, the plan rows still render from the pack's own prices,
-   but the trial, the "الأفضل" badge and the yearly note silently disappear.
-4. Put the **public SDK keys** in `.env`:
+   Either works — `RC_ALIASES` in `src/purchases.ts:29` maps the reserved
+   spellings onto the pack's ids. If they match neither, the plan rows still
+   render from the pack's own prices, but the trial, the "الأفضل" badge and the
+   yearly note silently disappear.
+6. Put the **public SDK keys** in `.env` — typed locally, never pasted into a
+   chat, and `.env` stays git-ignored:
    ```
    EXPO_PUBLIC_RC_IOS_KEY=appl_xxx
    EXPO_PUBLIC_RC_ANDROID_KEY=goog_xxx
@@ -311,14 +355,51 @@ The store-side product ids are yours to choose — the app never sees them.
 
 ### 4d. Test it on a real device
 
-`react-native-purchases` is a native module: **Expo Go cannot load it.** You need
-a dev build (step 5). Then, in an App Store sandbox account, check all four:
+`react-native-purchases` is a native module: **Expo Go cannot load it.** You
+need a dev build (§5), and — because the trial is now conditional — **two
+sandbox accounts**, or one used twice.
+
+On a **fresh** sandbox account:
 
 - [ ] the plans show the store's real prices, not the `$4.99` / `$29.99` fallbacks
 - [ ] the yearly plan is preselected and shows its badge and note
-- [ ] the CTA says "ابدأ تجربة 3 أيام", and **cancelling Apple's sheet returns
-      the button to normal** rather than leaving it spinning
+- [ ] the CTA says "ابدأ تجربة 3 أيام" and the green reassurance box is there
+- [ ] **cancelling Apple's sheet returns the button to normal** rather than
+      leaving it spinning
 - [ ] "استعادة عملية شراء سابقة" says something either way — Apple tests this
+
+Then, on **the same account after taking the trial and cancelling**:
+
+- [ ] the CTA says "اشترك", the green box is gone, and the price still reads
+      $29.99
+
+That second block is the case that would otherwise have shipped as a lie, and
+it is the only one that cannot be checked from a keyboard. If the CTA still
+offers a trial there, the eligibility call is not reaching Apple — check the
+credential in step 4c.2 before anything else.
+
+In dev, and in any build with no RevenueCat key, the CTA now reads "اشترك"
+rather than offering a trial. That is correct: it is what an ineligible buyer
+sees, and eligibility is unknowable without asking.
+
+### 4e. Why the trial is not simply printed
+
+Apple grants **one introductory offer per subscription group per Apple ID** —
+not one per product. Someone who took the weekly trial, cancelled, and came
+back for the yearly plan is ineligible, and the yearly plan is the one this
+paywall preselects at $29.99.
+
+The paywall used to read `trialDays` straight off the pack, so it promised the
+trial to everyone. It now asks
+`checkTrialOrIntroductoryPriceEligibility` and shows the promise only on an
+explicit `ELIGIBLE`; `UNKNOWN` — which is what Android always returns, and what
+iOS returns when it could not read the subscription group — counts as no, on
+the SDK's own advice. It also requires the offer's price to be **zero**, so a
+discounted introductory price is never sold as free.
+
+`npm run check:trial` asserts that chain, because removing it leaves a paywall
+that looks identical and charges returning customers who were promised nothing
+would be charged.
 
 ---
 

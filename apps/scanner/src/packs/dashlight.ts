@@ -149,7 +149,7 @@ export const dashlight: ScannerPack = {
     entitlement: "pro",
     defaultProductId: "annual",
     products: [
-      { id: "weekly", label: L("Weekly", "أسبوعي"), fallbackPrice: "$4.99", period: L("week", "أسبوع"), trialDays: 3 },
+      { id: "weekly", label: L("Weekly", "أسبوعي"), fallbackPrice: "$4.99", period: L("week", "أسبوع"), storeTrialDays: 3 },
       {
         id: "annual",
         label: L("Yearly", "سنوي"),
@@ -160,7 +160,7 @@ export const dashlight: ScannerPack = {
         // the wrong weekly equivalent beside a real store price is a rejection.
         note: L("Under $0.58 a week", "أقل من $0.58 أسبوعياً"),
         badge: L("Best value", "الأفضل"),
-        trialDays: 3,
+        storeTrialDays: 3,
       },
     ],
   },

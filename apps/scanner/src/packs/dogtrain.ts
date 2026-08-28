@@ -199,7 +199,7 @@ export const dogtrain: ProgramPack = {
     entitlement: "pro",
     defaultProductId: "annual",
     products: [
-      { id: "weekly", label: L("Weekly", "أسبوعي"), fallbackPrice: "$6.99", period: L("week", "أسبوع"), trialDays: 7 },
+      { id: "weekly", label: L("Weekly", "أسبوعي"), fallbackPrice: "$6.99", period: L("week", "أسبوع"), storeTrialDays: 7 },
       { id: "annual", label: L("Yearly", "سنوي"), fallbackPrice: "$39.99", period: L("year", "سنة"), note: L("Under $0.77 a week", "أقل من $0.77 بالأسبوع"), badge: L("Best value", "الأوفر") },
     ],
   },

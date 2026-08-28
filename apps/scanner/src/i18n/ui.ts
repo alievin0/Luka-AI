@@ -651,7 +651,6 @@ export const ui = {
   startTrialDays: L("Start {n}-day trial", "ابدأ تجربة {n} أيام"),
   subscribeNow: L("Subscribe", "اشترك"),
   bestValue: L("Best value", "الأوفر"),
-  trialNote: L("{n}-day free trial", "تجربة مجانية {n} أيام"),
 
   // ---- settings ---------------------------------------------------------
   // These were hardcoded Arabic, which left the English build showing Arabic

@@ -77,7 +77,14 @@ export type Product = {
   period: Text;
   note?: Text;
   badge?: Text;
-  trialDays?: number;
+  /**
+   * The free trial to configure for this product in App Store Connect / Play.
+   * Nothing renders it: the screen asks the store whether *this buyer* is
+   * eligible, because Apple grants one introductory offer per subscription
+   * group and the pack cannot know what a given Apple ID has already used.
+   * It is written down here so there is one place that says what to create.
+   */
+  storeTrialDays?: number;
 };
 
 export type Pricing = {

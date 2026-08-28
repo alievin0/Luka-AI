@@ -71,7 +71,7 @@ export const bugscan: ScannerPack = {
     entitlement: "pro",
     defaultProductId: "annual",
     products: [
-      { id: "weekly", label: L("Weekly", "أسبوعي"), fallbackPrice: "$4.99", period: L("week", "أسبوع"), trialDays: 3 },
+      { id: "weekly", label: L("Weekly", "أسبوعي"), fallbackPrice: "$4.99", period: L("week", "أسبوع"), storeTrialDays: 3 },
       {
         id: "annual",
         label: L("Yearly", "سنوي"),

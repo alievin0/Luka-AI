@@ -37,10 +37,14 @@ import {
  * a shade off the ground, and from space.
  *
  * The one rule enforced in code rather than copy: a trial is only ever
- * offered for a plan that has one. An annual plan sitting under "start your
- * 3-day trial" when the trial belongs to the weekly plan is a false claim on
- * a purchase screen — the kind App Review rejects and, worse, the kind a
- * buyer discovers on their statement.
+ * offered to someone who can actually have it. That is not a fact about the
+ * plan, it is a fact about the buyer — Apple grants one introductory offer per
+ * subscription group, so a returning customer is ineligible on every plan here,
+ * including the $29.99 one this screen preselects. The promise therefore comes
+ * from the store, alongside the price, and never from the pack. A "start your
+ * 3-day trial" button that charges instead is a false claim on a purchase
+ * screen: the kind App Review rejects and, worse, the kind a buyer discovers on
+ * their statement.
  */
 
 /**
@@ -55,8 +59,15 @@ import {
 const GUTTER = 18;
 const HEAD_INSET = 26;
 
-/** One plan as the screen shows it: the pack's copy, the store's price. */
-type Row = { id: string; title: string; price: string; period: string };
+/** One plan as the screen shows it: the pack's copy, the store's terms. */
+type Row = {
+  id: string;
+  title: string;
+  price: string;
+  period: string;
+  /** Null unless this buyer is eligible for a free trial on this plan. */
+  freeTrialDays: number | null;
+};
 
 export default function Paywall() {
   const router = useRouter();
@@ -67,16 +78,24 @@ export default function Paywall() {
   useEffect(() => {
     (async () => {
       // The pack decides which plans exist, in what order, and what they are
-      // called; the store only says what they cost today. Where it has not
-      // answered — dev, a bad network, an offering that does not match — the
-      // pack's own price stands in, so the paywall is always a real screen.
-      const live = new Map((await getOffers()).map((offer) => [offer.id, offer.price]));
-      const shown: Row[] = pack.pricing.products.map((product) => ({
-        id: product.id,
-        title: t(product.label),
-        price: live.get(product.id) ?? product.fallbackPrice,
-        period: t(product.period),
-      }));
+      // called; the store says what they cost today and who may have the trial.
+      //
+      // Where it has not answered — dev, a bad network, an offering that does
+      // not match — the two fall back differently, on purpose. The pack's own
+      // price stands in, because it is the real price and so it is true. The
+      // trial does not, because eligibility is unknowable without asking, and
+      // the honest default for an unknowable promise is not to make it.
+      const live = new Map((await getOffers()).map((offer) => [offer.id, offer]));
+      const shown: Row[] = pack.pricing.products.map((product) => {
+        const offer = live.get(product.id);
+        return {
+          id: product.id,
+          title: t(product.label),
+          price: offer?.price ?? product.fallbackPrice,
+          period: t(product.period),
+          freeTrialDays: offer?.freeTrialDays ?? null,
+        };
+      });
       setOffers(shown);
       setSelected(
         shown.find((o) => o.id === pack.pricing.defaultProductId)?.id ?? shown[0]?.id ?? null,
@@ -85,7 +104,7 @@ export default function Paywall() {
   }, []);
 
   const chosen = pack.pricing.products.find((p) => p.id === selected);
-  const trialDays = chosen?.trialDays;
+  const trialDays = offers.find((o) => o.id === selected)?.freeTrialDays ?? null;
 
   const buy = async () => {
     if (!selected) return;

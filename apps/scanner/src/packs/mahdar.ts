@@ -81,7 +81,7 @@ export const mahdar: AudioPack = {
     entitlement: "pro",
     defaultProductId: "annual",
     products: [
-      { id: "monthly", label: L("Monthly", "شهري"), fallbackPrice: "$12.99", period: L("month", "شهر"), trialDays: 7 },
+      { id: "monthly", label: L("Monthly", "شهري"), fallbackPrice: "$12.99", period: L("month", "شهر"), storeTrialDays: 7 },
       {
         id: "annual",
         label: L("Yearly", "سنوي"),
