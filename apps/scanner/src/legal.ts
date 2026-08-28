@@ -9,14 +9,18 @@ import { activePackId } from "./packs";
  * worse than no policy at all. App Review compares what the page claims
  * against the permissions the binary declares.
  *
- * CONFIRM BEFORE SUBMITTING TO A STORE. The default below is inferred from
- * the Vercel project name and has not been loaded — this container's network
- * policy blocks the host, so it could not be checked from here. A privacy
- * policy that 404s is a guaranteed App Review rejection. Open
- * <default>/privacy/dashlight in a browser once; if the production domain
- * differs, set EXPO_PUBLIC_SITE_URL rather than editing this line.
+ * The default below is the deployed production alias, confirmed by deploying
+ * and loading it. It is not the name you would guess: Vercel appended `-psi`
+ * because the bare project name was taken, so the inferred
+ * `luka-ai.vercel.app` this used to default to would have 404'd — and a
+ * privacy policy that 404s is a guaranteed App Review rejection.
+ *
+ * Set EXPO_PUBLIC_SITE_URL to override, which is what a custom domain would
+ * use. Leave this default correct rather than relying on that variable: a
+ * build made without the .env — CI, a fresh clone — has to ship a link that
+ * resolves, not one that depends on someone remembering.
  */
-const SITE = (process.env.EXPO_PUBLIC_SITE_URL || "https://luka-ai.vercel.app").replace(
+const SITE = (process.env.EXPO_PUBLIC_SITE_URL || "https://luka-ai-psi.vercel.app").replace(
   /\/$/,
   "",
 );
