@@ -701,8 +701,27 @@ export const ui = {
     L("Call for roadside help.", "اطلب المساعدة على الطريق."),
   ],
 
-  /* Sits with the verdict, in the verdict's own colour — not in the footer.
-     The app read a lamp; the driver is sitting in the whole car. */
+  /* The reservation, asked rather than printed.
+     A line saying "we only read the lamp" is a disclaimer, and disclaimers are
+     read by nobody in a hurry. A question is answered — and it is answered by
+     the one party who can see the smoke. It matters most under a reassuring
+     verdict, which is why it is asked on every result and not only the red
+     ones: a driver told "no need to stop" who can smell burning is the person
+     this app could most easily get hurt. */
+  symptomQuestion: L(
+    "Have you noticed smoke, a burning smell, an unusual noise, or a change in how the car drives?",
+    "هل لاحظت دخاناً أو رائحة احتراق أو صوتاً غير معتاد أو تغيّراً في قيادة السيارة؟",
+  ),
+  symptomStopTitle: L("Stop the car now", "أوقف السيارة الآن"),
+  symptomStopBody: L(
+    "What you have just described matters more than the lamp. Stop somewhere safe, switch the engine off, and call for help — whatever this reading says.",
+    "ما ذكرته أهمّ من المصباح. أوقف السيارة في مكان آمن، وأطفئ المحرّك، واطلب المساعدة — مهما قالت هذه النتيجة.",
+  ),
+  symptomNoneBody: L(
+    "Then this reading stands. If anything changes while you drive, stop.",
+    "إذاً فهذه النتيجة قائمة كما هي. وإن تغيّر شيء أثناء القيادة، فتوقّف.",
+  ),
+
   lampOnly: L(
     "This reading is from the lamp alone. If you see smoke, smell burning, hear an unusual noise, or the car handles differently — stop, whatever this says.",
     "هذه القراءة مبنيّة على المصباح وحده. فإن رأيت دخاناً أو شممت رائحة احتراق أو سمعت صوتاً غير معتاد أو تغيّرت استجابة السيارة — فأوقفها مهما قالت هذه النتيجة.",

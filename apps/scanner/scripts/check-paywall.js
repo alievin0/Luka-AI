@@ -218,6 +218,19 @@ const safeQ = resultNodes.filter(
 ok(`result.tsx renders the roadside decision (${safeQ.length} anchor)`, safeQ.length === 1);
 ok("and it is never behind the paywall", safeQ.length === 1 && !behindTheGate(safeQ[0]));
 
+// The symptom override is the strongest safety statement the app makes, and
+// the only one informed by something the photo could not show. It is asked on
+// every result, including the reassuring ones — a driver told "no need to
+// stop" who can smell burning is who this app could most easily get hurt.
+const symptom = resultNodes.filter(
+  (n) => ts.isPropertyAccessExpression(n) && n.name.text === "symptomStopTitle",
+);
+ok(`result.tsx asks about symptoms (${symptom.length} anchor)`, symptom.length === 1);
+ok(
+  "and the override is never behind the paywall",
+  symptom.length === 1 && !behindTheGate(symptom[0]),
+);
+
 // The clamp is a colour change unless it takes the sentence with it.
 const api = fs.readFileSync(path.join(ROOT, "app/api/scan+api.ts"), "utf8");
 const clamp = api.slice(api.indexOf("function clampForSafety"), api.indexOf("MAX_IMAGE_BYTES"));

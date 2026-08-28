@@ -94,6 +94,59 @@ That data is the moat. Arabic can be translated in a sprint and the roadside
 layer can be copied in two. Local price data cannot be, and it is the one thing
 on our list a competitor in San Francisco cannot build from where they sit.
 
+## What is already built, and what is not
+
+Written down because the feature list above is easy to read as a backlog, and
+most of it is not one.
+
+**Shipped:** camera, identification, safety verdict, the roadside decision and
+its two questions, confidence, vehicle profile, history, the 48-light guide,
+the paywall. That is V1, and it is complete.
+
+**The guide already works offline.** `src/packs/dashlight-library.ts` is 48
+entries compiled into the bundle; neither the list nor the entry screen calls
+the network. Matching Signal on offline reference needed no work — it was true
+already. Only the scan itself needs a connection, and it always will.
+
+**Confidence is three levels, not a percentage.** The model returns
+`high | medium | low`; there is no 94% anywhere in the system. Printing one
+would be inventing precision, which is the same mistake the analysing screen
+already refuses — it shows an indeterminate ring rather than the design's
+mocked "72%", because the scan API reports no progress. A fabricated confidence
+figure is worse than that in a safety category: it is exactly the false
+authority this file criticises elsewhere. If a number is genuinely wanted, the
+honest route is to ask the model for a calibrated one and then check whether it
+is calibrated — which is a research task, not a UI change.
+
+**V1.5 — the local cost engine.** Parts, labour, real quotes, by city and by
+model. Not to be started with invented data. See §4a-1 of the runbook for the
+rule that governs what the app may claim before that data exists.
+
+**V2 — the quote checker.** Photograph the garage's quote, compare it against
+the local range, and hand the driver the questions to ask. It cannot be built
+before V1.5: without real local prices there is nothing to check a quote
+against, and a checker that guesses would send people to argue with a mechanic
+on the strength of a converted American average.
+
+**Deliberately not built:** OBD, live gauges, diagnostic codes, a metrics
+dashboard. CarSense and CarSight are already there, and adding it in year one
+buys a worse version of their product at the cost of the one thing this app is
+clear about.
+
+## Finding it in the store
+
+Not "car scanner" — too broad, too crowded, and it describes the tool rather
+than the moment. The set worth owning is narrow and specific:
+
+```
+dashboard warning light · car warning light · check engine light
+dashboard lights · لمبات السيارة · لمبات الطبلون · لمبة المحرك
+```
+
+Apple ranks on relevance, downloads, ratings and reviews together, so the
+keyword set is the start and not the plan. Search Ads buys visibility on those
+terms while the organic ranking is built by reviews.
+
 ## The store listing
 
 Sell the outcome, not the technology — nobody buys "AI-powered".
@@ -101,10 +154,19 @@ Sell the outcome, not the technology — nobody buys "AI-powered".
 > **لمبات السيارة**
 > صوّر اللمبة. اعرف ماذا تفعل.
 
-Screens in this order: the scan · STOP / CAUTION / OK · ماذا أفعل الآن؟ ·
-التكلفة المتوقعة · حسب سيارتك.
+Screens in this order, each selling the moment rather than the technology:
+
+1. ولعت اللمبة؟ اعرف ماذا تفعل الآن.
+2. 🔴 أوقف · 🟠 انتبه · 🟢 لا تحتاج إجراء
+3. صوّرها ← اعرف القرار
+4. على سيارتك أنت
+5. اعرف تكلفة الإصلاح
+6. لا تعرف اللمبة؟ ابحث عنها
 
 ## Distribution
+
+Sell the situation, never the model behind it. Nobody buys "our revolutionary
+AI"; they buy knowing whether to keep driving.
 
 The hook has to work without the app installed. "إذا هذه اللمبة اشتعلت عندك، لا
 تُكمل القيادة" is a video somebody watches to the end; "AI dashboard scanner"

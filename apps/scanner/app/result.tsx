@@ -105,6 +105,7 @@ export default function Result() {
   // default would flash the whole thing to someone who has not bought it.
   const [pro, setPro] = useState(false);
   const [safeHere, setSafeHere] = useState<boolean | null>(null);
+  const [symptoms, setSymptoms] = useState<boolean | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -308,10 +309,30 @@ export default function Result() {
             </Card>
           ) : null}
 
-          {/* The reservation, standing with the verdict rather than filed at
-              the foot in the smallest type. The app looked at one lamp; the
-              driver is sitting in the whole car. */}
-          <Text style={styles.lampOnly}>{t(ui.lampOnly)}</Text>
+          {/* The reservation, asked instead of printed.
+              A line saying "we only read the lamp" is a disclaimer, and in a
+              hurry nobody reads one. A question gets answered — by the only
+              party who can see the smoke. Asked on every result, because it
+              matters most under a verdict that just said not to worry. */}
+          <Card tone={symptoms ? "critical" : undefined} style={styles.symptom}>
+            <Text style={styles.safeQ}>{t(ui.symptomQuestion)}</Text>
+            <Caption>{t(ui.lampOnly)}</Caption>
+            {symptoms === null ? (
+              <View style={styles.safeRow}>
+                <Button label={t(ui.safePlaceYes)} variant="secondary" onPress={() => setSymptoms(true)} />
+                <Button label={t(ui.safePlaceNo)} variant="secondary" onPress={() => setSymptoms(false)} />
+              </View>
+            ) : symptoms ? (
+              <View style={styles.symptomStop}>
+                <Text style={[styles.roadTitle, { color: GRADE.critical.fg }]}>
+                  {t(ui.symptomStopTitle)}
+                </Text>
+                <Body style={{ color: TEXT }}>{t(ui.symptomStopBody)}</Body>
+              </View>
+            ) : (
+              <Body>{t(ui.symptomNoneBody)}</Body>
+            )}
+          </Card>
 
           {/* Only then: what it was. The symbol is large because matching a
               shape is faster than reading a name. */}
@@ -587,19 +608,13 @@ const styles = StyleSheet.create({
   alsoText: { flex: 1, color: TEXT, ...TYPE.body, fontFamily: FONT.regular, textAlign: READ },
 
   road: { gap: SP.sm },
+  symptom: { gap: SP.sm },
+  symptomStop: { gap: SP.xs },
   roadTitle: { ...TYPE.section, fontFamily: FONT.bold, textAlign: READ },
   safe: { gap: SP.md, marginTop: SP.sm, borderTopWidth: 1, borderTopColor: BORDER, paddingTop: SP.md },
   safeQ: { color: TEXT, ...TYPE.body, fontFamily: FONT.bold, textAlign: READ },
   safeRow: { flexDirection: "row", gap: SP.sm },
   safeSteps: { gap: SP.sm },
-  lampOnly: {
-    color: TEXT_SOFT,
-    ...TYPE.caption,
-    fontFamily: FONT.regular,
-    textAlign: READ,
-    marginTop: -SP.md,
-  },
-
   locked: { gap: SP.sm },
   lockedHead: { flexDirection: "row", alignItems: "center", gap: SP.sm },
   lockedList: { gap: SP.sm, marginTop: SP.xs },
