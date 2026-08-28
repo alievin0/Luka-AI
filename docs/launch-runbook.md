@@ -109,27 +109,46 @@ call spends money. Without a shared counter the limit lives in one instance's
 memory: it resets on every deploy and does not span instances, so N instances
 mean N times the allowance.
 
-1. Create a free Redis database at <https://upstash.com>.
-2. Copy the **REST** URL and token into `.env`:
+1. Create a free Redis database at <https://console.upstash.com>. Pick the
+   region closest to most of your users, not to you — the API is a Cloudflare
+   Worker running everywhere, so the database is the one fixed point.
+2. Open the database, find its **REST API** section, and copy the URL and token
+   into `.env`. The two lines are already there, commented out, carrying the
+   example values — uncomment them and **replace the `xxx`**:
    ```
-   UPSTASH_REDIS_REST_URL=https://xxx.upstash.io
-   UPSTASH_REDIS_REST_TOKEN=xxx
+   UPSTASH_REDIS_REST_URL=https://<your-database>.upstash.io
+   UPSTASH_REDIS_REST_TOKEN=<your-token>
    ```
-3. **Run the probe.** I wrote the Redis request without being able to reach
+   `https://xxx.upstash.io` is the placeholder, not an address. Leaving it there
+   is what produces a bare `fetch failed` from the probe below.
+3. **Reload the shell**, or it keeps whatever it read before the edit:
+   ```bash
+   cd apps/scanner
+   set -a; source .env; set +a
+   echo "$UPSTASH_REDIS_REST_URL"     # must print your database, not xxx
+   ```
+4. **Run the probe.** I wrote the Redis request without being able to reach
    Upstash's documentation — this container's network policy blocks the host —
    so this command is what confirms the shape is right:
    ```bash
-   cd apps/scanner
    node scripts/check-ratelimit.js --probe "$UPSTASH_REDIS_REST_URL" "$UPSTASH_REDIS_REST_TOKEN"
    ```
    It prints the request, the raw response, and whether the shape matches what
    the code reads. If it fails, it says which part is wrong.
+5. **Put both variables in the deployment's environment**, the same place
+   `ANTHROPIC_API_KEY` went — the limiter runs in the deployed server, not on
+   your machine. Then redeploy, because a deployment reads its environment when
+   it is created:
+   ```bash
+   npx expo export --platform web
+   npx eas-cli@latest deploy --prod
+   ```
+   Skipping this is the quiet failure: the probe passes locally, and production
+   is still counting in one instance's memory.
 
 Until it passes, nothing breaks — the limiter falls back to per-instance memory
 and logs a warning once. That is what shipped before, so this is safe to leave
 until the day you launch. It is just not safe to leave forever.
-
-Set both variables in the **deployment's** environment too, not only locally.
 
 ---
 
