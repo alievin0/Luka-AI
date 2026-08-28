@@ -287,6 +287,16 @@ trial, a paywall that states the renewal terms plainly, and a restore button
 that reports its outcome. None of them should be weakened, and the reminder
 before the trial converts belongs to the same policy rather than to marketing.
 
+### 4a-1. What the app may say about repair cost
+
+The app localises the currency, not the prices: the model converts a general
+estimate into KWD. It may print **تقدير** and the user's own currency. It may
+**not** print "النطاق المعتاد في الكويت" or anything else implying the figure
+came from Kuwaiti garages, until parts, labour and real quotes are collected.
+Doing so before then is the exact claim `competitors-2026.md` faults the
+competition for. That data is also the only part of the plan a competitor
+abroad cannot copy — see that file.
+
 ### 4a-2. What the free scan gives away — decided, 28 Aug 2026
 
 **One free scan, and it returns the verdict only.**
