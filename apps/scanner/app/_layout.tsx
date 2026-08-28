@@ -80,13 +80,20 @@ export default function RootLayout() {
              replaced rather than entered. Someone who has asked for less
              movement gets a fade instead of nothing. */
           animation: stillness ? "fade" : "slide_from_right",
+          /* 250ms is the band where a transition reads as motion without
+             reading as a wait: under about 180 it snaps, over about 350 the
+             user is watching an animation instead of using an app. Android's
+             default is slower than that, so it is set rather than inherited. */
+          animationDuration: 250,
         }}
       >
         {/* The tab destinations live in the (tabs) group and are drawn by
             their own navigator; everything below is pushed over them. */}
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="onboarding" options={{ headerShown: false }} />
-        <Stack.Screen name="result" options={{ headerShown: false }} />
+        {/* The answer does not slide in from the side like another page in a
+            list. It replaces the photo that produced it, so it fades. */}
+        <Stack.Screen name="result" options={{ headerShown: false, animation: "fade" }} />
         <Stack.Screen name="change-country" options={{ headerShown: false }} />
         <Stack.Screen name="light/[id]" options={{ headerShown: false }} />
         <Stack.Screen

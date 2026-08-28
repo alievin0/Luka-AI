@@ -352,46 +352,99 @@ export function ScannerHome({ pack }: { pack: ScannerPack }) {
   );
 }
 
+/** How far the sweep travels: the reticle's height plus its own thickness, so
+ *  it starts fully above the frame and ends fully below it. */
+const RETICLE_H = 168;
+const SWEEP_H = 3;
+
 /**
  * The wait, with the photo still on screen.
  *
  * Keeping the shot visible is the point: the driver sees what was sent, so if
  * the answer comes back wrong they already know whether the photo was the
- * problem. The ring is indeterminate because we do not know how long the
- * model will take — a percentage here would be a number we invented.
+ * problem.
+ *
+ * The movement is a line travelling down the same four brackets they just
+ * aimed with, rather than a spinner. A spinner says "something is happening
+ * somewhere"; a sweep across the frame they chose says "this, the thing you
+ * pointed at, is being read." It is also the reason the brackets stay on
+ * screen: the shot does not jump to a different composition the instant the
+ * shutter fires, so the eye never has to find its place again.
+ *
+ * Deliberately not a percentage and not a progress bar. The scan API reports
+ * no progress, and a bar that fills at a rate nobody measured is a number the
+ * app invented — the one thing this product does not do.
+ *
+ * 1400ms per pass, eased at both ends so it arrives and leaves rather than
+ * snapping. Under reduced motion the line simply sits at the middle of the
+ * frame: the composition survives, the movement does not.
  */
 function Analysing({ photo, stage }: { photo: string | null; stage: Stage }) {
-  const spin = useRef(new Animated.Value(0)).current;
+  const sweep = useRef(new Animated.Value(0)).current;
+  const enter = useRef(new Animated.Value(0)).current;
   const still = useReducedMotion();
+
+  // The overlay arrives rather than appearing. 200ms is under the threshold
+  // where a transition starts to feel like a wait of its own.
+  useEffect(() => {
+    Animated.timing(enter, {
+      toValue: 1,
+      duration: still ? 0 : 200,
+      easing: Easing.out(Easing.quad),
+      useNativeDriver: true,
+    }).start();
+  }, [enter, still]);
 
   useEffect(() => {
     if (still) return;
     const loop = Animated.loop(
-      Animated.timing(spin, {
+      Animated.timing(sweep, {
         toValue: 1,
-        duration: 1600,
-        easing: Easing.linear,
+        duration: 1400,
+        easing: Easing.inOut(Easing.ease),
         useNativeDriver: true,
       }),
     );
     loop.start();
     return () => loop.stop();
-  }, [spin, still]);
+  }, [sweep, still]);
 
-  const rotate = spin.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "360deg"] });
+  const translateY = sweep.interpolate({
+    inputRange: [0, 1],
+    outputRange: [-SWEEP_H, RETICLE_H],
+  });
+  // Fades in as it enters the frame and out as it leaves, so the line is never
+  // seen to appear from nothing or stop against an edge.
+  const sweepOpacity = sweep.interpolate({
+    inputRange: [0, 0.12, 0.88, 1],
+    outputRange: [0, 1, 1, 0],
+  });
 
   return (
-    <View style={styles.analysing}>
+    <Animated.View style={[styles.analysing, { opacity: enter }]}>
       {photo ? <Image source={{ uri: photo }} style={StyleSheet.absoluteFill} resizeMode="cover" /> : null}
       <View style={styles.scrim} />
       <SafeAreaView style={styles.analysingBody} edges={["top", "bottom"]}>
-        <Animated.View style={[styles.ring, { transform: [{ rotate }] }]} />
+        <View style={styles.reticle}>
+          <View style={[styles.corner, styles.cornerTL]} />
+          <View style={[styles.corner, styles.cornerTR]} />
+          <View style={[styles.corner, styles.cornerBL]} />
+          <View style={[styles.corner, styles.cornerBR]} />
+          <Animated.View
+            style={[
+              styles.sweep,
+              still
+                ? { top: RETICLE_H / 2 }
+                : { opacity: sweepOpacity, transform: [{ translateY }] },
+            ]}
+          />
+        </View>
         <Text style={styles.analysingTitle}>{t(ui.analysing)}</Text>
         <Text style={styles.analysingStage}>
           {stage === "preparing" ? t(ui.holdSteady) : t(ui.takesSeconds)}
         </Text>
       </SafeAreaView>
-    </View>
+    </Animated.View>
   );
 }
 
@@ -488,13 +541,20 @@ const styles = StyleSheet.create({
   analysing: { ...StyleSheet.absoluteFillObject, backgroundColor: BG },
   scrim: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(12,14,19,0.82)" },
   analysingBody: { flex: 1, alignItems: "center", justifyContent: "center", gap: SP.lg },
-  ring: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    borderWidth: 3,
-    borderColor: "rgba(242,244,248,0.14)",
-    borderTopColor: ACTION,
+  /* The line that reads the frame. Action white rather than amber: amber is
+     the caution grade, and a moving amber bar over a photo of a warning light
+     is the app appearing to have already decided. */
+  sweep: {
+    position: "absolute",
+    left: -2,
+    right: -2,
+    height: SWEEP_H,
+    borderRadius: 2,
+    backgroundColor: ACTION,
+    shadowColor: ACTION,
+    shadowOpacity: 0.9,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 0 },
   },
   analysingTitle: { color: TEXT, ...TYPE.section, fontFamily: FONT.semibold, textAlign: "center" },
   analysingStage: { color: TEXT_FAINT, ...TYPE.caption, fontFamily: FONT.regular, textAlign: "center" },

@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator, Share, TextInput } from "react-native";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator, Share, TextInput, Animated, Easing } from "react-native";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { pack, isScanner, optionLabel, optionValue } from "../src/packs";
@@ -8,6 +8,7 @@ import { SymbolBadge } from "../src/components/SymbolBadge";
 import { currencyFor, getHistory, getProfile, updateProfile, type HistoryEntry, type Profile } from "../src/storage";
 import { isPro } from "../src/purchases";
 import { decide } from "../src/decision";
+import { useReducedMotion } from "../src/motion";
 import { formatMoneyRange } from "../src/money";
 import { carLabel } from "../src/car";
 import { t, fill } from "../src/i18n";
@@ -109,6 +110,24 @@ export default function Result() {
   const [symptoms, setSymptoms] = useState<boolean | null>(null);
   const [skipped, setSkipped] = useState(false);
   const [typed, setTyped] = useState("");
+  const still = useReducedMotion();
+
+  /* The verdict settles rather than snapping into place.
+     It rises 12px and fades over 260ms — enough for the eye to follow it to
+     the top of the screen, short enough that a driver reading it in a hurry
+     never waits on it. Everything below it is already in place; only the one
+     thing they came for moves, so the movement points at the answer instead of
+     decorating the page. */
+  const settle = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (loading) return;
+    Animated.timing(settle, {
+      toValue: 1,
+      duration: still ? 0 : 260,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [loading, settle, still]);
 
   useEffect(() => {
     (async () => {
@@ -287,11 +306,20 @@ export default function Result() {
               them find the verdict instead of being told it, which is the
               difference between an emergency tool and a reference app. */}
           {result.verdict ? (
-            <VerdictBand
-              level={level}
-              text={overridden ? t(ui.symptomStopTitle) : result.verdict}
-              reason={overridden ? t(ui.symptomStopBody) : result.summary}
-            />
+            <Animated.View
+              style={{
+                opacity: settle,
+                transform: [
+                  { translateY: settle.interpolate({ inputRange: [0, 1], outputRange: [12, 0] }) },
+                ],
+              }}
+            >
+              <VerdictBand
+                level={level}
+                text={overridden ? t(ui.symptomStopTitle) : result.verdict}
+                reason={overridden ? t(ui.symptomStopBody) : result.summary}
+              />
+            </Animated.View>
           ) : null}
 
           {/* What to do with the car, before what is wrong with it. This is
