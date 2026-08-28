@@ -187,9 +187,36 @@ export function clientKey(request: Request): string {
  * down for everyone because a cache was unreachable. Per-instance limiting is
  * the honest middle, and the fallback says so in the log.
  */
+/**
+ * The limiter needs one stable value per caller. It does not need to be able
+ * to read that value back, and an IP address written into a database is
+ * personal data under GDPR — sitting in a third-party store, for an hour, on
+ * behalf of an app whose whole promise is that it keeps nothing.
+ *
+ * So the address is hashed before it becomes a key. Counting works exactly as
+ * it did: the same caller hashes to the same digest. What changes is what a
+ * leak of that store would be worth, and what the privacy policy has to say.
+ *
+ * Not a defence against a determined re-identification — the IPv4 space is
+ * small enough to enumerate against a known salt, and the salt ships in the
+ * deployment. It is the difference between a store of addresses and a store
+ * of digests, which is worth having and worth describing accurately.
+ */
+async function digest(key: string): Promise<string> {
+  const bytes = new TextEncoder().encode(`dashlight:${key}`);
+  const hash = await crypto.subtle.digest("SHA-256", bytes);
+  // 128 bits is far past the collision risk for this population, and half the
+  // key length in the store.
+  return Array.from(new Uint8Array(hash).slice(0, 16))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 export async function checkRateLimit(key: string, max = MAX_PER_WINDOW): Promise<RateVerdict> {
-  const shared = await hitRedis(key, max);
-  return shared ?? hitMemory(key, max);
+  // Hashed once, here, rather than at four call sites that could each forget.
+  const hashed = await digest(key);
+  const shared = await hitRedis(hashed, max);
+  return shared ?? hitMemory(hashed, max);
 }
 
 /** For the checker: the in-memory path on its own, and a way to reset it. */

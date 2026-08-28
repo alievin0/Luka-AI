@@ -57,8 +57,9 @@ export default async function Terms({
       <Section title="What these terms cover">
         <p>
           These terms apply to <strong>{entry.name}</strong>. By using it you
-          agree to what follows. If you do not agree, delete the app; that is
-          all it takes, because there is no account to close.
+          agree to what follows. If you do not agree, delete the app; there is
+          no account with us to close. If you have a subscription, cancel it in
+          your store account as well — deleting the app does not end it.
         </p>
       </Section>
 
@@ -73,10 +74,28 @@ export default async function Terms({
           ))}
         </ul>
         <p>
-          It uses AI, and AI is sometimes confidently wrong. Where an answer
-          matters, check it.
+          It uses AI, and AI is sometimes confidently wrong. Use your own
+          judgement, and consult someone qualified when safety is uncertain.
         </p>
       </Section>
+
+      {entry.kind === "scanner" && app === "dashlight" ? (
+        <Section title="Your vehicle is your responsibility">
+          <p>
+            You decide whether and when to keep driving. If your vehicle is
+            smoking, overheating, leaking, smells of burning, is making an
+            unusual noise, or is driving differently, stop in a safe place and
+            get professional help — regardless of what the app told you. It is
+            working from one photograph of one lamp, and cannot see, hear or
+            feel any of that.
+          </p>
+          <p>
+            The app asks you about those symptoms after a scan, and a symptom
+            you report overrides its verdict. That is a safeguard, not a
+            diagnosis: it is still not a substitute for a mechanic.
+          </p>
+        </Section>
+      ) : null}
 
       {entry.kind === "audio" ? (
         <Section title="Recording">
@@ -112,23 +131,28 @@ export default async function Terms({
             does not cancel a subscription.
           </li>
           <li>
-            Where a free trial is offered, any unused part of it is forfeited
-            when you buy a subscription.
+            If you start a free trial, it converts to the paid subscription you
+            selected at the end of the trial unless you cancel before then.
+            Apple grants one introductory offer per subscription group, so a
+            trial you have already used is not offered again on another plan in
+            the same group.
           </li>
           <li>
-            Refunds are handled by Apple and Google under their own policies,
-            not by us. We cannot issue a refund for a purchase we never
-            received.
+            Refunds for purchases made through Apple or Google are subject to
+            that store&rsquo;s refund policies. Where the store handles the
+            refund, the request should be made through that store. Tell us as
+            well, so we can fix whatever led to it.
           </li>
         </ul>
       </Section>
 
       <Section title="Acceptable use">
         <p>
-          Do not use this app to break the law, to record people without their
-          agreement, or to resell or redistribute what it produces as your own
-          service. Do not attempt to extract keys from the app or to use its
-          servers other than through the app itself.
+          Do not use this app to break the law, or to resell or redistribute
+          what it produces as your own service. Do not attempt to extract keys
+          from the app, to circumvent its limits or its subscription checks, or
+          to reach our servers and interfaces other than through the app
+          itself.
         </p>
       </Section>
 
@@ -145,8 +169,8 @@ export default async function Terms({
           The app is provided as it is. To the extent the law allows, we are not
           liable for loss arising from your use of it — including decisions
           taken on information it gave you. Nothing here limits liability that
-          cannot lawfully be limited, and where your local consumer law gives
-          you rights, those rights stand.
+          cannot lawfully be limited, and nothing in these terms affects any
+          rights you may have under applicable consumer protection law.
         </p>
       </Section>
 

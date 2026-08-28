@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { APPS, type AppId } from "../apps";
+import { AI_PROVIDER, APPS, type AppId } from "../apps";
 
 /**
  * Per-app privacy policies.
@@ -79,10 +79,10 @@ export default async function PrivacyPolicy({
 
       <Section title="What we do not do">
         <ul>
-          <li>We do not ask you to create an account, and we do not know who you are.</li>
-          <li>We do not sell or share your data, and we run no advertising or tracking SDKs.</li>
+          <li>We do not ask you to create an account with us.</li>
+          <li>We do not sell your data, and the app carries no advertising and no analytics or tracking SDK.</li>
           <li>We do not build a profile of you or link your activity across sessions.</li>
-          <li>We do not use your content to train AI models.</li>
+          <li>We do not use your content to train our own models.</li>
         </ul>
       </Section>
 
@@ -90,24 +90,38 @@ export default async function PrivacyPolicy({
         <p>
           Everything the app saves — your answers during setup, your history,
           your settings — is stored on your device, by the app, and is removed
-          when you delete the app. We keep no copy.
+          when you delete the app. We hold no account-based copy of it.
         </p>
       </Section>
 
       <Section title="Processing by a third party">
         <p>
-          To answer your question, the app sends {entry.sends} to an AI provider
-          that processes it and returns a result. This is a processing step, not
-          storage: the content is not retained to train models, and it is not
-          linked to you, because we send nothing that identifies you.
+          To produce your result, the app sends {entry.sends} to{" "}
+          <a href={AI_PROVIDER.policy}>{AI_PROVIDER.name}</a>, which processes
+          it and returns an answer. We do not use it to train models and we do
+          not attach your name, your email address or an account to it. What{" "}
+          {AI_PROVIDER.name} itself retains, and for how long, is governed by
+          its own privacy policy, linked above — not by this one.
         </p>
         {entry.extraProcessor ? <p>{entry.extraProcessor}</p> : null}
       </Section>
 
+      {entry.serverSide ? (
+        <Section title="What our servers see">
+          <p>{entry.serverSide}</p>
+        </Section>
+      ) : null}
+
+      {entry.subscription ? (
+        <Section title="Subscriptions">
+          <p>{entry.subscription}</p>
+        </Section>
+      ) : null}
+
       <Section title="Children">
         <p>
-          These apps are not directed at children under 13 and we do not
-          knowingly collect anything from them.
+          {entry.name} is not directed to children under 13, and we do not
+          knowingly collect personal information from children under 13.
         </p>
       </Section>
 
@@ -119,8 +133,9 @@ export default async function PrivacyPolicy({
             than failing silently.
           </li>
           <li>
-            Deleting the app removes everything it stored. There is nothing on
-            our side to request the deletion of.
+            Deleting the app removes everything it stored on your device. We do
+            not run an account-based history that we could delete on request;
+            what our service providers process on our behalf is described above.
           </li>
           <li>
             You can clear your saved history from inside the app at any time.

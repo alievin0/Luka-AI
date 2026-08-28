@@ -53,54 +53,33 @@ export default async function Support({
         Updated {entry.updated} &middot; we read every message
       </p>
 
-      <Section title="Get in touch">
+      <Section title="Contact us">
         <p>
-          Email <a href={`mailto:${entry.contact}`}>{entry.contact}</a>. Tell us which phone
-          you are on and what happened — a screenshot helps more than anything
-          else. There is no account to look up, so what you tell us is all we
-          have to go on.
-        </p>
-      </Section>
-
-      <Section title="Billing and subscriptions">
-        <p>
-          <strong>How do I cancel?</strong> In your device settings, not in the
-          app: on iPhone, Settings &rarr; your name &rarr; Subscriptions; on
-          Android, Play Store &rarr; Profile &rarr; Payments and subscriptions.
-          Deleting the app does not cancel a subscription.
-        </p>
-        <p>
-          <strong>I paid and the app still says free.</strong> Open the
-          app&rsquo;s settings and tap Restore a purchase. Purchases are tied to
-          the store account that bought them, so make sure you are signed in
-          with the same one.
-        </p>
-        <p>
-          <strong>I want a refund.</strong> Refunds go through Apple or Google,
-          not through us — we never receive the payment. Use{" "}
-          <a href="https://reportaproblem.apple.com">reportaproblem.apple.com</a>{" "}
-          or the Play Store order history. Tell us too, so we can fix whatever
-          led to it.
-        </p>
-        <p>
-          <strong>I changed phones.</strong> Your subscription follows your store
-          account. Your saved history does not — it lives on the device, by
-          design, because we never had a copy.
+          Email <a href={`mailto:${entry.contact}`}>{entry.contact}</a>. Tell us
+          your phone model, what happened, and include a screenshot when
+          possible. There is no account to look up, so what you tell us is all
+          we have to go on.
         </p>
       </Section>
 
       {entry.kind === "scanner" ? (
         <Section title="Scanning">
           <p>
-            <strong>It says it cannot see the symbol.</strong> Get closer, hold
+            <strong>It can&rsquo;t read the symbol.</strong> Get closer, hold
             steady, and avoid shooting through a reflection. A warning light
             photographed at an angle through a windscreen is often unreadable
             even to a person.
           </p>
           <p>
-            <strong>It identified the wrong thing.</strong> Tell us what it said
-            and what it should have said, and send the photo if you still have
-            it. That is the most useful message we receive.
+            <strong>It identified the wrong symbol.</strong> Tell us what it
+            said and what it should have said. If you still have the photo,
+            send it — please crop out anything unrelated to the dashboard
+            first. That is the most useful message we receive.
+          </p>
+          <p>
+            <strong>My scan failed.</strong> Try again with a clearer photo. If
+            a scan was counted or you were charged and you did not get a
+            result, email us with the approximate time and a screenshot.
           </p>
         </Section>
       ) : null}
@@ -127,16 +106,57 @@ export default async function Support({
         </Section>
       ) : null}
 
-      <Section title="Privacy and your data">
+      <Section title="Subscriptions">
         <p>
-          Everything this app saves is stored on your device. There is no
-          account, no tracking and no advertising. Deleting the app removes
-          everything — there is nothing on our side to delete. The{" "}
-          <a href={`/privacy/${app}`}>privacy policy</a> describes exactly what
-          it sends and why, and the <a href={`/terms/${app}`}>terms of use</a>{" "}
-          cover the subscription.
+          <strong>How do I cancel?</strong> In your device settings, not in the
+          app: on iPhone, Settings &rarr; your name &rarr; Subscriptions; on
+          Android, Play Store &rarr; Profile &rarr; Payments and subscriptions.
+          Deleting the app does not cancel a subscription.
+        </p>
+        <p>
+          <strong>I paid but it still says free.</strong> Open the app&rsquo;s
+          settings and tap Restore a purchase. Purchases are tied to the store
+          account that bought them, so make sure you are signed in with the
+          same one.
+        </p>
+        <p>
+          <strong>I changed phones.</strong> Your subscription follows your
+          store account — restore it as above. Your saved history does not: it
+          lives on the device, by design.
+        </p>
+        <p>
+          <strong>I want a refund.</strong> Refund requests for purchases made
+          through Apple or Google are handled according to that store&rsquo;s
+          policies. Use{" "}
+          <a href="https://reportaproblem.apple.com">reportaproblem.apple.com</a>{" "}
+          or your Play Store order history. Tell us too, so we can fix whatever
+          led to it.
         </p>
       </Section>
+
+      {app === "dashlight" ? (
+        <Section title="Safety">
+          <p>
+            This app gives you guidance from a photograph, not a mechanical
+            diagnosis. If your vehicle is smoking, overheating, leaking, smells
+            of burning, is making an unusual noise, or is driving differently,
+            stop in a safe place and get professional help. Do not rely on the
+            app alone to decide whether a vehicle is safe to drive.
+          </p>
+        </Section>
+      ) : null}
+
+      <Section title="Privacy and your data">
+        <p>
+          What the app saves is stored on your device, and deleting the app
+          removes it. We do not run an account-based history that we could
+          delete on request. The{" "}
+          <a href={`/privacy/${app}`}>privacy policy</a> describes what the app
+          sends, what our servers see, and which providers process it, and the{" "}
+          <a href={`/terms/${app}`}>terms of use</a> cover the subscription.
+        </p>
+      </Section>
+
     </main>
   );
 }
