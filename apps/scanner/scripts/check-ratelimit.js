@@ -26,6 +26,26 @@ const ROOT = path.join(__dirname, "..");
 
 async function probe(url, token) {
   const base = url.replace(/\/$/, "");
+
+  // Catch the two mistakes that produce a bare "fetch failed" — a placeholder
+  // left in place, and a URL that is not one — before spending a round trip on
+  // them, because the failure they cause says nothing about the cause.
+  if (/\bxxx\b/.test(base) || /\bxxx\b/.test(token)) {
+    console.log(
+      `✗ That is the example value, not your database.\n\n` +
+        `   url:   ${base}\n\n` +
+        `   Create a database at https://console.upstash.com, open its REST API\n` +
+        `   tab, and copy the real URL and token into .env.`,
+    );
+    process.exit(1);
+  }
+  let host;
+  try {
+    host = new URL(base).host;
+  } catch {
+    console.log(`✗ Not a URL: ${base}\n\n   It should look like https://<name>.upstash.io`);
+    process.exit(1);
+  }
   const field = `ratelimit:probe:${Date.now()}`;
   const body = [
     ["INCR", field],
@@ -33,7 +53,7 @@ async function probe(url, token) {
     ["TTL", field],
   ];
 
-  console.log(`POST ${base}/pipeline`);
+  console.log(`POST ${base}/pipeline   (host: ${host})`);
   console.log(`  ${JSON.stringify(body)}\n`);
 
   const response = await fetch(`${base}/pipeline`, {
@@ -177,7 +197,13 @@ if (args[0] === "--probe") {
     process.exit(2);
   }
   probe(url, token).catch((error) => {
-    console.log(`\n✗ ${error.message}`);
+    const why = String(error?.cause?.code ?? error?.message ?? error);
+    console.log(`\n✗ Could not reach the database: ${why}`);
+    if (/ENOTFOUND|EAI_AGAIN/.test(why)) {
+      console.log("   That host does not resolve — check the URL is the one Upstash gave you.");
+    } else if (/ECONNREFUSED|ETIMEDOUT|UND_ERR/.test(why)) {
+      console.log("   The host resolved but did not answer — check your network, then Upstash's status.");
+    }
     process.exit(1);
   });
 } else {
