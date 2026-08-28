@@ -19,6 +19,23 @@ Nothing here needs me. Everything that could be done from a container is done.
 
 ---
 
+## Before any of it: the code is not on the branch production serves
+
+Every section below assumes this work is where Vercel and EAS can see it. It is
+not. All of it lives on `claude/profit-apps-ideas-50go58`, in **PR #4**, and the
+repository's default branch — `claude/ai-shopping-agent-mcxr89`, the one
+production deploys from — has none of it: no `app/privacy/`, no scan route, no
+app.
+
+So **merge PR #4 before §1**. Until then `npx vercel --prod` deploys a tree that
+does not contain the privacy pages, and §1's browser check would be reading a
+404 from a deployment that reported success.
+
+The PR is green and mergeable — CI passes on its head, and `npm run check` is
+235 assertions across sixteen suites.
+
+---
+
 ## 0. First, five minutes: revoke the leaked key
 
 The `sk-ant-…` key was pasted into a chat. Treat it as public.
@@ -45,10 +62,23 @@ The `sk-ant-…` key was pasted into a chat. Treat it as public.
 **عائق — Blocks:** a privacy policy that 404s is an automatic App Review
 rejection.
 
-The domain is now known and loaded: `https://luka-ai-psi.vercel.app`. Vercel
-appended `-psi` because the bare name was taken, which is why the first guess in
-`src/legal.ts` was wrong — it is now the default there, and
-`EXPO_PUBLIC_SITE_URL` still overrides it when a custom domain is attached.
+The domain is `https://luka-ai-psi.vercel.app`. Vercel appended `-psi` because
+the bare name was taken, which is why the first guess in `src/legal.ts` was
+wrong — it is now the default there, and `EXPO_PUBLIC_SITE_URL` still overrides
+it when a custom domain is attached.
+
+> **The pages are not on the default branch yet.** `app/privacy/` exists only
+> on `claude/profit-apps-ideas-50go58`; the default branch —
+> `claude/ai-shopping-agent-mcxr89`, which is what Vercel serves in production —
+> has none of these files. So the URLs below very likely 404 today, and
+> **`npx vercel --prod` will not fix that on its own: merge PR #4 first.**
+> Whatever loaded when this domain was checked was a preview deployment of the
+> PR branch, not production. I could not test it either way — `*.vercel.app` is
+> blocked from the development container.
+>
+> This is the step whose failure mode is an automatic rejection, so open the
+> three URLs in a browser **after the merge and the deploy**, not before, and
+> read what comes back rather than trusting a 200.
 
 The pages exist in the Next.js app at the repo root — `app/privacy/[app]/`,
 `app/terms/[app]/`, `app/support/[app]/`. All three take the app id, so a
