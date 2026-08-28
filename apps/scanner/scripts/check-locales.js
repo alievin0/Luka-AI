@@ -60,8 +60,78 @@ function englishStrings(file) {
   return out;
 }
 
-const all = new Set();
-for (const file of SOURCES) for (const s of englishStrings(file)) all.add(s);
+/* ------------------------------------------- what Dash Light can actually show
+
+   ui.ts is chrome shared by six apps and only one of them ships. Nearly forty
+   per cent of its keys are reachable only from the lecture and program
+   screens, and translating those is six languages of work with no reader.
+   Coverage is therefore measured against the strings this app can render —
+   otherwise 100% is unreachable and the number stops meaning anything. */
+
+const OTHER_ARCHETYPES = [
+  "src/components/AudioHome.tsx", "app/lecture.tsx", "app/record.tsx", "app/paste.tsx",
+  "app/(tabs)/lectures.tsx", "app/(tabs)/study.tsx", "app/(tabs)/tasks.tsx",
+  "app/(tabs)/search.tsx", "src/lecture-export.ts", "src/insights.ts", "src/study.ts",
+  "src/lectures.ts", "src/concepts.ts",
+  "src/components/ProgramHome.tsx", "app/session.tsx", "app/plan.tsx", "src/progress.ts",
+];
+
+/** Every ui.<key> a file mentions. */
+const keysIn = (file) =>
+  new Set([...fs.readFileSync(file, "utf8").matchAll(/\bui\.([A-Za-z0-9_]+)/g)].map((m) => m[1]));
+
+function unreachableKeys() {
+  const walk = (dir, acc = []) => {
+    for (const e of fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true })) {
+      const rel = `${dir}/${e.name}`;
+      if (e.isDirectory()) walk(rel, acc);
+      else if (/\.tsx?$/.test(e.name)) acc.push(rel);
+    }
+    return acc;
+  };
+  const usage = {};
+  for (const f of [...walk("app"), ...walk("src")]) {
+    for (const key of keysIn(path.join(ROOT, f))) (usage[key] ??= new Set()).add(f);
+  }
+  return new Set(
+    Object.entries(usage)
+      .filter(([, files]) => [...files].every((f) => OTHER_ARCHETYPES.includes(f)))
+      .map(([key]) => key),
+  );
+}
+
+/** The English strings behind a set of ui keys. */
+function stringsForKeys(keys) {
+  const file = "src/i18n/ui.ts";
+  const src = fs.readFileSync(path.join(ROOT, file), "utf8");
+  const sf = ts.createSourceFile(file, src, ts.ScriptTarget.ES2020, true);
+  const out = new Set();
+  const visit = (node) => {
+    if (ts.isPropertyAssignment(node) && keys.has(node.name.getText(sf).replace(/['"]/g, ""))) {
+      const walk = (n) => {
+        if (
+          ts.isCallExpression(n) &&
+          ts.isIdentifier(n.expression) &&
+          n.expression.text === "L" &&
+          ts.isStringLiteralLike(n.arguments[0])
+        ) {
+          out.add(n.arguments[0].text);
+        }
+        ts.forEachChild(n, walk);
+      };
+      walk(node);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+  return out;
+}
+
+const everything = new Set();
+for (const file of SOURCES) for (const s of englishStrings(file)) everything.add(s);
+
+const unreachable = stringsForKeys(unreachableKeys());
+const all = new Set([...everything].filter((s) => !unreachable.has(s)));
 
 /* ------------------------------------------------------- what must not fall back
 
@@ -123,36 +193,36 @@ const criticalText = new Set([...critical.values()].flat());
 
 /* ------------------------------------------------------------------ coverage */
 
-const LOCALES = ["es", "pt", "fr", "de", "tr", "it"];
-console.log(`\n${all.size} English strings, ${criticalText.size} of them safety-critical\n`);
-
-for (const code of LOCALES) {
-  const file = path.join(ROOT, `src/i18n/locales/${code}.ts`);
-  if (!fs.existsSync(file)) {
-    ok(`${code}: a translation file exists`, false);
-    continue;
-  }
-  const js = ts.transpileModule(fs.readFileSync(file, "utf8"), {
-    compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS },
-  }).outputText;
+const table = (() => {
+  const js = ts.transpileModule(
+    fs.readFileSync(path.join(ROOT, "src/i18n/translations.ts"), "utf8"),
+    { compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS } },
+  ).outputText;
   const mod = { exports: {} };
   new Function("module", "exports", js)(mod, mod.exports);
-  const dict = mod.exports.default ?? {};
+  return { rows: mod.exports.default ?? {}, order: mod.exports.ORDER ?? [] };
+})();
 
-  const done = [...all].filter((s) => dict[s]).length;
-  const stale = Object.keys(dict).filter((k) => !all.has(k));
-  const missingCritical = [...criticalText].filter((s) => !dict[s]);
-  const pct = Math.round((done / all.size) * 100);
+console.log(
+  `\n${all.size} strings Dash Light can render — ${unreachable.size} more belong to the ` +
+    `lecture and program apps and are not counted. ${criticalText.size} are safety-critical.\n`,
+);
 
-  console.log(`${code}  ${String(pct).padStart(3)}%  ${done}/${all.size}${stale.length ? `  · ${stale.length} stale` : ""}`);
+// A row for a string the app no longer ships is a translation of something
+// nobody reads, and it hides the real coverage number behind a bigger one.
+const stale = Object.keys(table.rows).filter((k) => !everything.has(k));
+ok(`no stale rows${stale.length ? ` (${stale.length}, e.g. "${stale[0].slice(0, 40)}")` : ""}`, stale.length === 0);
+
+table.order.forEach((code, i) => {
+  const done = [...all].filter((s) => table.rows[s]?.[i]).length;
+  const missingCritical = [...criticalText].filter((s) => !table.rows[s]?.[i]);
+  console.log(`${code}  ${String(Math.round((done / all.size) * 100)).padStart(3)}%  ${done}/${all.size}`);
   ok(
     `  ${code}: every safety line is translated${missingCritical.length ? ` (${missingCritical.length} missing)` : ""}`,
     missingCritical.length === 0,
   );
-  if (missingCritical.length) {
-    for (const s of missingCritical.slice(0, 4)) console.log(`     ! ${s.slice(0, 68)}`);
-  }
-}
+  for (const s of missingCritical.slice(0, 3)) console.log(`     ! ${s.slice(0, 68)}`);
+});
 
 console.log(
   `\n${problems.length ? `${problems.length} problems.` : "Every language can be trusted with the lines a driver acts on."}`,

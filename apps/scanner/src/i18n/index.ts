@@ -1,4 +1,5 @@
 import { getLocales } from "expo-localization";
+import TRANSLATIONS, { ORDER } from "./translations";
 
 /**
  * English-first localisation.
@@ -103,41 +104,14 @@ export const isRTL = locale === "ar";
 
 /**
  * Everything that is not English or Arabic, keyed on the English string.
- *
- * Loaded eagerly for the running language only: bundling eight dictionaries to
- * read one is eight times the parse cost on a screen someone opens in a hurry.
+ * One table with every language on each row — see src/i18n/translations.ts.
  */
-const translations: Record<string, string> = (() => {
-  switch (locale) {
-    case "es":
-      return require("./locales/es").default;
-    case "pt":
-      return require("./locales/pt").default;
-    case "fr":
-      return require("./locales/fr").default;
-    case "de":
-      return require("./locales/de").default;
-    case "tr":
-      return require("./locales/tr").default;
-    case "it":
-      return require("./locales/it").default;
-    default:
-      return {};
-  }
-})();
+const column = ORDER.indexOf(locale as (typeof ORDER)[number]);
 
-/**
- * Resolve a Text pair.
- *
- * English and Arabic are authored on the pair itself. Everything else is
- * looked up by the English string, and falls back to English when a line has
- * not been translated yet — a missing translation shows a sentence somebody
- * can still read, rather than a key or a blank.
- */
 export const t = (text: Text): string => {
   if (locale === "en") return text.en;
   if (locale === "ar") return text.ar || text.en;
-  return translations[text.en] || text.en;
+  return TRANSLATIONS[text.en]?.[column] || text.en;
 };
 
 /**
