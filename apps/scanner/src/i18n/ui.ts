@@ -801,6 +801,12 @@ export const ui = {
   trialOnceTitle: L("Start {n} days free", "ابدأ {n} أيام مجاناً"),
   trialOnceBody: L("Then the plan you pick below. Cancel any time before it ends.", "ثم الخطة التي تختارها أدناه. ويمكنك الإلغاء في أي وقت قبل انتهائها."),
   perWeekEquivalent: L("{price} a week", "{price} أسبوعياً"),
+  /* Shown only where RevenueCat has not answered and the paywall is
+     falling back to the pack's own figures, which are the US ones. */
+  pricesShownInUsd: L(
+    "Shown in US dollars. The App Store charges in your own currency.",
+    "الأسعار معروضة بالدولار الأمريكي، ومتجر التطبيقات يحاسبك بعملة بلدك.",
+  ),
   subscribeNow: L("Subscribe", "اشترك"),
   bestValue: L("Best value", "الأوفر"),
 

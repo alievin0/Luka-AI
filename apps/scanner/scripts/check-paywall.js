@@ -108,6 +108,30 @@ ok("and not from the pack", !/\bpack\b/.test(source));
 // that do not exist — and changes as someone taps between them.
 ok("and not from whichever plan is selected", !/\bselected\b/.test(source));
 
+/* ------------------------------------------------------- the price's origin
+
+   The pack's own prices are the App Store's US ones. RevenueCat returns the
+   reader's storefront price, and where it has not answered the paywall falls
+   back to the pack — correct in Ohio and wrong everywhere else. A dollar sign
+   in front of a buyer in Kuwait is a price they will not be charged, so the
+   fallback has to be labelled. `fromStore` is what remembers which it is. */
+
+const priceNote = [...nodes(paywall)].find(
+  (n) =>
+    ts.isJsxExpression(n) &&
+    /styles\.priceNote/.test(n.getText(paywall)) &&
+    /fromStore/.test(n.getText(paywall)),
+);
+ok("the paywall says which currency a fallback price is in", Boolean(priceNote));
+
+const row = [...nodes(paywall)].find(
+  (n) => ts.isPropertyAssignment(n) && n.name.getText(paywall) === "fromStore",
+);
+ok(
+  "and decides it from whether the store answered, not from a guess",
+  Boolean(row) && /\boffer\b/.test(row.initializer.getText(paywall)),
+);
+
 /* --------------------------------------------- the configuration boundary */
 
 // storeTrialDays records what to create in App Store Connect. A screen that

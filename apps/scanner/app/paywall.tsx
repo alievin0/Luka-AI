@@ -69,6 +69,11 @@ type Row = {
   perWeek: string | null;
   /** Null unless this buyer is eligible for a free trial on this plan. */
   freeTrialDays: number | null;
+  /** False when the store never answered and `price` is the pack's own
+      number. That number is the US price; a buyer in Kuwait or Germany is
+      charged in their own currency, so the screen has to say so rather than
+      let a dollar sign stand as this reader's price. */
+  fromStore: boolean;
 };
 
 /** What the result screen said before it sent them here, so this screen can
@@ -109,6 +114,7 @@ export default function Paywall() {
           period: t(product.period),
           freeTrialDays: offer?.freeTrialDays ?? null,
           perWeek: offer?.perWeek ?? null,
+          fromStore: Boolean(offer),
         };
       });
       setOffers(shown);
@@ -291,6 +297,14 @@ export default function Paywall() {
               })}
             </View>
           )}
+
+          {/* Only when the store never answered. The pack's prices are the
+              real ones on the US storefront and nowhere else, so this says
+              which currency the reader is looking at instead of letting a
+              dollar sign pass for a price they will be charged. */}
+          {offers.length > 0 && offers.some((o) => !o.fromStore) ? (
+            <Text style={styles.priceNote}>{t(ui.pricesShownInUsd)}</Text>
+          ) : null}
 
           {/* Shown only when the selected plan actually has a trial. */}
           {trialDays ? (
@@ -515,6 +529,7 @@ const styles = StyleSheet.create({
   offerPriceWrap: { alignItems: "flex-end", gap: 2 },
   offerPrice: { color: TEXT, fontSize: 19, fontFamily: UI_FONT.bold },
   offerPeriod: { color: TEXT_FAINT, fontSize: 11.5, fontFamily: UI_FONT.regular },
+  priceNote: { color: TEXT_FAINT, fontSize: 12, fontFamily: UI_FONT.regular, textAlign: "center", marginTop: 10, lineHeight: 17 },
   badge: {
     position: "absolute",
     top: -10,
