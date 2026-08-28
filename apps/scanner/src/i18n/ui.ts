@@ -717,6 +717,10 @@ export const ui = {
     "What you have just described matters more than the lamp. Stop somewhere safe, switch the engine off, and call for help — whatever this reading says.",
     "ما ذكرته أهمّ من المصباح. أوقف السيارة في مكان آمن، وأطفئ المحرّك، واطلب المساعدة — مهما قالت هذه النتيجة.",
   ),
+  symptomOverrode: L(
+    "This is why the verdict above changed: what you can see and hear outranks what the lamp shows.",
+    "لهذا تغيّر الحكم في الأعلى: ما تراه وتسمعه أولى بالاعتبار مما يظهره المصباح.",
+  ),
   symptomNoneBody: L(
     "Then this reading stands. If anything changes while you drive, stop.",
     "إذاً فهذه النتيجة قائمة كما هي. وإن تغيّر شيء أثناء القيادة، فتوقّف.",

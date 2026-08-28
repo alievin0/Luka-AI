@@ -194,7 +194,29 @@ export default function Result() {
   const labels = scannerPack?.labels;
   const showCost = scannerPack?.showCost ?? false;
   const locked = !pro;
-  const roadside = ROADSIDE[result.roadside] ?? null;
+
+  /**
+   * The decision hierarchy, enforced here rather than asked for in the prompt.
+   *
+   * A reported symptom outranks everything the photo produced. The model never
+   * saw it — it was answered in the app, after the scan — so nothing upstream
+   * can account for it, and the prompt cannot be told to.
+   *
+   * Without this the screen contradicted itself: a green band reading "no need
+   * to stop" with "stop the car now" in a red card underneath it, which is the
+   * same failure the server-side clamp was fixed for. One reported symptom
+   * therefore rewrites the level, the sentence and the movement together, and
+   * every one of them is read from these two values below rather than from
+   * `result` directly.
+   *
+   * It only ever raises. Answering "no" does not turn a red light green: the
+   * driver has confirmed the absence of the symptoms they can perceive, not
+   * examined the car.
+   */
+  const overridden = symptoms === true;
+  const level = overridden ? "stop" : result.verdictLevel;
+  const severity = overridden ? "critical" : result.severity;
+  const roadside = ROADSIDE[overridden ? "do-not-move" : result.roadside] ?? null;
 
   /** The report's contents, named one by one — and only the ones that are
    *  actually in this result. Same rule as the tabs: never advertise an empty
@@ -212,8 +234,8 @@ export default function Result() {
      sell. Offering one anyway would be charging for an empty screen — the
      same mistake as a tab that opens on nothing, with a price on it. */
   const sellReport = locked && inTheReport.length > 0;
-  const grade = gradeOf(result.severity);
-  const verdict = verdictGrade(result.verdictLevel);
+  const grade = gradeOf(severity);
+  const verdict = verdictGrade(level);
   const active = views.some((v) => v.key === view) ? view : "summary";
 
   /* Shares what the screen is showing, and no more. A locked report that can
@@ -266,9 +288,9 @@ export default function Result() {
               difference between an emergency tool and a reference app. */}
           {result.verdict ? (
             <VerdictBand
-              level={result.verdictLevel}
-              text={result.verdict}
-              reason={result.summary}
+              level={level}
+              text={overridden ? t(ui.symptomStopTitle) : result.verdict}
+              reason={overridden ? t(ui.symptomStopBody) : result.summary}
             />
           ) : null}
 
@@ -323,12 +345,10 @@ export default function Result() {
                 <Button label={t(ui.safePlaceNo)} variant="secondary" onPress={() => setSymptoms(false)} />
               </View>
             ) : symptoms ? (
-              <View style={styles.symptomStop}>
-                <Text style={[styles.roadTitle, { color: GRADE.critical.fg }]}>
-                  {t(ui.symptomStopTitle)}
-                </Text>
-                <Body style={{ color: TEXT }}>{t(ui.symptomStopBody)}</Body>
-              </View>
+              /* The band at the top now carries the override itself, so this
+                 says only what changed and why — repeating the instruction
+                 here would make one decision look like two. */
+              <Body style={{ color: GRADE.critical.fg }}>{t(ui.symptomOverrode)}</Body>
             ) : (
               <Body>{t(ui.symptomNoneBody)}</Body>
             )}
@@ -336,7 +356,7 @@ export default function Result() {
 
           {/* Only then: what it was. The symbol is large because matching a
               shape is faster than reading a name. */}
-          <Card tone={result.severity} style={styles.head}>
+          <Card tone={severity} style={styles.head}>
             <View style={styles.headRow}>
               {result.glyph ? (
                 <SymbolBadge glyph={result.glyph} colour={grade.fg} background="transparent" size={56} />
@@ -350,7 +370,7 @@ export default function Result() {
                   <Text style={styles.forCar}>{carLabel(profile)}</Text>
                 ) : null}
               </View>
-              <SeverityBadge severity={result.severity} label={t(severityWord(result.severity))} />
+              <SeverityBadge severity={severity} label={t(severityWord(severity))} />
             </View>
           </Card>
 
@@ -365,7 +385,7 @@ export default function Result() {
               {/* Consequence, in the grade's own colour. This is what turns a
                   warning into a decision. */}
               {result.ifIgnored ? (
-                <Card tone={result.severity}>
+                <Card tone={severity}>
                   <Text style={[styles.consequenceLabel, { color: verdict.fg }]}>
                     {t(ui.ifIgnored)}
                   </Text>
@@ -401,9 +421,9 @@ export default function Result() {
                       than invented. */}
                   <View style={styles.costNotes}>
                     <CostNote
-                      icon={result.severity === "critical" ? "clock" : "tool"}
-                      tone={result.severity === "critical" ? "critical" : undefined}
-                      text={t(result.severity === "critical" ? ui.costDontDelay : ui.costLikelySmall)}
+                      icon={severity === "critical" ? "clock" : "tool"}
+                      tone={severity === "critical" ? "critical" : undefined}
+                      text={t(severity === "critical" ? ui.costDontDelay : ui.costLikelySmall)}
                     />
                     <CostNote icon="map-pin" text={t(ui.costVaries)} />
                   </View>

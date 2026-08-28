@@ -1,5 +1,5 @@
 /**
- * What the scan route will not tell you.
+ * What the scan route will not tell you, over a folder of real photographs.
  *
  * `app/api/scan+api.ts` maps every `Anthropic.APIError` to one sentence —
  * "Something went wrong during analysis" — which is right for a driver and
@@ -10,10 +10,27 @@
  * documents as unsupported, so a single run says whether the schema is the
  * problem rather than leaving you to guess.
  *
- *   node scripts/probe-scan.js <path-to-jpeg>
+ *   node scripts/probe-scan.js <jpeg>              one photo, verbose
+ *   node scripts/probe-scan.js --matrix <folder>   every photo, as a table
+ *
+ * `--matrix` is the one that matters. Nothing in this app has ever been run
+ * against a real dashboard, and a schema that parses is not an answer that is
+ * true. It sends every image in the folder, prints what came back beside what
+ * the filename claims the photo is, and flags results that break the decision
+ * hierarchy — a critical light that came back "ok", a not-detected answer that
+ * still carries a reading, a lamp named outside the 43 the app can draw.
+ *
+ * Name the files after what they are and it will check the claim for you:
+ *
+ *   engine-red.jpg  abs-amber.jpg  green-only.jpg  multi-3lights.jpg
+ *   blurry.jpg  dark.jpg  night.jpg  notdashboard-wall.jpg  unknown-lamp.jpg
+ *
+ * A leading word before the first dash is read as the expectation: "engine",
+ * "abs" and so on are matched against the glyph; "blurry", "dark", "night",
+ * "notdashboard" are expected to come back detected:false.
  *
  * Needs ANTHROPIC_API_KEY in the environment (`set -a; source .env; set +a`).
- * Costs one scan, twice at worst.
+ * Costs one scan per image, about 4 cents each.
  */
 const fs = require("fs");
 const path = require("path");
@@ -126,12 +143,165 @@ async function send(label, schema, image, model, effort) {
   return false;
 }
 
+/* ------------------------------------------------------ the decision hierarchy
+
+   The order the app enforces on screen, checked here against what actually
+   came back. A schema that parses proves the shape; these prove the answer.
+
+     1. the photo is readable        detected
+     2. the lamp is identified       title, glyph
+     3. severity                     critical | warning | info
+     4. the driving decision         verdictLevel
+     5. movement                     roadside
+     6. everything else              causes, cost, context
+
+   A result that skips a step is a bug in the answer, not in the rendering, and
+   the app cannot fix it after the fact — clampForSafety catches two of these
+   and nothing catches the rest.                                              */
+
+const NOT_A_DASHBOARD = ["blurry", "dark", "notdashboard", "unreadable"];
+
+function violations(r, expectation) {
+  const out = [];
+  if (!r.detected) {
+    if (expectation && !NOT_A_DASHBOARD.includes(expectation)) {
+      out.push(`expected ${expectation}, read nothing`);
+    }
+    if (!r.notDetectedReason) out.push("not-detected with no reason to retake");
+    // The server strips these; if any survive, clampForSafety did not run.
+    for (const key of ["title", "verdict", "facts"]) {
+      if (key in r) out.push(`not-detected still carries ${key}`);
+    }
+    return out;
+  }
+  if (expectation && NOT_A_DASHBOARD.includes(expectation)) {
+    out.push(`unreadable photo read as "${r.title}"`);
+  }
+  if (expectation && r.glyph && !NOT_A_DASHBOARD.includes(expectation) && r.glyph !== expectation) {
+    out.push(`expected glyph ${expectation}, got ${r.glyph}`);
+  }
+  if (r.glyph && !GLYPHS.includes(r.glyph)) out.push(`glyph "${r.glyph}" is not one the app can draw`);
+  if (r.severity === "critical" && r.verdictLevel === "ok") out.push("critical but verdictLevel ok");
+  if (r.confidence === "low" && r.verdictLevel === "ok") out.push("low confidence but verdictLevel ok");
+  if (r.severity === "critical" && ["drive-with-care", "monitor"].includes(r.roadside)) {
+    out.push(`critical but roadside ${r.roadside}`);
+  }
+  if (!r.roadside) out.push("no roadside decision");
+  if (/\bsafe\b|بأمان/i.test(r.verdict || "")) out.push(`verdict claims the car is safe: "${r.verdict}"`);
+  if (!r.ifIgnored) out.push("no consequence for ignoring it");
+  return out;
+}
+
+/** The glyphs the app ships artwork for, read out of the route's own enum. */
+const GLYPHS = (() => {
+  const schema = resultSchema();
+  return schema.properties?.glyph?.enum ?? [];
+})();
+
+/* ---------------------------------------------------------------- the matrix */
+
+async function one(file, schema, model, effort) {
+  const image = fs.readFileSync(file).toString("base64");
+  const response = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "x-api-key": process.env.ANTHROPIC_API_KEY,
+      "anthropic-version": "2023-06-01",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: 4000,
+      system: SYSTEM,
+      output_config: { effort, format: { type: "json_schema", schema } },
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "image", source: { type: "base64", media_type: "image/jpeg", data: image } },
+            { type: "text", text: "Analyse this photo." },
+          ],
+        },
+      ],
+    }),
+  });
+  const text = await response.text();
+  if (!response.ok) return { error: `HTTP ${response.status}: ${text.slice(0, 200)}` };
+  const body = JSON.parse(text);
+  const content = body.content?.find((c) => c.type === "text")?.text ?? "{}";
+  return { result: JSON.parse(content), usage: body.usage };
+}
+
+/** The pack's real system prompt, so this tests what ships. */
+const SYSTEM = (() => {
+  const src = fs.readFileSync(path.join(ROOT, "src/packs/dashlight.ts"), "utf8");
+  const m = src.match(/systemPrompt: \(\{[^}]*\}\) => `([\s\S]*?)`,\n/);
+  if (!m) throw new Error("systemPrompt not found in src/packs/dashlight.ts");
+  return m[1]
+    .replace(/\$\{currency\}/g, "KWD")
+    .replace(/\$\{profile \|\| "unknown"\}/g, "Toyota Camry 2021, petrol")
+    .replace(/\$\{locale === "ar" \? ([\s\S]*?) : ([\s\S]*?)\}/g, (_, ar) => ar);
+})();
+
+async function matrix(dir, schema, model, effort) {
+  const files = fs
+    .readdirSync(dir)
+    .filter((f) => /\.(jpe?g|png)$/i.test(f))
+    .sort();
+  if (!files.length) {
+    console.log(`✗ No images in ${dir}`);
+    process.exit(2);
+  }
+  console.log(`${files.length} photographs · model=${model} effort=${effort}\n`);
+
+  let bad = 0;
+  let tokens = 0;
+  for (const name of files) {
+    const expectation = name.split(/[-.]/)[0].toLowerCase();
+    const { result, usage, error } = await one(path.join(dir, name), schema, model, effort);
+    if (error) {
+      console.log(`✗ ${name}\n   ${error}\n`);
+      // A rejected key rejects every image. Carrying on would print the same
+      // line twenty times and, with a key that is merely out of credit rather
+      // than wrong, spend twenty requests finding that out.
+      if (/HTTP 40[13]/.test(error)) {
+        console.log("Stopping: that is an authentication problem, not a photograph problem.");
+        process.exit(2);
+      }
+      bad += 1;
+      continue;
+    }
+    tokens += (usage?.input_tokens ?? 0) + (usage?.output_tokens ?? 0);
+    const problems = violations(result, expectation);
+    const summary = result.detected
+      ? `${result.glyph ?? "—"} · ${result.severity} · ${result.verdictLevel} · ${result.roadside} · ${result.confidence}`
+      : `not detected — ${String(result.notDetectedReason).slice(0, 60)}`;
+    console.log(`${problems.length ? "✗" : "ok"} ${name.padEnd(26)} ${summary}`);
+    if (result.detected) console.log(`   "${result.verdict}"`);
+    for (const p of problems) console.log(`   ! ${p}`);
+    if (problems.length) bad += 1;
+    console.log();
+  }
+
+  console.log(
+    bad
+      ? `${bad} of ${files.length} photographs produced an answer that breaks the hierarchy.`
+      : `All ${files.length} answers hold. ~${tokens} tokens.`,
+  );
+  process.exit(bad ? 1 : 0);
+}
+
 /* ---------------------------------------------------------------------- main */
 
 (async () => {
-  const file = process.argv[2];
+  const args = process.argv.slice(2);
+  const isMatrix = args[0] === "--matrix";
+  const file = isMatrix ? args[1] : args[0];
   if (!file) {
-    console.log("usage: node scripts/probe-scan.js <path-to-jpeg>");
+    console.log(
+      "usage: node scripts/probe-scan.js <jpeg>\n" +
+        "       node scripts/probe-scan.js --matrix <folder-of-real-dashboards>",
+    );
     process.exit(2);
   }
   if (!process.env.ANTHROPIC_API_KEY) {
@@ -143,10 +313,12 @@ async function send(label, schema, image, model, effort) {
     process.exit(2);
   }
 
-  const image = fs.readFileSync(file).toString("base64");
   const model = readConst("MODEL", "claude-opus-5");
   const effort = readConst("EFFORT", "high");
   const schema = resultSchema();
+  if (isMatrix) return matrix(file, schema, model, effort);
+
+  const image = fs.readFileSync(file).toString("base64");
   const stripped = strip(schema);
 
   console.log(`model=${model} effort=${effort} image=${path.basename(file)} (${image.length} b64 chars)`);

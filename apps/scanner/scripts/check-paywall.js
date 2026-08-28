@@ -231,6 +231,32 @@ ok(
   symptom.length === 1 && !behindTheGate(symptom[0]),
 );
 
+/* The decision hierarchy. A reported symptom outranks the photo, and the model
+   never saw it — so the override is the screen's job, and it has to reach the
+   band at the top, not just add a card at the bottom. The first version of this
+   feature did the latter: green "no need to stop" above red "stop the car now".
+
+   The guard is that nothing rendered may read result.verdictLevel or
+   result.severity raw. Both are only correct once `overridden` has been
+   consulted, so every reference has to sit inside a conditional that does. */
+const insideOverride = (node) => {
+  for (let n = node; n; n = n.parent) {
+    if (ts.isConditionalExpression(n) && /\boverridden\b/.test(n.condition.getText(result))) return true;
+  }
+  return false;
+};
+for (const field of ["verdictLevel", "severity"]) {
+  const raw = resultNodes.filter(
+    (n) =>
+      ts.isPropertyAccessExpression(n) &&
+      n.name.text === field &&
+      n.expression.getText(result) === "result" &&
+      !insideOverride(n),
+  );
+  ok(`nothing renders result.${field} without consulting the override`, raw.length === 0);
+  for (const n of raw) console.log(`     raw: ${n.parent.getText(result).slice(0, 70)}`);
+}
+
 // The clamp is a colour change unless it takes the sentence with it.
 const api = fs.readFileSync(path.join(ROOT, "app/api/scan+api.ts"), "utf8");
 const clamp = api.slice(api.indexOf("function clampForSafety"), api.indexOf("MAX_IMAGE_BYTES"));
