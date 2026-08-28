@@ -119,6 +119,16 @@ just in your local `.env`.
 **خطر مؤجّل — Risk once live.** Do this before you press Submit, not before
 you build.
 
+> **Done, and confirmed in production on 28 Aug 2026.** After the redeploy, one
+> request to `/api/scan` produced `ratelimit:<caller-ip>` in the database with
+> value `1` and a TTL of 57 minutes — the shared store is what the deployed
+> Worker is counting in, the key prefix is namespaced, and `EXPIRE … NX` took.
+> That last one is the failure that would have been invisible: without a TTL the
+> key never expires, every address hits the limit once and stays locked out
+> forever, and nothing logs a word about it.
+>
+> The steps below stand for the next database, or for the other two apps.
+
 **Today the risk is zero.** The app is not on a store, and nobody but you knows
 the API origin. Nothing here is stopping anything.
 
