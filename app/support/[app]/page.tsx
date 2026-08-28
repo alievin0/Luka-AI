@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { APPS, type AppId } from "../../privacy/apps";
-import { CONTACT, PAGE_STYLE, Section, UPDATED } from "../../legal-ui";
+import { PAGE_STYLE, Section } from "../../legal-ui";
 
 /**
  * Per-app support.
@@ -50,12 +50,12 @@ export default async function Support({
         Support
       </h1>
       <p style={{ color: "#666", fontSize: 14, marginTop: 0 }}>
-        Updated {UPDATED} &middot; we read every message
+        Updated {entry.updated} &middot; we read every message
       </p>
 
       <Section title="Get in touch">
         <p>
-          Email <a href={`mailto:${CONTACT}`}>{CONTACT}</a>. Tell us which phone
+          Email <a href={`mailto:${entry.contact}`}>{entry.contact}</a>. Tell us which phone
           you are on and what happened — a screenshot helps more than anything
           else. There is no account to look up, so what you tell us is all we
           have to go on.

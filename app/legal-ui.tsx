@@ -32,6 +32,4 @@ export function Section({
   );
 }
 
-export const CONTACT = "alicpa2006@gmail.com";
-export const UPDATED = "27 August 2026";
 

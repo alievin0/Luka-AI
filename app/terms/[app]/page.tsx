@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { APPS, type AppId } from "../../privacy/apps";
-import { CONTACT, PAGE_STYLE, Section, UPDATED } from "../../legal-ui";
+import { PAGE_STYLE, Section } from "../../legal-ui";
 
 /**
  * Per-app terms of use.
@@ -51,7 +51,7 @@ export default async function Terms({
         Terms of Use
       </h1>
       <p style={{ color: "#666", fontSize: 14, marginTop: 0 }}>
-        Last updated {UPDATED}
+        Last updated {entry.updated}
       </p>
 
       <Section title="What these terms cover">
@@ -159,7 +159,7 @@ export default async function Terms({
 
       <Section title="Contact">
         <p>
-          <a href={`mailto:${CONTACT}`}>{CONTACT}</a> &middot;{" "}
+          <a href={`mailto:${entry.contact}`}>{entry.contact}</a> &middot;{" "}
           <a href={`/privacy/${app}`}>Privacy policy</a> &middot;{" "}
           <a href={`/support/${app}`}>Support</a>
         </p>
