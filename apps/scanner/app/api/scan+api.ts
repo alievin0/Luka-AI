@@ -108,7 +108,7 @@ const RESULT_SCHEMA = {
     ifIgnored: { type: "string" },
     glyph: {
       type: "string",
-      enum: ["abs", "airbag", "battery", "brake", "bulb", "catalytic", "coolant", "cruise", "door-ajar", "dpf", "droplet", "engine", "epb", "esc-off", "ev-battery", "ev-fault", "ev-ready", "fuel-pump", "glow-plug", "high-beam", "hybrid", "key", "oil-can", "pad-wear", "plug", "radar-car", "rear-fog", "regen", "seatbelt", "skid-car", "snowflake", "spanner", "start-stop", "steering", "suspension", "thermometer", "turtle", "tyre", "warning-triangle", "washer", "water-in-fuel"],
+      enum: ["abs", "airbag", "battery", "brake", "bulb", "catalytic", "coolant", "cruise", "door-ajar", "dpf", "droplet", "engine", "epb", "esc-off", "ev-battery", "ev-fault", "ev-ready", "fuel-pump", "glow-plug", "high-beam", "hybrid", "key", "oil-can", "oil-level-min", "pad-wear", "plug", "radar-car", "rear-fog", "regen", "seatbelt", "skid-car", "snowflake", "spanner", "start-stop", "steering", "suspension", "thermometer", "transmission-temp", "turtle", "tyre", "warning-triangle", "washer", "water-in-fuel"],
     },
     carContext: { type: "string" },
     alsoDetected: {

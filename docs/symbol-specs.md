@@ -25,90 +25,79 @@ gearbox cool in Park rather than opening a bonnet.
 
 ---
 
-## How to use this
+## How they were made
 
-Paste one block at a time into whatever you generate with. Each block describes
-the new icon **as a change to an existing one**, because the new drawing has to
-sit next to its neighbour in a scrolling list and read as the same family — same
-hand, same weight, same optical size. Describing it from nothing gets you a
-correct symbol in the wrong style, which looks like a mistake.
+Not generated. Each is its neighbour's own pixels with one thing changed, by
+`apps/scanner/scripts/make-two-symbols.js`:
 
-Send back a PNG per symbol and I will wire them in.
+| | derived from | the change |
+| --- | --- | --- |
+| `oil-level-min` | `oil-can.png` | the drip — a separate 195-pixel island — deleted, and two level lines added below |
+| `transmission-temp` | `thermometer.png` | the stem and bulb only, scaled and set inside a gear; the coolant waves left behind |
 
-### The house style, true of both
+Deriving beats drawing here. The shipped 41 were cut from design sheets by
+`slice-symbols.js`, so they are photographs of an icon set rather than generated
+shapes — a fresh drawing would not match them however carefully it was tuned,
+and the one thing these two icons must do is sit beside their neighbour and read
+as the same hand. Even the level lines are not invented: `thermometer.png` draws
+liquid as a sine, and measuring it gave the amplitude, period and weight used
+here, so the waves under the oil can are the waves under the coolant thermometer.
 
-- **White on transparent.** The app tints every symbol to its grade at render
-  time — red, amber or green — so the artwork must carry no colour of its own.
-  A coloured icon would fight the severity it is being tinted to.
-- **128 × 128, RGBA**, the glyph centred with a small margin, filling roughly
-  the same optical area as the icon it sits beside.
-- **Line art, uniform stroke.** No fills, no gradients, no shadows, no outline
-  around the outline.
-- **Legible at 40 px.** That is the size in the guide list, which is where the
-  driver actually scans for their symbol. If the difference from its neighbour
-  disappears at 40 px, the icon has not done its job.
+Re-run it with `node scripts/make-two-symbols.js`; `--check` compares what it
+would produce against what is committed, and runs inside `npm run check`, so the
+artwork cannot drift from the script that claims to produce it.
 
----
+### The house style, measured from the shipped files
 
-## 1. `oil-level-min` — oil level, low
+Not estimated — decoded. Every value below came from reading the PNGs:
 
-> Draw a dashboard warning symbol: an **oil can**, seen from the side, with a
-> long angled spout rising to the upper left and a rounded body — the standard
-> engine-oil pictogram used on car instrument clusters.
->
-> The distinguishing feature: instead of a single drop falling from the tip of
-> the spout, draw **two short horizontal wavy lines beneath the can**, one above
-> the other, the lower one slightly shorter. They read as the surface of a
-> liquid that has dropped — the low-level convention, not the low-pressure one.
-> There is **no drop** anywhere in this icon.
->
-> White strokes on a fully transparent background. Uniform stroke weight, the
-> weight of a clean line icon at 128 px — roughly 8 px. No fill inside the can,
-> no colour, no shadow, no gradient. Square canvas 128 × 128, the symbol
-> centred with a small even margin.
->
-> It must be told apart at a glance from the same oil can drawn with a falling
-> drop, at 40 px, in a vertical list where the two appear a few rows apart.
+| | |
+| --- | --- |
+| canvas | 128 × 128 RGBA |
+| glyph box | **104 px wide, inset 12 px** each side — consistent across every icon measured |
+| stroke | **≈ 6 px** (median run: oil-can 5, battery 6, engine 7, key 6) |
+| wave | amplitude 3.2, period 26 |
+| colour | white only, on transparent — the app tints to the grade at render time |
 
-**Why the wavy lines.** The drip and the level lines are the two conventions
-real instrument clusters use, and they are the pair drivers already read as
-"pressure" and "level". Some makers write MIN beside the can instead; text does
-not survive tinting to 40 px and does not translate, so lines it is.
+An earlier draft of this file said 8 px, which was a guess and was wrong. If you
+add a third symbol, measure rather than infer.
 
 ---
 
-## 2. `transmission-temp` — transmission overheating
+## What each one has to be
 
-> Draw a dashboard warning symbol: a **gear wheel** — a circle with squared
-> teeth around its rim and an open circular hole at the centre — with a
-> **thermometer** inside it: a narrow vertical stem with a round bulb at the
-> bottom, the stem's column filled toward the top to read as high.
->
-> The thermometer must match the one used for engine temperature — same bulb
-> size relative to the stem, same rounded top — so the two icons read as the
-> same family. What separates them is the gear around it, not a different
-> thermometer.
->
-> The gear's stroke weight matches the thermometer's and the rest of the set —
-> roughly 8 px at 128 px. White strokes on a fully transparent background. No
-> fill inside the gear, no colour, no shadow, no gradient. Square canvas
-> 128 × 128, centred with a small even margin.
->
-> At 40 px the gear teeth must still be countable enough to read as a gear and
-> not as a sun or a flower — use six to eight broad teeth rather than many
-> narrow ones.
+### `oil-level-min` — oil level, low
+
+The standard engine-oil can, and **no drop anywhere**. Instead, two short
+horizontal wavy lines beneath it, the lower one shorter, reading as the surface
+of a liquid that has fallen.
+
+**Why the wavy lines.** The drip and the level lines are the two conventions real
+instrument clusters use, and they are the pair drivers already read as "pressure"
+and "level". Some makers write MIN beside the can instead; text does not survive
+tinting to 40 px and does not translate, so lines it is.
+
+### `transmission-temp` — transmission overheating
+
+A gear wheel with a thermometer inside it. **The same thermometer** as engine
+temperature — same bulb, same stem, same graduations. What separates them is the
+gear around it, not a different instrument: a driver matching shapes should read
+"temperature, of the gearbox", not two unrelated drawings.
+
+The gear's proportions are the whole job. Teeth that are wide with narrow gaps
+read as a flower or a sun. Roughly equal thirds work — flat tip, flank, root arc
+— with seven teeth and a 12 px rise, which stays countable at 40 px.
 
 **Why a gear and not text.** Several makers show "A/T OIL TEMP" or "AT TEMP"
 instead of a pictogram. Text is unreadable at 40 px, does not tint well, and
-would be the only English in an Arabic guide entry. The cog-with-thermometer is
-the pictogram European makers use and the one that stays a picture.
+would be the only English in an Arabic guide entry.
 
 ---
 
-## After the artwork lands
+## The gate
 
-Five places, each already guarded by `apps/scanner/scripts/check-schema.js`, so
-missing one turns `npm run check` red rather than shipping quietly:
+Five places, each guarded by `apps/scanner/scripts/check-schema.js`, so missing
+one turns `npm run check` red rather than shipping quietly:
 
 1. the PNG in `apps/scanner/assets/symbols/`
 2. the entry in `apps/scanner/src/symbols.ts`
@@ -118,10 +107,10 @@ missing one turns `npm run check` red rather than shipping quietly:
 
 Then `node apps/scanner/scripts/contact-sheet.js`, which renders all 48 entries
 tinted to their grade on the app's own background at both sizes the app uses.
-That sheet is the gate: someone has to look at all 48 and confirm the drawing
-above "Oil Level Low" is not the drawing above "Oil Pressure". It is the same
-gate the first 41 went through.
+**That sheet is the gate**, and it is the only check that catches the failure
+this file exists for: someone has to look at all 48 and confirm the drawing above
+"Oil Level Low" is not the drawing above "Oil Pressure". It is the same gate the
+first 41 went through, and these two passed it.
 
-The old `oil-can` and `thermometer` files stay exactly as they are — they are
-still correct for `oil-pressure` and `coolant-temp-high`. This adds two symbols;
-it does not replace any.
+The old `oil-can` and `thermometer` are untouched — still correct for
+`oil-pressure` and `coolant-temp-high`. This added two symbols; it replaced none.

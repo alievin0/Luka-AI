@@ -63,7 +63,7 @@ export const DASHLIGHT_LIBRARY: LibraryEntry[] = [
   },
   {
     id: "transmission-overheat",
-    glyph: "thermometer",
+    glyph: "transmission-temp",
     title: L("Transmission Overheating", "ارتفاع حرارة ناقل الحركة"),
     subtitle: "Transmission Temperature / Fault",
     severity: "critical",
@@ -189,7 +189,7 @@ export const DASHLIGHT_LIBRARY: LibraryEntry[] = [
   },
   {
     id: "oil-level-low",
-    glyph: "oil-can",
+    glyph: "oil-level-min",
     title: L("Oil Level Low", "مستوى الزيت منخفض"),
     subtitle: "Engine Oil Level Low",
     severity: "warning",
