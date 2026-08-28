@@ -12,7 +12,7 @@ invented, so what comes back can actually be built.
 ## THE PROMPT
 
 You are designing a native mobile app called **Dash Light Scanner** (Arabic
-name: **لمبات السيارة**). Produce high-fidelity screen designs.
+name: **مصابيح السيارة**). Produce high-fidelity screen designs.
 
 ### What the app is
 

@@ -2,7 +2,7 @@ import type { ExpoConfig } from "expo/config";
 
 /**
  * One codebase, several shipped apps. `SCANNER` picks which pack builds:
- *   SCANNER=dashlight npx expo start   → لمبات السيارة
+ *   SCANNER=dashlight npx expo start   → مصابيح السيارة
  *   SCANNER=bugscan   npx expo start   → ماسح الحشرات
  *
  * Each pack gets its own name, slug and bundle id so they're separate
