@@ -132,7 +132,15 @@ const everything = new Set();
 for (const file of SOURCES) for (const s of englishStrings(file)) everything.add(s);
 
 const unreachable = stringsForKeys(unreachableKeys());
-const all = new Set([...everything].filter((s) => !unreachable.has(s)));
+/* A string with no letters in it — the "2019" model-year placeholder — reads the
+   same in all six languages, which use the same digits. Counting it as work
+   would put a row in the table whose six columns are copies of the English,
+   and a reader of that row would reasonably wonder what was meant by it. */
+const translatable = (s) => /\p{L}/u.test(s);
+
+const all = new Set(
+  [...everything].filter((s) => !unreachable.has(s) && translatable(s)),
+);
 
 /* ------------------------------------------------------- what must not fall back
 
