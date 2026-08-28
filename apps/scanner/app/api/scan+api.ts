@@ -155,7 +155,7 @@ function clampForSafety(result: ScanResult): ScanResult {
 const MAX_IMAGE_BYTES = 4_000_000;
 
 export async function POST(request: Request) {
-  const limit = checkRateLimit(clientKey(request));
+  const limit = await checkRateLimit(clientKey(request));
   if (!limit.allowed) {
     return Response.json(
       { error: apiError.tooManyScans },

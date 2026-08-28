@@ -77,7 +77,7 @@ function ground(answer: Answer, excerpts: Excerpt[]): Answer {
 }
 
 export async function POST(request: Request) {
-  const limit = checkRateLimit(`${clientKey(request)}:ask`, ASK_MAX_PER_WINDOW);
+  const limit = await checkRateLimit(`${clientKey(request)}:ask`, ASK_MAX_PER_WINDOW);
   if (!limit.allowed) {
     return Response.json(
       { error: apiError.tooManyQuestions },

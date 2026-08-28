@@ -163,7 +163,7 @@ function clampAnalysis(
 }
 
 export async function POST(request: Request) {
-  const limit = checkRateLimit(`${clientKey(request)}:lecture`, LECTURE_MAX_PER_WINDOW);
+  const limit = await checkRateLimit(`${clientKey(request)}:lecture`, LECTURE_MAX_PER_WINDOW);
   if (!limit.allowed) {
     return Response.json(
       { error: apiError.tooManyLectures },
