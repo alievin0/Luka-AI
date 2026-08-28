@@ -77,8 +77,23 @@ it when a custom domain is attached.
 > blocked from the development container.
 >
 > This is the step whose failure mode is an automatic rejection, so open the
-> three URLs in a browser **after the merge and the deploy**, not before, and
-> read what comes back rather than trusting a 200.
+> production URLs **after the merge and the deploy**, not before, and read what
+> comes back rather than trusting a 200.
+>
+> **The text can be proofread today**, though, without merging anything.
+> Vercel builds a preview of this branch on every push, and that preview does
+> have the pages:
+>
+> ```
+> https://luka-ai-git-claude-profit-apps-ideas-50go58-alievin0s-projects.vercel.app/privacy/dashlight
+>                                                                                  /terms/dashlight
+>                                                                                  /support/dashlight
+> ```
+>
+> Reading them there settles the content — the wording, the Arabic, the support
+> address, whether a reviewer opening Dash Light's terms gets Dash Light's. The
+> production check after the merge is then only about the URL resolving, which
+> is the part `src/legal.ts` points the app at.
 
 The pages exist in the Next.js app at the repo root — `app/privacy/[app]/`,
 `app/terms/[app]/`, `app/support/[app]/`. All three take the app id, so a
