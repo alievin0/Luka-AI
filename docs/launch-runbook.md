@@ -371,37 +371,112 @@ straight line.
 The per-app trial lengths live in each pack's `storeTrialDays` (3 days for
 dashlight, bugscan and goldscan; 7 for mahdar, womensfit and dogtrain). That
 field is configuration intent only — no screen renders it, and
-`npm run check:trial` fails if one starts to.
+`npm run check:paywall` fails if one starts to.
 
 ### 4c. Wire RevenueCat
 
-1. Create the project, add an **App Store app**, bundle id
-   `com.dashlight.scanner`.
-2. **Give RevenueCat its App Store credential.** In App Store Connect,
-   Users and Access → Integrations → In-App Purchase, generate a key and upload
-   the `.p8` to RevenueCat (the app-specific shared secret is the older path and
-   also works). Without it RevenueCat cannot validate receipts: purchases
-   succeed at Apple, the entitlement never turns on, and the money has already
-   moved. This step was missing from earlier drafts of this runbook.
-3. Import both product ids from step 4b.
-4. Create an **entitlement named exactly `pro`** — lowercase, no spaces — and
-   attach both products. The app reads `pack.pricing.entitlement`, which is
-   `"pro"` for all six packs.
-5. Create an offering, **mark it current**, with two packages:
-   - RevenueCat's standard `$rc_weekly` / `$rc_annual`, **or**
-   - custom identifiers `weekly` / `annual`
+`app.revenuecat.com`. Free below **$2,500 of Monthly Tracked Revenue**, then
+**1%** of it — and MTR is gross, before Apple's cut, so the 1% is charged on
+the same figure the 15% is. A weekly plan bills about 4.33 times a
+month, so $4.99/week reaches that threshold at roughly **116 active
+subscribers** — not 500. Setting it up costs nothing. (Checked Aug 2026.)
 
-   Either works — `RC_ALIASES` in `src/purchases.ts:29` maps the reserved
-   spellings onto the pack's ids. If they match neither, the plan rows still
-   render from the pack's own prices, but the trial, the "الأفضل" badge and the
-   yearly note silently disappear.
-6. Put the **public SDK keys** in `.env` — typed locally, never pasted into a
-   chat, and `.env` stays git-ignored:
-   ```
-   EXPO_PUBLIC_RC_IOS_KEY=appl_xxx
-   EXPO_PUBLIC_RC_ANDROID_KEY=goog_xxx
-   ```
-   These are safe to ship — they are public by design.
+**This is not a straight line, and the order matters.** Steps 1 and 2 work
+today, before anything exists at Apple. Steps 3–5 need §4b's products to exist
+first. Step 8 needs the dev build from §5, which needs steps 6–7. So:
+
+```
+1–2  RevenueCat project + app          ← today, no Apple needed
+ ↓
+§4b  App Store Connect products        ← needs a Developer Program membership
+ ↓
+3–5  import, entitlement, offering
+ ↓
+6–7  keys in .env, then verify
+ ↓
+§5   dev build  →  paywall screenshot  →  back to §4b to attach it
+ ↓
+8    §4d on a device
+```
+
+**1. Create the project and the app.**
+*Create new project* → name it (internal only; `Dash Light` is fine) →
+**+ App Store** → bundle id **`com.dashlight.scanner`** — exactly, it is what
+`app.config.ts:34` ships and RevenueCat matches receipts on it.
+
+**2. Give RevenueCat its App Store credential.** The step whose absence takes
+money and grants nothing.
+
+- App Store Connect → **Users and Access → Integrations → In-App Purchase** →
+  **+** → name it → **Generate**.
+- Download the **`.p8`**. Apple gives it to you **once**; there is no second
+  download and a lost key has to be revoked and remade.
+- RevenueCat → your app → **App settings → In-app purchase key** → upload it.
+
+Without this RevenueCat cannot validate receipts, so a purchase succeeds at
+Apple, `entitlements.active.pro` never appears, and the customer has paid for a
+locked app.
+
+**3. Import the products.** *Products* → **+ Import** → select the two ids
+created in §4b. If they do not appear, App Store Connect has not finished
+propagating them; it can take a few minutes.
+
+**4. The entitlement.** *Entitlements* → **+ New** → identifier **`pro`** —
+lowercase, no spaces; the field is case-sensitive and `Pro` will not match.
+Attach **both** products to it. `src/purchases.ts:22` reads
+`pack.pricing.entitlement`, which is `"pro"` in all six packs, and a product
+that is not attached is the failure in step 2 wearing different clothes.
+
+**5. The offering.** *Offerings* → **+ New** → then **mark it Current**. Three
+call sites in `src/purchases.ts` read `offerings.current`; an offering that
+exists but is not current is invisible to every one of them, and the paywall
+shows its fallback prices forever with no error anywhere.
+
+Add two packages. Either spelling works:
+
+| | RevenueCat's own | or custom |
+|---|---|---|
+| Yearly | `$rc_annual` | `annual` |
+| Weekly | `$rc_weekly` | `weekly` |
+
+`RC_ALIASES` (`src/purchases.ts:32`) maps the reserved names onto the pack's
+ids. Anything that matches neither degrades **silently**: the rows still
+render from the pack's prices, but the trial line, the "الأفضل" badge and the
+per-week note disappear without a message.
+
+**6. The two keys, and the one that must not ship.** *Project settings → API
+keys*. There are two kinds and they are one prefix apart:
+
+```
+# .env  — git-ignored at both levels, and this repository is public
+EXPO_PUBLIC_RC_IOS_KEY=appl_...      # public SDK key. Meant to ship.
+REVENUECAT_SECRET_KEY=sk_...         # reads the whole account. Never shipped.
+```
+
+`EXPO_PUBLIC_` is not decoration — it is the prefix that inlines a value into
+the app bundle. The secret key must not carry it, and
+`scripts/check-revenuecat.js` asserts that nothing under `src/` or `app/` reads
+it. Type both into `.env` directly; never paste a key into a chat.
+
+**7. Verify it before building anything.**
+
+```bash
+cd apps/scanner
+node scripts/check-revenuecat.js --probe     # reads REVENUECAT_SECRET_KEY
+```
+
+It asks the live project the four questions that otherwise only surface on a
+phone: is there an entitlement named `pro`, is an offering marked current, do
+its package names resolve to `annual` and `weekly`, and is every product
+attached to the entitlement.
+
+**Its wire format has never been run.** `api.revenuecat.com` is blocked from
+the development container, so RevenueCat's v2 response shapes in that script
+come from the published API and not from a response anyone has seen. It prints
+what it actually received whenever a field is missing, so the first run tells
+you whether the script is wrong or the project is. Report what it prints.
+
+**8. Then the device tests in §4d**, which need the dev build from §5.
 
 ### 4d. Test it on a real device
 
@@ -447,7 +522,7 @@ iOS returns when it could not read the subscription group — counts as no, on
 the SDK's own advice. It also requires the offer's price to be **zero**, so a
 discounted introductory price is never sold as free.
 
-`npm run check:trial` asserts that chain, because removing it leaves a paywall
+`npm run check:paywall` asserts that chain, because removing it leaves a paywall
 that looks identical and charges returning customers who were promised nothing
 would be charged.
 
@@ -455,9 +530,15 @@ would be charged.
 
 ## 5. Link the EAS project and make a build
 
+**Dash Light is already linked** — `owner: "gulfh"` and its `easProjectId` are
+in `app.config.ts:37`, so `eas init` is not needed for it and running it again
+would only offer to replace a working id. The other five apps have no id, which
+`app.config.ts:100` treats as "not created yet"; each needs
+`SCANNER=<app> npx eas init` once, and its id pasted beside that variant, at
+the point it is actually being built.
+
 ```bash
 cd apps/scanner
-npx eas init          # writes extra.eas.projectId and owner into app.config.ts
 npx expo install --check   # could not run in the container; the proxy blocks Expo's API
 ```
 
