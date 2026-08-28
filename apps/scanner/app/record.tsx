@@ -191,9 +191,16 @@ export default function Record() {
     setLevels((prev) => [...prev.slice(1), level]);
   }, [state.metering]);
 
-  /* Crash safety. The recording itself is a single .m4a with no index until
-   * it is closed, so a kill mid-lecture loses the audio outright — but the
-   * transcript is the part a student actually studies from, and it survives. */
+  /* Crash safety. Audio is rotated into a closed, playable chunk every five
+   * minutes, so a kill mid-lecture loses at most the final partial slice —
+   * and the transcript, the part a student studies from, survives whole.
+   *
+   * That only holds if the autosave carries the chunks. `saveLecture` is a
+   * full replace, not a merge, so a payload without `audioChunks` erases the
+   * pointers to every slice already on disk; `end()` puts them back, which is
+   * why a lecture that finishes normally looks fine and only a kill shows the
+   * damage. It left the recording unreachable in the one case the chunking
+   * exists for. */
   useEffect(() => {
     const timer = setInterval(() => {
       // end() has already written the finished lecture; a late autosave would
@@ -206,6 +213,7 @@ export default function Record() {
         title: "",
         at: startedAtRef.current,
         duration: secondsRef.current,
+        audioChunks: chunks.current,
         segments: segmentsRef.current,
         status: "recording",
       });

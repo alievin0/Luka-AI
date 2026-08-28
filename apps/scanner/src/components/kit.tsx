@@ -55,11 +55,19 @@ type CardProps = {
    *  a screen that is genuinely the subject — otherwise nothing is. */
   raised?: boolean;
   onPress?: () => void;
+  onLongPress?: () => void;
   style?: StyleProp<ViewStyle>;
   accessibilityLabel?: string;
 };
 
-export function Card({ children, raised, onPress, style, accessibilityLabel }: CardProps) {
+export function Card({
+  children,
+  raised,
+  onPress,
+  onLongPress,
+  style,
+  accessibilityLabel,
+}: CardProps) {
   const body = (
     <>
       <LinearGradient
@@ -77,6 +85,7 @@ export function Card({ children, raised, onPress, style, accessibilityLabel }: C
     <Pressable
       style={({ pressed }) => [k.card, lift, style, pressed && k.pressed]}
       onPress={onPress}
+      onLongPress={onLongPress}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
     >

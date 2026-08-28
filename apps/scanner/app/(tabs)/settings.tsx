@@ -11,6 +11,7 @@ import { UI_FONT } from "../../src/ui-font";
 import { theme } from "../../src/theme";
 import { clearHistory, getProfile, updateProfile, type Profile } from "../../src/storage";
 import { resetProgress } from "../../src/progress";
+import { deleteAllLectures } from "../../src/lectures";
 import { DEFAULT_HOUR, cancelReminder, getReminderHour, scheduleReminder } from "../../src/reminders";
 import { restoreAndReport } from "../../src/purchases";
 import { CountryField } from "../../src/components/CountryField";
@@ -105,6 +106,19 @@ export default function Settings() {
       },
     ]);
 
+  const confirmClearLectures = () =>
+    Alert.alert(t(ui.clearLecturesQ), t(ui.clearLecturesBody), [
+      { text: t(ui.cancel), style: "cancel" },
+      {
+        text: t(ui.clearDo),
+        style: "destructive",
+        onPress: async () => {
+          await deleteAllLectures();
+          Alert.alert(t(ui.clearDone), t(ui.clearLecturesDoneBody));
+        },
+      },
+    ]);
+
   // The alerts live with the purchase code so this screen and the paywall
   // cannot answer the same tap differently.
   const doRestore = () => void restoreAndReport();
@@ -175,8 +189,14 @@ export default function Settings() {
 
       <Text style={styles.section}>{t(ui.sectionData)}</Text>
       <View style={styles.group}>
+        {/* Three ways, like the note below it. This was a two-way branch, so
+            an audio pack fell into the scanner arm: Mahdar offered "Delete all
+            scans", and the handler cleared a key Mahdar never writes — it
+            confirmed, said "Deleted", and left every lecture in place. */}
         {isProgram(pack) ? (
           <Row label={t(ui.resetProgress)} onPress={confirmReset} danger />
+        ) : isAudio(pack) ? (
+          <Row label={t(ui.clearLectures)} onPress={confirmClearLectures} danger />
         ) : (
           <Row label={t(ui.clearScans)} onPress={confirmClear} danger />
         )}

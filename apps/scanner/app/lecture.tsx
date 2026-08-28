@@ -11,8 +11,7 @@ import {
   audioDuration,
   clock,
   decideTask,
-  deleteLecture,
-  deleteRecording,
+  removeLecture,
   getLecture,
   locate,
   savePlayhead,
@@ -379,9 +378,7 @@ export default function LectureScreen() {
         text: t(ui.deleteLecture),
         style: "destructive",
         onPress: async () => {
-          await cancelTaskReminders(lecture);
-          await deleteRecording(lecture.audioChunks);
-          await deleteLecture(lecture.id);
+          await removeLecture(lecture);
           router.replace("/");
         },
       },

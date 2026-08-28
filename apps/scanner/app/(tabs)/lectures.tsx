@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
-import { View, Text, StyleSheet, ScrollView } from "react-native";
+import { View, Text, StyleSheet, ScrollView, Alert } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { pack, isAudio, type Lecture } from "../../src/packs";
 import { t, locale } from "../../src/i18n";
@@ -30,6 +30,7 @@ import {
 import {
   clock,
   getLectures,
+  removeLecture,
   lectureAllowed,
   listenedFraction,
   scoreEnergy,
@@ -80,6 +81,22 @@ export default function Lectures() {
     else router.push("/paywall");
   };
 
+  /* The same three things the lecture screen removes, through the same
+   * function, so the two places that offer delete cannot come to mean
+   * different amounts by it. */
+  const confirmDelete = (lecture: Lecture) =>
+    Alert.alert(t(ui.deleteLecture), t(ui.deleteLectureConfirm), [
+      { text: t(ui.cancel), style: "cancel" },
+      {
+        text: t(ui.deleteLecture),
+        style: "destructive",
+        onPress: async () => {
+          await removeLecture(lecture);
+          setLectures(await getLectures());
+        },
+      },
+    ]);
+
   return (
     <Shell>
       <ScrollView
@@ -98,6 +115,10 @@ export default function Lectures() {
             </Meta>
           ) : null}
         </View>
+
+        {lectures.length > 0 ? (
+          <Text style={styles.hint}>{t(ui.longPressDeleteLecture)}</Text>
+        ) : null}
 
         {lectures.length > 0 ? (
           <SearchField
@@ -131,6 +152,7 @@ export default function Lectures() {
                     params: { id: lecture.id, at: lecture.playhead ?? "" },
                   })
                 }
+                onLongPress={() => confirmDelete(lecture)}
               />
             ))}
           </View>
@@ -151,10 +173,12 @@ function LectureCard({
   lecture,
   wide,
   onPress,
+  onLongPress,
 }: {
   lecture: Lecture;
   wide: boolean;
   onPress: () => void;
+  onLongPress: () => void;
 }) {
   const analysis = lecture.analysis;
   const openTasks = (analysis?.tasks ?? []).length - (lecture.done?.length ?? 0);
@@ -170,7 +194,11 @@ function LectureCard({
   const pending = lecture.status !== "ready";
 
   return (
-    <Card onPress={onPress} style={[styles.card, wide && styles.cardWide]}>
+    <Card
+      onPress={onPress}
+      onLongPress={onLongPress}
+      style={[styles.card, wide && styles.cardWide]}
+    >
       <View style={styles.cardHead}>
         <Text style={styles.cardTitle} numberOfLines={2}>
           {lecture.title || t(ui.untitledLecture)}
@@ -242,6 +270,7 @@ function Stat({ value, label, tone }: { value: number; label: string; tone: keyo
 const styles = StyleSheet.create({
   content: { paddingTop: SP.md, gap: SP.xl },
   head: { flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", gap: SP.md },
+  hint: { color: TEXT_FAINT, fontSize: SCALE.label, fontFamily: FONTS.body },
   field: { marginTop: SP.xs },
 
   list: { gap: SP.md },

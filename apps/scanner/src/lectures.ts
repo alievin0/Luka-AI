@@ -121,6 +121,53 @@ export async function deleteLecture(id: string) {
   return write((await getLectures()).filter((l) => l.id !== id));
 }
 
+/**
+ * Everything one lecture leaves behind.
+ *
+ * Three things have to go together — the scheduled reminders for its tasks,
+ * the audio on disk, and the record itself — and until now the only place that
+ * knew all three was one confirm handler in `app/lecture.tsx`. A second screen
+ * offering delete would have had to remember the same list, which is how two
+ * delete buttons come to remove different amounts.
+ */
+export async function removeLecture(lecture: Lecture) {
+  const { cancelTaskReminders } = require("./lecture-export") as typeof import("./lecture-export");
+  await cancelTaskReminders(lecture);
+  await deleteRecording(lecture.audioChunks);
+  dropLectureFolder(lecture.id);
+  await deleteLecture(lecture.id);
+}
+
+/**
+ * Clear every lecture, and everything they left on disk.
+ *
+ * `documents/lectures/` goes in one call, which also sweeps the per-lecture
+ * folders that `deleteRecording` has always left standing — it deletes files
+ * and never the directory holding them. The chunk uris are then walked anyway,
+ * because `persistChunk` falls back to the original cache path when the move
+ * fails, so not every slice is under that tree.
+ *
+ * `lectureCount` deliberately survives. It is a lifetime counter, and the note
+ * above it says why: deleting a lecture must not buy a new free one.
+ */
+export async function deleteAllLectures() {
+  const lectures = await getLectures();
+
+  const { cancelTaskReminders } = require("./lecture-export") as typeof import("./lecture-export");
+  for (const lecture of lectures) await cancelTaskReminders(lecture);
+
+  try {
+    const { Directory, Paths } = require("expo-file-system") as typeof import("expo-file-system");
+    const root = new Directory(Paths.document, "lectures");
+    if (root.exists) root.delete();
+  } catch {
+    // No filesystem here, or already gone. The per-chunk pass below still runs.
+  }
+  for (const lecture of lectures) await deleteRecording(lecture.audioChunks);
+
+  await write([]);
+}
+
 /** How many lectures have been recorded, ever — the free-tier counter.
  *  Kept separate from the list so deleting a lecture doesn't buy a new one. */
 const COUNT_KEY = `@${activePackId}:lectureCount`;
@@ -382,6 +429,18 @@ export async function persistChunk(uri: string, id: string, index: number): Prom
 }
 
 /** Deletes a lecture's audio along with its metadata. */
+/** The folder `persistChunk` created for one lecture. Deleting the chunk files
+ *  leaves it standing, one empty directory per lecture ever deleted. */
+function dropLectureFolder(id: string) {
+  try {
+    const { Directory, Paths } = require("expo-file-system") as typeof import("expo-file-system");
+    const folder = new Directory(Paths.document, "lectures", id);
+    if (folder.exists) folder.delete();
+  } catch {
+    // Already gone, or no filesystem. Nothing owed.
+  }
+}
+
 export async function deleteRecording(chunks?: AudioChunk[]) {
   if (!chunks?.length) return;
   try {

@@ -11,13 +11,14 @@
     "deploy:api": "eas deploy",
     "check:emphasis": "node scripts/check-emphasis.js",
     "check:transcribe": "node scripts/check-transcribe.js",
-    "check": "npm run typecheck && npm run check:arabic && npm run check:schema && npm run check:emphasis && npm run check:transcribe && npm run check:ics && npm run check:provenance && npm run check:study && npm run check:candidates",
+    "check": "npm run typecheck && npm run check:arabic && npm run check:schema && npm run check:lectures && npm run check:emphasis && npm run check:transcribe && npm run check:ics && npm run check:provenance && npm run check:study && npm run check:candidates",
     "check:ics": "node scripts/check-ics.js",
     "check:provenance": "node scripts/check-provenance.js",
     "check:study": "node scripts/check-study.js",
     "check:candidates": "node scripts/check-candidates.js",
     "check:arabic": "node scripts/check-arabic.js",
-    "check:schema": "node scripts/check-schema.js"
+    "check:schema": "node scripts/check-schema.js",
+    "check:lectures": "node scripts/check-lectures.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.109.1",

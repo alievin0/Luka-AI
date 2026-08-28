@@ -190,6 +190,19 @@ export const ui = {
     "Your lectures and recordings are saved on this device only.",
     "محاضراتك وتسجيلاتك محفوظة على جهازك فقط.",
   ),
+  // The destructive row on an audio pack. Worded for lectures *and*
+  // recordings: the recordings are by far the largest thing being destroyed,
+  // and the row used to say "scans", which Mahdar has none of.
+  clearLectures: L("Delete all lectures", "احذف كل المحاضرات"),
+  clearLecturesQ: L("Delete every lecture?", "حذف كل المحاضرات؟"),
+  clearLecturesBody: L(
+    "Every lecture on this device will be deleted, and its recording with it. This can't be undone.",
+    "ستُحذف كل محاضرة على جهازك ومعها تسجيلها، ولا يمكن التراجع.",
+  ),
+  clearLecturesDoneBody: L(
+    "No saved lectures or recordings are left.",
+    "لم يبقَ أي محاضرة أو تسجيل محفوظ.",
+  ),
   couldNotOpen: L("Couldn't open the link", "تعذّر فتح الرابط"),
   privacyPolicy: L("Privacy policy", "سياسة الخصوصية"),
   readPrivacyPolicy: L("Read the privacy policy", "اقرأ سياسة الخصوصية"),
@@ -398,6 +411,10 @@ export const ui = {
   deleteLectureConfirm: L(
     "Delete this lecture and its recording? This can't be undone.",
     "هل نحذف المحاضرة وتسجيلها؟ لا يمكن التراجع.",
+  ),
+  longPressDeleteLecture: L(
+    "Long-press any lecture to delete it",
+    "اضغط مطوّلاً على أي محاضرة لحذفها",
   ),
   copied: L("Copied", "تم النسخ"),
   playerHint: L(
