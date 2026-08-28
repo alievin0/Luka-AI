@@ -113,9 +113,40 @@ function strip(node) {
   return out;
 }
 
+/* ------------------------------------------------------------------ the file
+
+   The API accepts four image types and rejects anything else. Sending a PNG
+   labelled image/jpeg is a 400 that reads as a schema problem, which is
+   exactly the confusion this script exists to remove. iPhones shoot HEIC by
+   default and the API does not take it at all, so that gets its own answer
+   rather than a silent skip. */
+
+const MEDIA = { jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", gif: "image/gif", webp: "image/webp" };
+
+const READABLE = /\.(jpe?g|png|gif|webp)$/i;
+const HEIC = /\.(heic|heif)$/i;
+
+function mediaTypeOf(file) {
+  const ext = path.extname(file).slice(1).toLowerCase();
+  return MEDIA[ext] || null;
+}
+
+/** What to say when a folder holds photographs the API cannot read. macOS
+ *  ships `sips`, so the fix is one line the user already has. */
+function heicAdvice(dir, names) {
+  console.log(
+    `\n✗ ${names.length} photo${names.length === 1 ? "" : "s"} in HEIC — the format iPhones shoot by\n` +
+      `  default. The API does not accept it. Convert them in place:\n\n` +
+      `    cd ${dir}\n` +
+      `    for f in *.[Hh][Ee][Ii][Cc]; do sips -s format jpeg "$f" --out "\${f%.*}.jpg"; done\n` +
+      `    rm *.[Hh][Ee][Ii][Cc]\n\n` +
+      `  Or turn it off at the source: Settings → Camera → Formats → Most Compatible.\n`,
+  );
+}
+
 /* ------------------------------------------------------------------ the call */
 
-async function send(label, schema, image, model, effort) {
+async function send(label, schema, image, mediaType, model, effort) {
   console.log(`\n── ${label} ─────────────────────────────────────`);
   const response = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
@@ -133,7 +164,7 @@ async function send(label, schema, image, model, effort) {
         {
           role: "user",
           content: [
-            { type: "image", source: { type: "base64", media_type: "image/jpeg", data: image } },
+            { type: "image", source: { type: "base64", media_type: mediaType, data: image } },
             { type: "text", text: "Analyse this photo." },
           ],
         },
@@ -239,6 +270,7 @@ const GLYPHS = (() => {
 
 async function one(file, schema, model, effort) {
   const image = fs.readFileSync(file).toString("base64");
+  const mediaType = mediaTypeOf(file);
   const response = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -255,7 +287,7 @@ async function one(file, schema, model, effort) {
         {
           role: "user",
           content: [
-            { type: "image", source: { type: "base64", media_type: "image/jpeg", data: image } },
+            { type: "image", source: { type: "base64", media_type: mediaType, data: image } },
             { type: "text", text: "Analyse this photo." },
           ],
         },
@@ -281,15 +313,19 @@ const SYSTEM = (() => {
 })();
 
 async function matrix(dir, schema, model, effort) {
-  const files = fs
-    .readdirSync(dir)
-    .filter((f) => /\.(jpe?g|png)$/i.test(f))
-    .sort();
+  const entries = fs.readdirSync(dir);
+  const files = entries.filter((f) => READABLE.test(f)).sort();
+  const heic = entries.filter((f) => HEIC.test(f));
+
+  // Named before the count, because a folder of twenty HEIC photographs is
+  // not an empty folder and saying so would send you looking in the wrong
+  // place.
+  if (heic.length) heicAdvice(dir, heic);
   if (!files.length) {
-    console.log(`✗ No images in ${dir}`);
+    if (!heic.length) console.log(`✗ No images in ${dir}`);
     process.exit(2);
   }
-  console.log(`${files.length} photographs · model=${model} effort=${effort}\n`);
+  console.log(`${files.length} photograph${files.length === 1 ? "" : "s"} · model=${model} effort=${effort}\n`);
 
   let bad = 0;
   let tokens = 0;
@@ -393,12 +429,21 @@ async function matrix(dir, schema, model, effort) {
   const schema = resultSchema();
   if (isMatrix) return matrix(file, schema, model, effort);
 
+  if (HEIC.test(file)) {
+    heicAdvice(path.dirname(file), [path.basename(file)]);
+    process.exit(2);
+  }
+  const mediaType = mediaTypeOf(file);
+  if (!mediaType) {
+    console.log(`✗ ${path.extname(file) || "that"} is not an image type the API reads. Use jpg, png, gif or webp.`);
+    process.exit(2);
+  }
   const image = fs.readFileSync(file).toString("base64");
   const stripped = strip(schema);
 
   console.log(`model=${model} effort=${effort} image=${path.basename(file)} (${image.length} b64 chars)`);
 
-  const asIs = await send("the schema exactly as the route sends it", schema, image, model, effort);
+  const asIs = await send("the schema exactly as the route sends it", schema, image, mediaType, model, effort);
   if (asIs) {
     console.log(
       "\nThe schema is fine. Whatever the route hit is elsewhere — the image, " +
@@ -413,7 +458,7 @@ async function matrix(dir, schema, model, effort) {
     return;
   }
 
-  const without = await send("the same schema minus unsupported constraints", stripped, image, model, effort);
+  const without = await send("the same schema minus unsupported constraints", stripped, image, mediaType, model, effort);
   console.log(
     without
       ? "\n→ The constraints are the cause. Structured outputs does not accept them;\n" +
