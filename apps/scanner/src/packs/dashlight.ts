@@ -32,11 +32,20 @@ export const dashlight: ScannerPack = {
     {
       key: "brand",
       question: L("What do you drive?", "ما نوع سيارتك؟"),
+      // Grouped for the Gulf, where this ships first. Land Rover had no bucket
+      // at all and is common here; GMC and Cadillac are too, and both behave
+      // nothing like the Japanese saloons they were lumped in with. The
+      // groups exist to give the model a useful prior, so a bucket that mixes
+      // unrelated cars is worse than one more row.
       options: [
         L("Toyota / Lexus", "تويوتا / لكزس"),
-        L("Ford / Chevrolet", "فورد / شيفروليه"),
-        L("VW / Audi / BMW / Mercedes", "فولكس / أودي / BMW / مرسيدس"),
-        L("Hyundai / Kia / Nissan", "هيونداي / كيا / نيسان"),
+        L("Nissan / Infiniti", "نيسان / إنفينيتي"),
+        L("GMC / Chevrolet / Cadillac", "جي إم سي / شيفروليه / كاديلاك"),
+        L("Ford / Lincoln", "فورد / لينكولن"),
+        L("Hyundai / Kia", "هيونداي / كيا"),
+        L("Land Rover / Jaguar", "لاند روفر / جاكوار"),
+        L("Mercedes / BMW / Audi / VW", "مرسيدس / BMW / أودي / فولكس"),
+        L("Honda / Mitsubishi / Mazda", "هوندا / ميتسوبيشي / مازدا"),
         L("Something else", "نوع آخر"),
       ],
     },

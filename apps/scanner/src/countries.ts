@@ -111,6 +111,24 @@ export const countryFor = (stored: string): Country | undefined =>
 /** ISO 4217 for a stored profile value, defaulting to USD. */
 export const currencyForCountry = (stored: string) => countryFor(stored)?.currency ?? "USD";
 
+/**
+ * The country the phone is set to, when nobody has said otherwise.
+ *
+ * This used to be a question in onboarding, which is a strange thing to ask
+ * someone whose device already knows the answer — and asking it stood between
+ * a driver and their first scan. It is still editable in Settings; this is
+ * only the opening guess, and a wrong guess costs a currency symbol rather
+ * than a wrong answer.
+ */
+export function deviceCountry(): string {
+  try {
+    const { getLocales } = require("expo-localization") as typeof import("expo-localization");
+    return getLocales()[0]?.regionCode?.toUpperCase() ?? "";
+  } catch {
+    return "";
+  }
+}
+
 /** The country's name in the reader's language, or the raw stored value when
  *  it matches nothing — better than showing them nothing at all. */
 export const countryLabel = (stored: string) => {

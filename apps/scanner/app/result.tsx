@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator, Share } from "react-native";
+import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator, Share, TextInput } from "react-native";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { pack, isScanner } from "../src/packs";
+import { pack, isScanner, optionLabel, optionValue } from "../src/packs";
 import Feather from "@expo/vector-icons/Feather";
 import { SymbolBadge } from "../src/components/SymbolBadge";
-import { currencyFor, getHistory, getProfile, type HistoryEntry, type Profile } from "../src/storage";
+import { currencyFor, getHistory, getProfile, updateProfile, type HistoryEntry, type Profile } from "../src/storage";
 import { isPro } from "../src/purchases";
 import { decide } from "../src/decision";
 import { formatMoneyRange } from "../src/money";
@@ -107,6 +107,8 @@ export default function Result() {
   const [pro, setPro] = useState(false);
   const [safeHere, setSafeHere] = useState<boolean | null>(null);
   const [symptoms, setSymptoms] = useState<boolean | null>(null);
+  const [skipped, setSkipped] = useState(false);
+  const [typed, setTyped] = useState("");
 
   useEffect(() => {
     (async () => {
@@ -219,6 +221,19 @@ export default function Result() {
      sell. Offering one anyway would be charging for an empty screen — the
      same mistake as a tab that opens on nothing, with a price on it. */
   const sellReport = locked && inTheReport.length > 0;
+
+  /* The first question the driver has not answered yet, or nothing once they
+     have answered them all or waved it away for this result. */
+  const nextQuestion =
+    isScanner(pack) && !skipped
+      ? pack.onboarding.find((q) => !profile[q.key as keyof Profile])
+      : undefined;
+
+  const saveAnswer = async (key: string, value: string) => {
+    if (!value) return;
+    setProfile(await updateProfile({ [key]: value } as Profile));
+    setTyped("");
+  };
   const grade = gradeOf(severity);
   const verdict = verdictGrade(level);
   const active = views.some((v) => v.key === view) ? view : "summary";
@@ -468,6 +483,52 @@ export default function Result() {
             </Card>
           ) : null}
 
+          {/* The questions that used to stand in front of the app.
+              Asked here because here they have a reason: there is an answer on
+              the screen, and these make the next one sharper. One at a time,
+              skippable, and the pack's own content — only the moment moved. */}
+          {nextQuestion ? (
+            <Card style={styles.sharpen}>
+              <SectionTitle>{t(ui.sharpenTitle)}</SectionTitle>
+              <Caption>{t(ui.sharpenWhy)}</Caption>
+              <Text style={styles.safeQ}>{t(nextQuestion.question)}</Text>
+              {nextQuestion.options ? (
+                <View style={styles.sharpenOptions}>
+                  {nextQuestion.options.map((option) => (
+                    <Pressable
+                      key={t(optionLabel(option))}
+                      style={styles.chip}
+                      onPress={() => void saveAnswer(nextQuestion.key, optionValue(option, t))}
+                    >
+                      <Text style={styles.chipText}>{t(optionLabel(option))}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              ) : nextQuestion.input ? (
+                <View style={styles.sharpenTyped}>
+                  <TextInput
+                    style={styles.sharpenInput}
+                    value={typed}
+                    onChangeText={setTyped}
+                    placeholder={t(nextQuestion.input.placeholder)}
+                    placeholderTextColor={TEXT_FAINT}
+                    keyboardType={nextQuestion.input.keyboard ?? "default"}
+                    maxLength={nextQuestion.input.maxLength}
+                    textAlign={READ}
+                  />
+                  <Button
+                    label={t(ui.sharpenSave)}
+                    variant="secondary"
+                    onPress={() => void saveAnswer(nextQuestion.key, typed.trim())}
+                  />
+                </View>
+              ) : null}
+              <Pressable onPress={() => setSkipped(true)} hitSlop={8}>
+                <Text style={styles.sharpenSkip}>{t(ui.sharpenSkip)}</Text>
+              </Pressable>
+            </Card>
+          ) : null}
+
           {/* What was withheld, named. A blurred screenshot of the real
               thing would convert better and would also be a picture of an
               answer they cannot read — this says plainly what is inside. */}
@@ -501,7 +562,7 @@ export default function Result() {
             label={t(ui.openFullReport)}
             variant="primary"
             block
-            onPress={() => router.push("/paywall")}
+            onPress={() => router.push({ pathname: "/paywall", params: { after: level } })}
           />
         ) : (
           <Button label={t(ui.scanAgain)} variant="primary" block onPress={() => router.replace("/")} />
@@ -614,6 +675,31 @@ const styles = StyleSheet.create({
 
   road: { gap: SP.sm },
   symptom: { gap: SP.sm },
+  sharpen: { gap: SP.sm },
+  sharpenOptions: { flexDirection: "row", flexWrap: "wrap", gap: SP.sm },
+  chip: {
+    borderWidth: 1.5,
+    borderColor: BORDER,
+    borderRadius: RADIUS.pill,
+    paddingVertical: 9,
+    paddingHorizontal: 14,
+    minHeight: TAP - 8,
+    justifyContent: "center",
+  },
+  chipText: { color: TEXT, ...TYPE.caption, fontFamily: FONT.medium },
+  sharpenTyped: { flexDirection: "row", gap: SP.sm, alignItems: "center" },
+  sharpenInput: {
+    flex: 1,
+    color: TEXT,
+    ...TYPE.body,
+    fontFamily: FONT.regular,
+    borderWidth: 1.5,
+    borderColor: BORDER,
+    borderRadius: RADIUS.md,
+    paddingHorizontal: SP.md,
+    minHeight: TAP,
+  },
+  sharpenSkip: { color: TEXT_FAINT, ...TYPE.caption, fontFamily: FONT.medium, textAlign: "center" },
   symptomStop: { gap: SP.xs },
   roadTitle: { ...TYPE.section, fontFamily: FONT.bold, textAlign: READ },
   safe: { gap: SP.md, marginTop: SP.sm, borderTopWidth: 1, borderTopColor: BORDER, paddingTop: SP.md },

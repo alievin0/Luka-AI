@@ -654,6 +654,35 @@ export const ui = {
   ),
   openFullReport: L("Open the full report", "افتح التقرير الكامل"),
 
+  /* Asked after the first answer, not before it. The questions are the pack's
+     own — only the moment moved. */
+  sharpenTitle: L("Make the next answer sharper", "اجعل الجواب التالي أدقّ"),
+  sharpenWhy: L(
+    "The verdict is the same for every car. The cause, the cost and what to do are not.",
+    "الحكم واحد لكل السيارات. أما السبب والتكلفة وما ينبغي فعله فتختلف.",
+  ),
+  sharpenSkip: L("Not now", "ليس الآن"),
+  sharpenSave: L("Save", "احفظ"),
+
+  /* The paywall speaks about the result that sent them there, rather than
+     about the subscription. */
+  paywallAfterStop: L(
+    "Your reading says: stop the car.",
+    "نتيجتك تقول: أوقف السيارة.",
+  ),
+  paywallAfterCaution: L(
+    "Your reading says: it can wait, but not long.",
+    "نتيجتك تقول: يحتمل التأجيل، ولكن ليس طويلاً.",
+  ),
+  paywallAfterOk: L(
+    "Your reading says: no need to stop.",
+    "نتيجتك تقول: لا يوجد ما يستدعي التوقف.",
+  ),
+  paywallAfterSub: L(
+    "Open the full report for the cause, the cost, and what to do now.",
+    "افتح التقرير الكامل لمعرفة السبب والتكلفة وما ينبغي فعله الآن.",
+  ),
+
   /* ---- the roadside decision ------------------------------------------
      The model picks one of four classes; these are the words for them. They
      live here, not in the model's output, because an instruction that can get

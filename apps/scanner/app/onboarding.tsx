@@ -16,7 +16,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Haptics from "expo-haptics";
 import { pack, activePackId, isAudio, isScanner, optionLabel, optionValue } from "../src/packs";
-import { t, isRTL } from "../src/i18n";
+import { t, isRTL, locale } from "../src/i18n";
+import { switchLanguage } from "../src/language";
 import { ui } from "../src/i18n/ui";
 import { UI_FONT } from "../src/ui-font";
 import { theme, withAlpha } from "../src/theme";
@@ -39,11 +40,27 @@ const MARKS: Record<string, ImageSourcePropType> = {
 };
 
 /**
- * Intro → questions → country → disclosure → home.
+ * Intro → disclosure → home. Two screens, for a scanner.
  *
- * The questions are not theatre: the country sets the currency used for cost
- * estimates and narrows what's plausible for the region, and every answer is
- * passed to the vision prompt as user context.
+ * It used to ask its questions here, and for a scanner that was the wrong
+ * moment. Someone opens this app because a light has just come on: seven
+ * questions and a paywall stand between them and the one thing they came for,
+ * and none of the answers improves the verdict — they sharpen the cost
+ * estimate and the car-specific note, both of which are in the paid report.
+ *
+ * So the questions moved to the first result, where they have a reason: the
+ * driver has an answer in front of them and is being offered a sharper one.
+ * Same questions, same `pack.onboarding` content, asked when they are worth
+ * answering.
+ *
+ * The AI disclosure stays here and cannot move. App Review has required it
+ * before the first call since November 2025, and the first call is the first
+ * scan.
+ *
+ * Programs and the lecture app keep the old flow. Their value is not one
+ * photograph away — a workout plan is built out of the answers before there is
+ * anything to show — so for them the questions are the product starting, not a
+ * queue in front of it.
  */
 export default function Onboarding() {
   const router = useRouter();
@@ -51,11 +68,15 @@ export default function Onboarding() {
   const [profile, setProfile] = useState<Profile>({});
   const [saving, setSaving] = useState(false);
 
-  const questions = pack.onboarding;
+  // A scanner earns the right to ask by answering first. See the note above.
+  const asksUpFront = !isScanner(pack);
+  const questions = asksUpFront ? pack.onboarding : [];
   const INTRO = 0;
-  const COUNTRY = questions.length + 1;
-  const CONSENT = questions.length + 2;
-  const total = questions.length + 3;
+  // The country is only asked where the questions are. Elsewhere it comes from
+  // the device, which already knows it — see deviceCountry() in countries.ts.
+  const COUNTRY = asksUpFront ? questions.length + 1 : -1;
+  const CONSENT = questions.length + (asksUpFront ? 2 : 1);
+  const total = questions.length + (asksUpFront ? 3 : 2);
 
   const next = () => setStep((s) => s + 1);
 
@@ -113,6 +134,30 @@ export default function Onboarding() {
             <Text style={styles.introNote}>
               {t(ui.quickQuestions)}
             </Text>
+
+            {/* The language, offered before anything is asked rather than
+                buried in Settings.
+
+                It was reachable only after onboarding, so someone whose phone
+                is set to English answered seven questions in English before
+                finding out the app speaks Arabic — and switching then costs a
+                reload, which is why it belongs here: nothing has been answered
+                yet, so nothing is lost by restarting. */}
+            <View style={styles.langRow}>
+              {(["ar", "en"] as const).map((code) => (
+                <Pressable
+                  key={code}
+                  onPress={() => void switchLanguage(code)}
+                  style={[styles.lang, locale === code && styles.langOn]}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: locale === code }}
+                >
+                  <Text style={[styles.langText, locale === code && styles.langTextOn]}>
+                    {code === "ar" ? "العربية" : "English"}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
           </View>
         ) : isQuestion ? (
           <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
@@ -230,6 +275,20 @@ export default function Onboarding() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: theme.bg },
   safe: { flex: 1 },
+  langRow: { flexDirection: "row", gap: 10, marginTop: 26 },
+  lang: {
+    minWidth: 108,
+    paddingVertical: 11,
+    paddingHorizontal: 20,
+    borderRadius: 999,
+    borderWidth: 1.5,
+    borderColor: withAlpha(theme.text, 0.22),
+    alignItems: "center",
+  },
+  langOn: { borderColor: theme.accent, backgroundColor: withAlpha(theme.accent, 0.14) },
+  langText: { color: withAlpha(theme.text, 0.7), fontSize: 15, fontFamily: UI_FONT.medium },
+  langTextOn: { color: theme.text, fontFamily: UI_FONT.bold },
+
   dots: {
     flexDirection: "row",
     gap: 6,

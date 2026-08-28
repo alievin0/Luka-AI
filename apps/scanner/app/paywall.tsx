@@ -10,7 +10,7 @@ import {
   Linking,
   Image,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Feather from "@expo/vector-icons/Feather";
 import { DESIGN, designAsset } from "../src/design-assets";
@@ -71,8 +71,20 @@ type Row = {
   freeTrialDays: number | null;
 };
 
+/** What the result screen said before it sent them here, so this screen can
+ *  talk about that rather than about a subscription. Absent when the paywall
+ *  was opened from anywhere else — Settings, or the scan quota — and then the
+ *  pack's own headline stands. */
+const AFTER = {
+  stop: ui.paywallAfterStop,
+  caution: ui.paywallAfterCaution,
+  ok: ui.paywallAfterOk,
+} as const;
+
 export default function Paywall() {
   const router = useRouter();
+  const { after } = useLocalSearchParams<{ after?: string }>();
+  const fromResult = after && after in AFTER ? AFTER[after as keyof typeof AFTER] : null;
   const [offers, setOffers] = useState<Row[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
@@ -171,8 +183,12 @@ export default function Paywall() {
         </Pressable>
 
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-          <Text style={styles.headline}>{t(pack.paywall.headline)}</Text>
-          <Text style={styles.sub}>{t(ui.paywallSub)}</Text>
+          <Text style={styles.headline}>
+            {fromResult ? t(fromResult) : t(pack.paywall.headline)}
+          </Text>
+          <Text style={styles.sub}>
+            {fromResult ? t(ui.paywallAfterSub) : t(ui.paywallSub)}
+          </Text>
 
           {/* The severity language, met here first rather than at the
               roadside. Three equal cards, line-art, no effects. */}

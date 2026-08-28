@@ -1,7 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Directory, File, Paths } from "expo-file-system";
 import { activePackId, type ScanResult } from "./packs";
-import { countryFor, currencyForCountry } from "./countries";
+import { countryFor, currencyForCountry, deviceCountry } from "./countries";
 
 /** Keys are namespaced per pack so the two apps never share state. */
 const k = (name: string) => `@${activePackId}:${name}`;
@@ -49,7 +49,7 @@ export type HistoryEntry = {
 export type Profile = Record<string, string>;
 
 export const currencyFor = (profile: Profile) =>
-  currencyForCountry(profile.region ?? "");
+  currencyForCountry(profile.region || deviceCountry());
 
 /**
  * Flattens the onboarding answers into one line for the vision prompt.

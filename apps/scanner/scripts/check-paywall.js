@@ -130,6 +130,24 @@ const leaks = screens.filter((f) =>
 ok(`no screen reads storeTrialDays (${screens.length} files)`, leaks.length === 0);
 if (leaks.length) console.log(`     read by: ${leaks.join(", ")}`);
 
+/* --------------------------------------------------- value before the queue
+
+   A scanner's onboarding is language and the AI disclosure, and nothing else.
+   The car questions moved to the first result, where the driver has an answer
+   in front of them and is being offered a sharper one. Putting them back in
+   front of the camera is a one-line edit that no test would otherwise catch,
+   and it costs the thing this app is for: someone on the hard shoulder gets
+   seven questions instead of a verdict. */
+
+const onboarding = fs.readFileSync(path.join(ROOT, "app/onboarding.tsx"), "utf8");
+ok(
+  "a scanner asks nothing before the first scan",
+  /const asksUpFront = !isScanner\(pack\);/.test(onboarding) &&
+    /questions = asksUpFront \? pack\.onboarding : \[\]/.test(onboarding),
+);
+ok("and the language is offered on that first screen", /switchLanguage\(code\)/.test(onboarding));
+
+
 /* ------------------------------------------------- the trial-ending notice
 
    The notice says a charge is coming tomorrow. For someone who has already
@@ -230,6 +248,14 @@ ok(
   "and the override is never behind the paywall",
   symptom.length === 1 && !behindTheGate(symptom[0]),
 );
+
+// The questions are worth asking only because the answer is already free.
+const sharpen = resultNodes.filter(
+  (n) => ts.isPropertyAccessExpression(n) && n.name.text === "sharpenTitle",
+);
+ok(`the result asks for the car (${sharpen.length} anchor)`, sharpen.length === 1);
+ok("and does not ask from behind the paywall", sharpen.length === 1 && !behindTheGate(sharpen[0]));
+
 
 /* The decision hierarchy. A reported symptom outranks the photo, and the model
    never saw it — so the override is the screen's job, and it has to reach the
