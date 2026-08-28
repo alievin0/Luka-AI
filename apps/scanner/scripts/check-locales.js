@@ -74,6 +74,7 @@ const OTHER_ARCHETYPES = [
   "app/(tabs)/search.tsx", "src/lecture-export.ts", "src/insights.ts", "src/study.ts",
   "src/lectures.ts", "src/concepts.ts",
   "src/components/ProgramHome.tsx", "app/session.tsx", "app/plan.tsx", "src/progress.ts",
+  "app/price-check.tsx", "src/gold.ts", "src/gold-price.ts",
 ];
 
 /** Every ui.<key> a file mentions. */
