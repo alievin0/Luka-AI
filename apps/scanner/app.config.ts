@@ -34,6 +34,7 @@ const VARIANTS = {
     bundleId: "com.dashlight.scanner",
     accent: "#F2A33C",
     splashBg: "#14171F",
+    easProjectId: "81620666-179c-43cf-9da5-515cf5b45db6",
   },
   goldscan: {
     name: "Gold Hallmark Scanner",
@@ -83,6 +84,20 @@ const v = VARIANTS[id] ?? VARIANTS.dashlight;
 /** Only the lecture app records; the scanners must not ask for a microphone
  *  they never use, and stores reject permissions a build can't justify. */
 const recordsAudio = id === "mahdar";
+
+/**
+ * The EAS project this variant builds under.
+ *
+ * `eas init` normally writes this into the config itself, but it cannot — this
+ * config is dynamic, and one file serves six apps. Each app is a separate EAS
+ * project with its own build numbers and its own credentials, so a single
+ * hardcoded id would quietly file every build under Dash Light's project.
+ *
+ * Run `SCANNER=<app> npx eas init` for a variant and paste the id it prints
+ * beside that variant above. Absent means "not created yet", which is honest
+ * and is what the five unbuilt apps are.
+ */
+const easProjectId = "easProjectId" in v ? v.easProjectId : undefined;
 
 /** The base Info.plist values: English, and what a device localised to
  *  neither shipped language falls back to. */
@@ -181,10 +196,12 @@ const config: ExpoConfig = {
       : []),
   ],
   experiments: { typedRoutes: true },
-  // `eas init` writes extra.eas.projectId and the top-level `owner` here on
-  // first run. They are account-scoped, so they are not committed ahead of it;
-  // without them `eas build` prompts to create the project interactively.
-  extra: { scannerId: id, accent: v.accent },
+  owner: "gulfh",
+  extra: {
+    scannerId: id,
+    accent: v.accent,
+    ...(easProjectId ? { eas: { projectId: easProjectId } } : {}),
+  },
 };
 
 export default config;
