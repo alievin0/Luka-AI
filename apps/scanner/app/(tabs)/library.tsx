@@ -22,7 +22,7 @@ import {
   gradeOf,
   type Severity,
 } from "../../src/scanner-ui";
-import { SeverityDot, SearchField, EmptyState, Segmented, type TabItem } from "../../src/components/scanner-kit";
+import { SeverityDot, SearchField, Button, Segmented, type TabItem } from "../../src/components/scanner-kit";
 import { NAV_CLEARANCE } from "../../src/components/ScannerNav";
 
 /**
@@ -85,7 +85,7 @@ export default function Library() {
     return (
       <View style={styles.screen}>
         <SafeAreaView style={styles.fill} edges={["top"]}>
-          <EmptyState glyph="▤" title={t(ui.noMatch)} />
+          <NotInTheGuide onScan={() => router.push("/")} />
         </SafeAreaView>
         </View>
     );
@@ -116,7 +116,7 @@ export default function Library() {
           contentContainerStyle={styles.list}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
-          ListEmptyComponent={<EmptyState glyph="⌕" title={t(ui.noMatch)} />}
+          ListEmptyComponent={<NotInTheGuide onScan={() => router.push("/")} />}
           renderItem={({ item }) => (
             <Pressable
               style={({ pressed }) => [styles.row, pressed && { opacity: 0.85 }]}
@@ -151,6 +151,15 @@ export default function Library() {
 }
 
 const styles = StyleSheet.create({
+  notHere: { gap: SP.md, alignItems: "center", paddingHorizontal: SP.xl, paddingTop: SP.section },
+  notHereTitle: { color: TEXT, ...TYPE.section, fontFamily: FONT.bold, textAlign: "center" },
+  notHereBody: {
+    color: TEXT_SOFT,
+    ...TYPE.body,
+    fontFamily: FONT.regular,
+    textAlign: "center",
+  },
+
   screen: { flex: 1, backgroundColor: BG },
   fill: { flex: 1 },
 
@@ -182,3 +191,22 @@ const styles = StyleSheet.create({
   entryHead: { alignItems: "center", gap: SP.md, paddingVertical: SP.lg },
   action: { ...TYPE.body, fontFamily: FONT.medium, textAlign: READ },
 });
+
+/**
+ * What a search that finds nothing should say.
+ *
+ * "Nothing matches that" is true and useless: the driver is left believing the
+ * app does not know their car. The guide covers the lights nearly every car
+ * shares; a dashboard carries many more, and the scanner is not limited to
+ * this list — it reads symbols the guide never names. Pointing at the camera
+ * is the honest end of a failed search, and the only one that helps.
+ */
+function NotInTheGuide({ onScan }: { onScan: () => void }) {
+  return (
+    <View style={styles.notHere}>
+      <Text style={styles.notHereTitle}>{t(ui.guideNotHere)}</Text>
+      <Text style={styles.notHereBody}>{t(ui.guideNotHereBody)}</Text>
+      <Button label={t(ui.guidePhotographIt)} variant="secondary" onPress={onScan} />
+    </View>
+  );
+}

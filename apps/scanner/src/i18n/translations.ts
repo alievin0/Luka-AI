@@ -456,6 +456,10 @@ const T: Record<string, readonly string[]> = {
   "Whether the engine is at risk": ["Si el motor está en riesgo", "Se o motor está em risco", "Si le moteur est en danger", "Ob der Motor gefährdet ist", "Motorun risk altında olup olmadığı", "Se il motore è a rischio"],
   "All of it": ["Todo", "Tudo", "Tout cela", "Alles davon", "Hepsi", "Tutto"],
   "Under $0.58 a week": ["Menos de $0.58 por semana", "Menos de $0.58 por semana", "Moins de 0,58 $ par semaine", "Unter 0,58 $ pro Woche", "Haftada 0,58 $ altında", "Meno di 0,58 $ a settimana"],
+
+  "Not in the guide?": ["¿No está en la guía?", "Não está no guia?", "Absent du guide ?", "Nicht in der Übersicht?", "Rehberde yok mu?", "Non è nella guida?"],
+  "The guide lists the lights nearly every car shares. Dashboards carry many more, and the camera reads symbols this list does not name.": ["La guía recoge los testigos que comparten casi todos los coches. Los cuadros de mandos llevan muchos más, y la cámara lee símbolos que esta lista no nombra.", "O guia traz as luzes que quase todo carro tem. Os painéis carregam muitas outras, e a câmera lê símbolos que esta lista não nomeia.", "Le guide répertorie les témoins que presque toutes les voitures partagent. Les tableaux de bord en comptent bien d'autres, et l'appareil photo lit des symboles que cette liste ne nomme pas.", "Die Übersicht listet die Leuchten, die fast jedes Auto teilt. Armaturenbretter tragen viele weitere, und die Kamera liest Symbole, die diese Liste nicht nennt.", "Rehber, neredeyse her araçta ortak olan ışıkları listeler. Gösterge panellerinde bundan çok daha fazlası vardır ve kamera bu listenin adlandırmadığı sembolleri de okur.", "La guida elenca le spie che quasi tutte le auto hanno in comune. I cruscotti ne portano molte di più, e la fotocamera legge simboli che questo elenco non nomina."],
+  "Photograph it instead": ["Fotografíelo mejor", "Fotografe em vez disso", "Photographiez-le plutôt", "Fotografieren Sie es stattdessen", "Bunun yerine fotoğrafını çekin", "Fotografalo invece"],
 };
 
 export default T;

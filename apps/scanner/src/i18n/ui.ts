@@ -654,6 +654,18 @@ export const ui = {
   ),
   openFullReport: L("Open the full report", "افتح التقرير الكامل"),
 
+  /* The guide lists the 48 lights nearly every car shares. Dashboards carry
+     far more than that between them, and a search that finds nothing teaches
+     the driver the app does not know their car — when in fact the scanner
+     reads symbols the guide never listed. Saying so is the difference between
+     an honest limit and a dead end. */
+  guideNotHere: L("Not in the guide?", "ليس في الدليل؟"),
+  guideNotHereBody: L(
+    "The guide lists the lights nearly every car shares. Dashboards carry many more, and the camera reads symbols this list does not name.",
+    "يضمّ الدليل المصابيح التي تشترك فيها جميع السيارات تقريباً. ولوحات القيادة تحمل أكثر منها بكثير، والكاميرا تقرأ رموزاً لا يسمّيها هذا الدليل.",
+  ),
+  guidePhotographIt: L("Photograph it instead", "صوّره بدلاً من ذلك"),
+
   /* Asked after the first answer, not before it. The questions are the pack's
      own — only the moment moved. */
   sharpenTitle: L("Make the next answer sharper", "اجعل الجواب التالي أدقّ"),
