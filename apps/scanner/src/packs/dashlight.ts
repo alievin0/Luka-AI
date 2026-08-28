@@ -150,19 +150,20 @@ export const dashlight: ScannerPack = {
     entitlement: "pro",
     defaultProductId: "annual",
     products: [
-      { id: "weekly", label: L("Weekly", "أسبوعي"), fallbackPrice: "$4.99", period: L("week", "أسبوع"), storeTrialDays: 3 },
       {
         id: "annual",
         label: L("Yearly", "سنوي"),
         fallbackPrice: "$29.99",
         period: L("year", "سنة"),
-        // 29.99 / 52 = 0.577. Nothing recomputes this line, so it has to be
-        // re-derived by hand whenever the yearly price moves — a note claiming
-        // the wrong weekly equivalent beside a real store price is a rejection.
+        // Only the fallback. The paywall prefers the store's own
+        // `pricePerWeekString`, so this is what shows before RevenueCat
+        // answers — and it is the one number here that could go stale, since
+        // nothing recomputes 29.99 / 52 when the yearly price moves.
         note: L("Under $0.58 a week", "أقل من $0.58 أسبوعياً"),
         badge: L("Best value", "الأفضل"),
         storeTrialDays: 3,
       },
+      { id: "weekly", label: L("Weekly", "أسبوعي"), fallbackPrice: "$4.99", period: L("week", "أسبوع"), storeTrialDays: 3 },
     ],
   },
   systemPrompt: ({ currency, profile, locale }) => `You are a car mechanic. Analyse a photo of a vehicle dashboard and identify the illuminated warning light.

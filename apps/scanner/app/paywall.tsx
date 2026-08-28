@@ -66,6 +66,7 @@ type Row = {
   title: string;
   price: string;
   period: string;
+  perWeek: string | null;
   /** Null unless this buyer is eligible for a free trial on this plan. */
   freeTrialDays: number | null;
 };
@@ -95,6 +96,7 @@ export default function Paywall() {
           price: offer?.price ?? product.fallbackPrice,
           period: t(product.period),
           freeTrialDays: offer?.freeTrialDays ?? null,
+          perWeek: offer?.perWeek ?? null,
         };
       });
       setOffers(shown);
@@ -105,7 +107,15 @@ export default function Paywall() {
   }, []);
 
   const chosen = pack.pricing.products.find((p) => p.id === selected);
-  const trialDays = offers.find((o) => o.id === selected)?.freeTrialDays ?? null;
+
+  /* Apple grants one introductory offer per subscription *group*, so the trial
+     belongs to the screen, not to a row. Taking the longest on offer rather
+     than the selected plan's keeps the headline from changing as someone taps
+     between two plans that lead to the same three days. */
+  const trialDays = offers.reduce<number | null>(
+    (best, o) => (o.freeTrialDays && (!best || o.freeTrialDays > best) ? o.freeTrialDays : best),
+    null,
+  );
 
   const buy = async () => {
     if (!selected) return;
@@ -212,6 +222,13 @@ export default function Paywall() {
             </View>
           </View>
 
+          {trialDays ? (
+            <View style={styles.trialHead}>
+              <Text style={styles.trialHeadTitle}>{fill(ui.trialOnceTitle, { n: trialDays })}</Text>
+              <Text style={styles.trialHeadBody}>{t(ui.trialOnceBody)}</Text>
+            </View>
+          ) : null}
+
           {offers.length === 0 ? (
             <ActivityIndicator color={TEXT_SOFT} style={styles.loading} />
           ) : (
@@ -234,7 +251,11 @@ export default function Paywall() {
 
                     <View style={styles.offerBody}>
                       <Text style={styles.offerTitle}>{offer.title}</Text>
-                      {configured?.note ? (
+                      {offer.perWeek ? (
+                        <Text style={styles.offerNote}>
+                          {fill(ui.perWeekEquivalent, { price: offer.perWeek })}
+                        </Text>
+                      ) : configured?.note ? (
                         <Text style={styles.offerNote}>{t(configured.note)}</Text>
                       ) : null}
                     </View>
@@ -519,6 +540,16 @@ const styles = StyleSheet.create({
   },
   ctaOff: { opacity: 0.4 },
   ctaText: { color: BG, fontSize: 18, fontFamily: UI_FONT.bold },
+
+  trialHead: { gap: 4, alignItems: "center" },
+  trialHeadTitle: { color: TEXT, fontSize: 19, fontFamily: UI_FONT.bold, textAlign: "center" },
+  trialHeadBody: {
+    color: TEXT_FAINT,
+    fontSize: 12.5,
+    lineHeight: 19,
+    fontFamily: UI_FONT.regular,
+    textAlign: "center",
+  },
 
   trust: { flexDirection: "row", justifyContent: "space-between", gap: 10 },
   trustItem: { flex: 1, alignItems: "center", gap: 6 },

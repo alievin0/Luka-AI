@@ -84,7 +84,15 @@ export async function isPro(): Promise<boolean> {
  * into App Store Connect and `packageType` as a bare enum (`ANNUAL`), and
  * printing either puts untranslated English on an Arabic paywall.
  */
-export type Offer = { id: string; price: string; freeTrialDays: number | null };
+export type Offer = {
+  id: string;
+  price: string;
+  freeTrialDays: number | null;
+  /** The store's own per-week figure for this plan, so a yearly price can be
+   *  compared against a weekly one in the same unit. Null for Android and for
+   *  anything that is not a subscription. */
+  perWeek: string | null;
+};
 
 /** What one unit of an introductory offer's period is worth in days. */
 const DAYS_PER_UNIT: Record<string, number> = {
@@ -156,6 +164,7 @@ export async function getOffers(): Promise<Offer[]> {
       id: productIdFor(p.identifier),
       price: p.product.priceString,
       freeTrialDays: eligible.has(p.product.identifier) ? freeTrialDays(p.product) : null,
+      perWeek: p.product.pricePerWeekString ?? null,
     }));
   } catch {
     return [];

@@ -731,6 +731,12 @@ export const ui = {
   // Onboarding and paywall.
   skipQuestion: L("Skip", "تخطّى"),
   startTrialDays: L("Start {n}-day trial", "ابدأ تجربة {n} أيام"),
+  /* Stated once, above the plans, because Apple grants one introductory offer
+     per subscription group — not one per plan. Printing "3 days free" on both
+     rows describes two offers that do not exist. */
+  trialOnceTitle: L("Start {n} days free", "ابدأ {n} أيام مجاناً"),
+  trialOnceBody: L("Then the plan you pick below. Cancel any time before it ends.", "ثم الخطة التي تختارها أدناه. ويمكنك الإلغاء في أي وقت قبل انتهائها."),
+  perWeekEquivalent: L("{price} a week", "{price} أسبوعياً"),
   subscribeNow: L("Subscribe", "اشترك"),
   bestValue: L("Best value", "الأوفر"),
 

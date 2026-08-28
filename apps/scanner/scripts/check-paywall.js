@@ -103,6 +103,10 @@ ok("paywall.tsx binds trialDays", Boolean(trialBinding));
 const source = trialBinding?.initializer?.getText(paywall) ?? "";
 ok("and takes it from the store's answer", /freeTrialDays/.test(source));
 ok("and not from the pack", !/\bpack\b/.test(source));
+// Apple grants one introductory offer per subscription group. A trial line
+// computed from the selected row describes one offer per plan — two offers
+// that do not exist — and changes as someone taps between them.
+ok("and not from whichever plan is selected", !/\bselected\b/.test(source));
 
 /* --------------------------------------------- the configuration boundary */
 
