@@ -475,7 +475,7 @@ const styles = StyleSheet.create({
   quota: { color: TEXT, ...TYPE.small, fontFamily: FONT.medium },
 
   reticleWrap: { alignItems: "center", gap: SP.xl },
-  reticle: { width: 232, height: 168 },
+  reticle: { width: 232, height: RETICLE_H },
   corner: {
     position: "absolute",
     width: 30,
