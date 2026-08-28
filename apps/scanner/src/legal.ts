@@ -27,8 +27,16 @@ const SITE = (process.env.EXPO_PUBLIC_SITE_URL || "https://luka-ai-psi.vercel.ap
 
 export const privacyUrl = () => `${SITE}/privacy/${activePackId}`;
 
-/** One document covers every app; the subscription terms are identical. */
-export const termsUrl = () => `${SITE}/terms`;
+/**
+ * Terms and support are per-app too.
+ *
+ * The subscription clauses are identical across these apps, so one page used
+ * to cover all of them — but that page then had to name every app and carry
+ * every app's disclaimer, and someone opening the terms for a dashboard
+ * scanner read paragraphs about gold hallmarks and lecture recordings, three
+ * of which are not on any store. A reviewer reads these against one binary.
+ */
+export const termsUrl = () => `${SITE}/terms/${activePackId}`;
 
 /** The App Store requires a reachable support URL for every listing. */
-export const supportUrl = () => `${SITE}/support`;
+export const supportUrl = () => `${SITE}/support/${activePackId}`;

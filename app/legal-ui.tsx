@@ -35,12 +35,3 @@ export function Section({
 export const CONTACT = "alicpa2006@gmail.com";
 export const UPDATED = "27 August 2026";
 
-/** Every app shipped from this codebase, for the pages that cover all of them. */
-export const ALL_APPS = [
-  { id: "dashlight", name: "Dash Light Scanner", one: "identifies a dashboard warning light and says whether it is safe to drive" },
-  { id: "goldscan", name: "Gold Hallmark Scanner", one: "reads a gold hallmark and checks an asking price against the metal value" },
-  { id: "bugscan", name: "Insect Identifier", one: "identifies insects and bites and gives first-aid guidance" },
-  { id: "womensfit", name: "Home Workouts", one: "a four-week bodyweight plan with no equipment" },
-  { id: "dogtrain", name: "Dog Training", one: "twelve positive-reinforcement training sessions" },
-  { id: "mahdar", name: "Mahdar", one: "records a lecture and returns the summary, the assignments and likely exam topics" },
-] as const;

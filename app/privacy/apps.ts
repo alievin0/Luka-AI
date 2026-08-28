@@ -17,6 +17,10 @@ export type AppId =
 
 type Policy = {
   name: string;
+  /** Which archetype this app is. The terms and support pages show only the
+   *  sections that apply — a scanner has no recording-consent question, and a
+   *  program has neither. */
+  kind: "scanner" | "audio" | "program";
   updated: string;
   summary: string;
   collects: string[];
@@ -39,6 +43,7 @@ const SCANNER_COLLECTS = (what: string) => [
 export const APPS: Record<AppId, Policy> = {
   dashlight: {
     name: "Dash Light Scanner",
+    kind: "scanner",
     updated: UPDATED,
     summary:
       "You photograph a warning light and get an answer. The photo is processed to produce that answer and is not kept by us. There is no account, no tracking and no advertising.",
@@ -54,6 +59,7 @@ export const APPS: Record<AppId, Policy> = {
   },
   goldscan: {
     name: "Gold Hallmark Scanner",
+    kind: "scanner",
     updated: UPDATED,
     summary:
       "You photograph a hallmark and get a reading, and you can check a price against the metal value. The photo is processed to produce that answer and is not kept by us.",
@@ -69,6 +75,7 @@ export const APPS: Record<AppId, Policy> = {
   },
   bugscan: {
     name: "Insect Identifier",
+    kind: "scanner",
     updated: UPDATED,
     summary:
       "You photograph an insect or a bite and get an identification and first-aid guidance. The photo is processed to produce that answer and is not kept by us.",
@@ -83,6 +90,7 @@ export const APPS: Record<AppId, Policy> = {
   },
   womensfit: {
     name: "Home Workouts",
+    kind: "program",
     updated: UPDATED,
     summary:
       "This app collects nothing. Your plan, your progress and your streak are stored on your device and never leave it. There is no account, no server, no tracking and no advertising.",
@@ -101,6 +109,7 @@ export const APPS: Record<AppId, Policy> = {
   },
   dogtrain: {
     name: "Dog Training",
+    kind: "program",
     updated: UPDATED,
     summary:
       "This app collects nothing. Your sessions, your progress and your streak are stored on your device and never leave it. There is no account, no server, no tracking and no advertising.",
@@ -119,6 +128,7 @@ export const APPS: Record<AppId, Policy> = {
   },
   mahdar: {
     name: "Mahdar",
+    kind: "audio",
     updated: UPDATED,
     summary:
       "You record a lecture and get a summary, the assignments and what the exam is likely to ask. The recording stays on your device. The text of the lecture is sent to be summarised. There is no account, no tracking and no advertising.",

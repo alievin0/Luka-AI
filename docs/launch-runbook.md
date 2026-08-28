@@ -51,8 +51,8 @@ npx vercel --prod
 Then open all three in a browser and read them:
 
 - `https://<your-domain>/privacy/dashlight`
-- `https://<your-domain>/terms`
-- `https://<your-domain>/support`
+- `https://<your-domain>/terms/dashlight`
+- `https://<your-domain>/support/dashlight`
 
 If the domain is not `luka-ai.vercel.app`, put the real one in `.env`:
 
