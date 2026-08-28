@@ -251,6 +251,39 @@ const storage = fs.readFileSync(path.join(ROOT, "src/storage.ts"), "utf8");
 const free = storage.match(/export const FREE_SCANS = (\d+);/);
 ok(`FREE_SCANS is 2 (found ${free?.[1] ?? "nothing"})`, free?.[1] === "2");
 
+/* ------------------------------------------------------------- the archive
+
+   The history gate sells the archive and never the answer. Two ways in — the
+   list, and a `?id=` route straight to one entry — so both are asserted; a
+   lock on one with the other left open is not a gate. */
+
+const freeHistory = storage.match(/export const FREE_HISTORY = (\d+);/);
+ok(`FREE_HISTORY is 2 (found ${freeHistory?.[1] ?? "nothing"})`, freeHistory?.[1] === "2");
+
+const historySrc = fs.readFileSync(path.join(ROOT, "app/(tabs)/history.tsx"), "utf8");
+ok(
+  "the history list slices to FREE_HISTORY for a free reader",
+  /pro \? filtered : filtered\.slice\(0, FREE_HISTORY\)/.test(historySrc),
+);
+// isPro() read once on mount leaves a buyer looking at the lock they just
+// paid to remove; every other gated screen here re-reads on focus.
+ok(
+  "and re-reads the entitlement on focus, not once on mount",
+  /useFocusEffect\([\s\S]{0,200}isPro\(\)/.test(historySrc),
+);
+
+const resultSrc = fs.readFileSync(path.join(ROOT, "app/result.tsx"), "utf8");
+ok(
+  "opening an entry by id applies the same rule",
+  /subscribed \|\| index < FREE_HISTORY/.test(resultSrc),
+);
+// An older scan is saved and real. Reporting it missing would be untrue as
+// well as unhelpful, so it gets its own answer.
+ok(
+  "and a locked entry offers the way in rather than reporting it missing",
+  /lockedByHistory/.test(resultSrc) && /ui\.unlockHistory/.test(resultSrc),
+);
+
 /* The roadside decision is the safety half of the answer and the reason the
    app is not another symbol reader. It goes free for the same reason the
    verdict does, and it is one `locked` away from not being. */

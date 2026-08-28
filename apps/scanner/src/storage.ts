@@ -39,12 +39,44 @@ const KEYS = {
  */
 export const FREE_SCANS = 2;
 
+/**
+ * How many past scans a free reader can open.
+ *
+ * The archive is what the subscription sells here, never the answer: the two
+ * most recent scans stay fully readable, and the safety verdict inside any
+ * entry a free reader can open is free as it always was. What is behind the
+ * price is going back through months of them.
+ *
+ * Two rather than one for the same reason FREE_SCANS is two: a list of one is
+ * not a list, and a driver who scanned twice in a week should be able to
+ * compare the two without paying to remember what happened yesterday.
+ */
+export const FREE_HISTORY = 2;
+
 export type HistoryEntry = {
   id: string;
   at: number;
   imageUri: string;
   result: ScanResult;
+  /**
+   * Which car this scan was of, as "brand model", recorded at scan time.
+   *
+   * Optional, and it has to be: the profile is global and the driver can
+   * change it, so every scan saved before this existed has no vehicle and
+   * there is nothing truthful to fill in. Those entries show under every
+   * filter rather than vanishing from all of them — absent means "from before
+   * we recorded this", never "not this car".
+   */
+  vehicle?: string;
 };
+
+/** The label a history entry is filed under, from the onboarding answers.
+ *  Empty when the driver never said, which is a legitimate state: the car
+ *  questions are asked after the first scan, not before it. */
+export function vehicleOf(profile: Profile): string | undefined {
+  const label = [profile.brand, profile.model].filter(Boolean).join(" ").trim();
+  return label || undefined;
+}
 
 export type Profile = Record<string, string>;
 

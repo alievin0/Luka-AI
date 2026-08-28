@@ -5,7 +5,15 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { pack, isScanner, optionLabel, optionValue } from "../src/packs";
 import Feather from "@expo/vector-icons/Feather";
 import { SymbolBadge } from "../src/components/SymbolBadge";
-import { currencyFor, getHistory, getProfile, updateProfile, type HistoryEntry, type Profile } from "../src/storage";
+import {
+  currencyFor,
+  FREE_HISTORY,
+  getHistory,
+  getProfile,
+  updateProfile,
+  type HistoryEntry,
+  type Profile,
+} from "../src/storage";
 import { isPro } from "../src/purchases";
 import { decide } from "../src/decision";
 import { useReducedMotion } from "../src/motion";
@@ -100,6 +108,9 @@ export default function Result() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [entry, setEntry] = useState<HistoryEntry | null>(null);
+  /** The scan exists but sits past the free window — a different answer
+   *  from "we couldn't find that scan", and it deserves a different one. */
+  const [lockedByHistory, setLockedByHistory] = useState(false);
   const [profile, setProfile] = useState<Profile>({});
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<View4>("summary");
@@ -136,7 +147,18 @@ export default function Result() {
         getProfile(),
         isPro(),
       ]);
-      setEntry(history.find((h) => h.id === id) ?? null);
+      /* The history list locks everything past the newest FREE_HISTORY for a
+         free reader, and this screen is the other way in — a `?id=` route
+         that would happily open the fortieth scan. Gating one and not the
+         other is a lock with the door open beside it, so the same rule is
+         applied to the same list, in the same order the list shows it.
+
+         A scan just taken is index 0, so this never stands between a driver
+         and the answer they are waiting for. */
+      const index = history.findIndex((h) => h.id === id);
+      const reachable = subscribed || index < FREE_HISTORY;
+      setEntry(index >= 0 && reachable ? history[index] : null);
+      setLockedByHistory(index >= 0 && !reachable);
       setProfile(saved);
       setPro(subscribed);
       setLoading(false);
@@ -182,6 +204,22 @@ export default function Result() {
       <View style={styles.centre}>
         <ActivityIndicator color={TEXT_SOFT} />
       </View>
+    );
+  }
+
+  /* The scan is saved and real — it is simply older than the free window. So
+     the screen offers the way to it rather than reporting it missing, which
+     would be both unhelpful and untrue. */
+  if (lockedByHistory) {
+    return (
+      <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
+        <EmptyState
+          glyph="◈"
+          title={t(ui.unlockHistory)}
+          action={t(ui.upgrade)}
+          onAction={() => router.replace({ params: { after: "history" }, pathname: "/paywall" })}
+        />
+      </SafeAreaView>
     );
   }
 

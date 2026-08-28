@@ -91,6 +91,12 @@ export const ui = {
   noScansYet: L("No scans yet", "لا توجد فحوصات بعد"),
   longPressDelete: L("Long-press any scan to delete it", "اضغط مطوّلاً على أي فحص لمسحه"),
   deleteScan: L("Delete this scan?", "امسح هذا الفحص؟"),
+  /* The locked row under a free reader's two visible scans. It states the
+     count, because "you have more" is worth less than "you have nine". */
+  moreScansLocked: L("{n} more scans saved", "{n} فحوصات أخرى محفوظة"),
+  unlockHistory: L("Unlock your full history", "افتح سجلك كاملاً"),
+  allVehicles: L("All cars", "كل السيارات"),
+  noVehicle: L("Car not recorded", "السيارة غير مسجّلة"),
 
   // library
   searchGuide: L("Search the guide…", "ابحث في الدليل…"),
@@ -689,6 +695,10 @@ export const ui = {
   paywallAfterOk: L(
     "Your reading says: no need to stop.",
     "نتيجتك تقول: لا يوجد ما يستدعي التوقف.",
+  ),
+  paywallAfterHistory: L(
+    "Every scan you have taken is saved on this phone.",
+    "كل فحص أجريته محفوظ على هذا الهاتف.",
   ),
   paywallAfterSub: L(
     "Open the full report for the cause, the cost, and what to do now.",

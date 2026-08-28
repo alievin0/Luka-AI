@@ -5,7 +5,14 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { pack } from "../../src/packs";
 import { locale, t } from "../../src/i18n";
 import { ui } from "../../src/i18n/ui";
-import { getHistory, removeFromHistory, type HistoryEntry } from "../../src/storage";
+import {
+  FREE_HISTORY,
+  getHistory,
+  removeFromHistory,
+  type HistoryEntry,
+} from "../../src/storage";
+import { isPro } from "../../src/purchases";
+import { fill } from "../../src/i18n";
 import {
   BG,
   SURFACE,
@@ -19,7 +26,7 @@ import {
   RADIUS,
   READ,
 } from "../../src/scanner-ui";
-import { SeverityDot, EmptyState, Caption } from "../../src/components/scanner-kit";
+import { SeverityDot, EmptyState, Caption, Pill } from "../../src/components/scanner-kit";
 import { NAV_CLEARANCE } from "../../src/components/ScannerNav";
 
 /**
@@ -33,17 +40,45 @@ import { NAV_CLEARANCE } from "../../src/components/ScannerNav";
 export default function History() {
   const router = useRouter();
   const [entries, setEntries] = useState<HistoryEntry[]>([]);
+  const [pro, setPro] = useState(false);
+  const [vehicle, setVehicle] = useState<string | null>(null);
 
+  /* Re-read on focus rather than once on mount. Someone who has just bought
+     the subscription comes back to this screen from Apple's sheet, and a
+     cached `false` would leave them looking at the lock they paid to remove. */
   useFocusEffect(
     useCallback(() => {
       getHistory().then(setEntries);
+      isPro().then(setPro);
     }, []),
   );
+
+  /* Only the cars actually present in the history, so the filter never offers
+     a car with nothing behind it. Entries saved before the vehicle was
+     recorded have none, and are handled below rather than listed here. */
+  const vehicles = [...new Set(entries.map((e) => e.vehicle).filter(Boolean))] as string[];
+  const filtered = vehicle
+    ? entries.filter((e) => e.vehicle === vehicle || !e.vehicle)
+    : entries;
+
+  // The gate is on what a free reader can open, not on what the filter found:
+  // filtering to two entries must not quietly unlock a third.
+  const visible = pro ? filtered : filtered.slice(0, FREE_HISTORY);
+  const locked = filtered.length - visible.length;
 
   return (
     <View style={styles.screen}>
       <SafeAreaView style={styles.fill} edges={["top"]}>
         <Text style={styles.title}>{t(ui.history)}</Text>
+
+        {pro && vehicles.length > 1 ? (
+          <View style={styles.filter}>
+            <Pill label={t(ui.allVehicles)} active={vehicle === null} onPress={() => setVehicle(null)} />
+            {vehicles.map((name) => (
+              <Pill key={name} label={name} active={vehicle === name} onPress={() => setVehicle(name)} />
+            ))}
+          </View>
+        ) : null}
 
         {entries.length === 0 ? (
           <EmptyState
@@ -56,7 +91,7 @@ export default function History() {
         ) : (
           <FlatList
             contentContainerStyle={styles.content}
-            data={entries}
+            data={visible}
             keyExtractor={(item) => item.id}
             ListHeaderComponent={<Caption>{t(ui.longPressDelete)}</Caption>}
             showsVerticalScrollIndicator={false}
@@ -104,6 +139,24 @@ export default function History() {
                 </Pressable>
               );
             }}
+            ListFooterComponent={
+              locked > 0 ? (
+                <Pressable
+                  style={({ pressed }) => [styles.locked, pressed && { opacity: 0.85 }]}
+                  onPress={() => router.push({ params: { after: "history" }, pathname: "/paywall" })}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${fill(ui.moreScansLocked, { n: locked })} — ${t(ui.unlockHistory)}`}
+                >
+                  <View style={styles.lockGlyph}>
+                    <Text style={styles.lockGlyphText}>◈</Text>
+                  </View>
+                  <View style={styles.rowBody}>
+                    <Text style={styles.rowTitle}>{fill(ui.moreScansLocked, { n: locked })}</Text>
+                    <Text style={styles.rowMeta}>{t(ui.unlockHistory)}</Text>
+                  </View>
+                </Pressable>
+              ) : null
+            }
           />
         )}
       </SafeAreaView>
@@ -143,6 +196,27 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   thumbGlyph: { color: TEXT_FAINT, fontSize: 18 },
+  filter: { flexDirection: "row", flexWrap: "wrap", gap: SP.sm, paddingHorizontal: SP.lg, paddingBottom: SP.md },
+  locked: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: SP.md,
+    backgroundColor: SURFACE,
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    borderColor: BORDER,
+    borderStyle: "dashed",
+    padding: SP.md,
+  },
+  lockGlyph: {
+    width: 54,
+    height: 54,
+    borderRadius: RADIUS.sm,
+    backgroundColor: SURFACE_HIGH,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  lockGlyphText: { color: TEXT_FAINT, fontSize: 20 },
   rowBody: { flex: 1, gap: 3 },
   rowTitle: { color: TEXT, ...TYPE.body, fontFamily: FONT.semibold, textAlign: READ },
   rowMeta: { color: TEXT_FAINT, ...TYPE.small, fontFamily: FONT.regular, textAlign: READ },

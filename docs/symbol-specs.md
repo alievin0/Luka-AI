@@ -114,3 +114,45 @@ first 41 went through, and these two passed it.
 
 The old `oil-can` and `thermometer` are untouched — still correct for
 `oil-pressure` and `coolant-temp-high`. This added two symbols; it replaced none.
+
+---
+
+## A sixth benefit mark, if the paywall is to sell the archive
+
+Added 28 Aug 2026, when `FREE_HISTORY` made the claim true.
+
+History is now gated — a free reader sees the two most recent scans and a
+locked row for the rest — so the paywall *may* finally say so. It does not,
+because there is no mark to say it with, and the alternative was worse than
+the omission.
+
+The benefit grid is **one row of five** (`app/paywall.tsx`, `grid` is
+`flexDirection: "row"` with `flex: 1` cells). Five across a 390pt phone leaves
+each column about 68pt, which is already why `cellTitle` is down at 11pt. A
+sixth cell takes each column to roughly 57pt and pushes the type under a
+legible floor — on the one screen whose whole job is to convert. So the choice
+is not "five or six"; it is **which five**.
+
+Two ways forward, both needing a decision before any drawing:
+
+1. **Replace `benefitSeconds`.** "In seconds — photograph the light, get the
+   answer" describes the *free* scan. By the time someone reaches this screen
+   they have done two, so the cell is spending a fifth of the grid telling them
+   about something they already have. History would sell better in that slot.
+2. **Keep five and leave history unadvertised.** Costs a selling point, claims
+   nothing untrue. This is the state today.
+
+If (1) is chosen, the mark to draw:
+
+| | |
+| --- | --- |
+| key | `benefitHistory` |
+| file | `assets/dashlight/benefit-history.png` |
+| box | 66 × 68 design units, matching `benefitSeconds` and `benefitCost` |
+| colour | white, like the other four — the benefit marks are not tinted |
+| subject | a short stack of cards or receipts seen at a slight angle, the top one carrying a single warning-lamp glyph. Not a clock (that is elapsed time, not an archive) and not a folder (that is filing, not a record of your own car) |
+| weight | the same stroke as `benefit-steps.png`, which is the thinnest of the five and sets the floor |
+
+The copy is already written and translated into all eight languages:
+`ui.moreScansLocked`, `ui.unlockHistory`, and the paywall's own
+`ui.paywallAfterHistory`.

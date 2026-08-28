@@ -84,6 +84,9 @@ const AFTER = {
   stop: ui.paywallAfterStop,
   caution: ui.paywallAfterCaution,
   ok: ui.paywallAfterOk,
+  // Not a verdict — this is someone who reached the paywall from the archive
+  // rather than from a reading, and the line should meet them where they are.
+  history: ui.paywallAfterHistory,
 } as const;
 
 export default function Paywall() {

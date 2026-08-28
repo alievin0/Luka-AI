@@ -27,6 +27,7 @@ import {
   getProfile,
   getScanCount,
   profileSummary,
+  vehicleOf,
 } from "../storage";
 import { scanImage, ScanError } from "../api";
 import { isPro } from "../purchases";
@@ -175,7 +176,16 @@ export function ScannerHome({ pack }: { pack: ScannerPack }) {
        * before they can see what went wrong. It does not spend the quota. */
       if (result.detected) await bumpScanCount();
 
-      const entry = { id: String(Date.now()), at: Date.now(), imageUri: readyUri, result };
+      // Recorded now rather than read back later: the profile is global and
+      // the driver can change cars, so an entry that asked "which car is set
+      // today" would refile every past scan under the newest answer.
+      const entry = {
+        id: String(Date.now()),
+        at: Date.now(),
+        imageUri: readyUri,
+        result,
+        vehicle: vehicleOf(profile),
+      };
       await addToHistory(entry);
       await refreshQuota();
       router.push({ params: { id: entry.id }, pathname: "/result" });
