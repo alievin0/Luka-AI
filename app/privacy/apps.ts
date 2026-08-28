@@ -31,8 +31,14 @@ type Policy = {
   contact: string;
 };
 
-const CONTACT = "alicpa2006@gmail.com";
-const UPDATED = "27 August 2026";
+/** One address for every app in this repository, and the only place it is
+ *  written — six policies point here, so a change reaches eighteen pages. It is
+ *  deliberately not a personal address: it goes on a public store listing, and
+ *  on the EU trader declaration beside a name, an address and a phone number. */
+const CONTACT = "lukaai.help@gmail.com";
+/** Printed as "Last updated" on all three legal pages, so it moves whenever
+ *  what they say changes — the contact clause changed on this date. */
+const UPDATED = "28 August 2026";
 
 const SCANNER_COLLECTS = (what: string) => [
   `The photograph you choose to ${what}. It is used to answer your question and is not stored on our servers.`,

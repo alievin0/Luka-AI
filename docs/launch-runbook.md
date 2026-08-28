@@ -72,8 +72,19 @@ If the domain is not `luka-ai.vercel.app`, put the real one in `.env`:
 EXPO_PUBLIC_SITE_URL=https://your-real-domain.com
 ```
 
-**Also decide:** the support contact is a personal Gmail
-(`app/privacy/apps.ts:30`). It is legal, but it goes on a public store listing.
+**Decided, 28 Aug 2026:** the support contact is `lukaai.help@gmail.com`, one
+address for all six apps, written once at `app/privacy/apps.ts`. It replaced a
+personal Gmail, which was legal but published on the store listing.
+
+That became worth doing when the distribution question was settled: **all
+countries, including the EU**, which requires declaring trader status under the
+Digital Services Act — name, address, phone and email displayed publicly on the
+EU listing. The email is the one part of that exposure that can be reduced.
+
+**Enter the same address in both other places**, or the store listing and the
+legal pages disagree, which is a review finding: the DSA trader declaration
+(App Store Connect → Business → the compliance banner), and the app record's
+support and marketing contact.
 
 ---
 
