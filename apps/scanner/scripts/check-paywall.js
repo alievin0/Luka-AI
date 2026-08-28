@@ -1,5 +1,8 @@
 /**
- * The paywall's one promise that costs money to break.
+ * The two rules the purchase surface must not break: never promise a trial
+ * the buyer cannot have, and never sell a safety judgement.
+ *
+ * ---- 1. the trial ----------------------------------------------------------
  *
  * "ابدأ تجربة ٣ أيام" is a claim about the person reading it, not about the
  * plan. Apple grants one introductory offer per *subscription group*, so
@@ -15,7 +18,7 @@
  * The rename to `storeTrialDays` means the typecheck already catches a screen
  * reading the trial off the pack. These are the links it cannot see.
  *
- *   node scripts/check-trial.js
+ *   node scripts/check-paywall.js
  */
 const fs = require("fs");
 const path = require("path");
@@ -123,9 +126,57 @@ const leaks = screens.filter((f) =>
 ok(`no screen reads storeTrialDays (${screens.length} files)`, leaks.length === 0);
 if (leaks.length) console.log(`     read by: ${leaks.join(", ")}`);
 
+/* ------------------------------------------------- 2. the safety judgement
+
+   A driver stopped on the hard shoulder is asking one question: can I keep
+   driving? Dash Light answers it free, forever. The report behind it — the
+   cause, the cost, what breaks if they carry on — is the subscription.
+
+   The line between the two is a single `locked` flag in the JSX, and moving
+   the verdict to the wrong side of it is a one-word edit that no test would
+   notice and no screenshot would show, because the paid screen looks right.
+   What it would mean is a red light and no verdict for someone who has not
+   paid, which is the one thing this app must never do. */
+
+const result = parse("app/result.tsx");
+const resultNodes = [...nodes(result)];
+
+/** Is this node rendered only when the report is unlocked? */
+const behindTheGate = (node) => {
+  for (let n = node; n; n = n.parent) {
+    if (ts.isConditionalExpression(n) && /\blocked\b/.test(n.condition.getText(result))) return true;
+  }
+  return false;
+};
+
+const verdict = resultNodes.find(
+  (n) =>
+    (ts.isJsxSelfClosingElement(n) || ts.isJsxOpeningElement(n)) &&
+    n.tagName.getText(result) === "VerdictBand",
+);
+ok("result.tsx renders the VerdictBand", Boolean(verdict));
+ok("and the verdict is never behind the paywall", Boolean(verdict) && !behindTheGate(verdict));
+
+// The other half: every report panel must be behind it.
+const panels = resultNodes.filter(
+  (n) => ts.isConditionalExpression(n) && /active === "/.test(n.condition.getText(result)),
+);
+ok(`every report panel is gated (${panels.length} found)`, panels.length >= 4);
+const open = panels.filter((n) => !/\blocked\b/.test(n.condition.getText(result)));
+ok("and none of them renders for a free reader", open.length === 0);
+if (open.length) {
+  for (const n of open) console.log(`     ungated: ${n.condition.getText(result)}`);
+}
+
+// One free scan. The number is the business model; a stray edit to it is the
+// difference between selling a report and giving two away.
+const storage = fs.readFileSync(path.join(ROOT, "src/storage.ts"), "utf8");
+const free = storage.match(/export const FREE_SCANS = (\d+);/);
+ok(`FREE_SCANS is 1 (found ${free?.[1] ?? "nothing"})`, free?.[1] === "1");
+
 /* --------------------------------------------------------------- report */
 
 console.log(
-  `\n${problems.length ? `${problems.length} problems.` : "The trial is only ever promised to someone the store says can have it."}`,
+  `\n${problems.length ? `${problems.length} problems.` : "The trial is only promised to someone who can have it, and the verdict is never sold."}`,
 );
 if (problems.length) process.exit(1);

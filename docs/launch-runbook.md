@@ -273,13 +273,53 @@ this is a crisis app rather than a habit. Monthly is the worst fit — too dear 
 buy on impulse, too short to retain. Weekly converts in the moment; yearly serves
 the smaller group who want the guide and the history.
 
-**Why the lower pair.** A weekly plan on a crisis app inevitably earns some of
-its revenue from someone forgetting to cancel. That is worth being deliberate
-about rather than pretending otherwise: a lower price means better conversion,
-fewer refunds, fewer one-star reviews, and less exposure at review time. The
-three defences already in the app — the 3-day trial, a paywall that states the
-terms plainly, and a restore button that reports its outcome — are the rest of
-that answer, and none of them should be weakened.
+**Why the lower pair.** A weekly plan on a crisis app will earn some revenue
+from people who forget to cancel. Earlier drafts of this file treated that as
+an unavoidable side-effect to be honest about. It is now a thing the product is
+built against, decided 28 Aug 2026:
+
+> Revenue comes from someone finding the app worth paying for, never from
+> missing a renewal date. It is better for retention, for reviews, and for the
+> app's standing at review time.
+
+A lower price is part of that, and so are the defences already in the app — the
+trial, a paywall that states the renewal terms plainly, and a restore button
+that reports its outcome. None of them should be weakened, and the reminder
+before the trial converts belongs to the same policy rather than to marketing.
+
+### 4a-2. What the free scan gives away — decided, 28 Aug 2026
+
+**One free scan, and it returns the verdict only.**
+
+`FREE_SCANS` was 2, and each of those two returned the whole report. On a crisis
+app that is the entire product, given away twice: a warning light comes on two
+to four times a year, so the second free scan is not a second chance to convince
+anybody — it is the next emergency, months later, answered for nothing.
+
+The cut is not "half the answer". It is drawn where safety stops and diagnosis
+begins:
+
+| Free, always | The subscription |
+|---|---|
+| The verdict — stop / caution / safe to continue | The likely causes |
+| The light's name and severity | What happens if it is ignored |
+| How sure the model is | What to do, step by step |
+| | The repair cost estimate |
+| | What it means on that particular car |
+| | The other lights lit in the same photo |
+
+A driver on the hard shoulder gets the answer to the question that made them
+open the app — *can I keep driving?* — without paying, and that never changes.
+`npm run check:paywall` fails if the verdict ever moves behind the gate, because
+it is a one-word edit in the JSX that no screenshot and no passing build would
+catch.
+
+The benchmark that started this — 10.7% trial-to-paid on a hard paywall against
+2.1% on freemium, from `app-profit-research-2026.md:142` — is a market figure,
+not a promise about this app. It was enough to say the two free reports were
+wrong. It is not enough to plan revenue on, and the number to watch instead is
+**trial-to-paid per plan**, which RevenueCat reports natively once both products
+are live.
 
 **Also do this:** enrol in **Apple's Small Business Program**. It cuts the
 commission from 30% to 15% for anyone under $1M a year, it is free, and this

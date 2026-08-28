@@ -11,7 +11,7 @@
     "deploy:api": "eas deploy",
     "check:emphasis": "node scripts/check-emphasis.js",
     "check:transcribe": "node scripts/check-transcribe.js",
-    "check": "npm run typecheck && npm run check:arabic && npm run check:schema && npm run check:symbols && npm run check:lectures && npm run check:ratelimit && npm run check:trial && npm run check:emphasis && npm run check:transcribe && npm run check:ics && npm run check:provenance && npm run check:study && npm run check:candidates",
+    "check": "npm run typecheck && npm run check:arabic && npm run check:schema && npm run check:symbols && npm run check:lectures && npm run check:ratelimit && npm run check:paywall && npm run check:emphasis && npm run check:transcribe && npm run check:ics && npm run check:provenance && npm run check:study && npm run check:candidates",
     "check:ics": "node scripts/check-ics.js",
     "check:provenance": "node scripts/check-provenance.js",
     "check:study": "node scripts/check-study.js",
@@ -21,7 +21,7 @@
     "check:symbols": "node scripts/make-two-symbols.js --check",
     "check:lectures": "node scripts/check-lectures.js",
     "check:ratelimit": "node scripts/check-ratelimit.js",
-    "check:trial": "node scripts/check-trial.js"
+    "check:paywall": "node scripts/check-paywall.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.109.1",

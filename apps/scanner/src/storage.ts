@@ -17,13 +17,23 @@ const KEYS = {
 /**
  * How many scans a user gets before the paywall.
  *
- * Two rather than one: the first scan is often a test — a driver pointing the
- * camera at a dashboard that is not lit, or a photo too dark to read — and
- * spending someone's only free scan on their trial run means they hit the
- * paywall having never seen the app work. The second is the one that answers
- * a real question, and that is what they are being asked to pay for.
+ * One, because one is all this app is asked for. A warning light comes on two
+ * to four times a year, so a second free scan is not a second chance to be
+ * convinced — it is the next emergency, months away, answered for nothing.
+ *
+ * The reason there used to be two no longer applies. It was that a first scan
+ * is often a test — a dashboard that is not lit, a photo too dark to read —
+ * and burning someone's only try on it would send them to the paywall having
+ * never seen the app work. That is now handled where it belongs:
+ * `ScannerHome` only calls `bumpScanCount()` when `result.detected`, so a
+ * photo the model could not read costs nothing.
+ *
+ * The one free scan is not the whole answer either. It returns the verdict and
+ * the light's name — the part a driver on the hard shoulder needs to decide
+ * whether to keep driving, which is never sold — and the report behind it is
+ * what the subscription is for.
  */
-export const FREE_SCANS = 2;
+export const FREE_SCANS = 1;
 
 export type HistoryEntry = {
   id: string;

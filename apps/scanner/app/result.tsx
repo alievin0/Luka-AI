@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator, Share } from "react-native";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { pack, isScanner } from "../src/packs";
 import Feather from "@expo/vector-icons/Feather";
 import { SymbolBadge } from "../src/components/SymbolBadge";
 import { currencyFor, getHistory, getProfile, type HistoryEntry, type Profile } from "../src/storage";
+import { isPro } from "../src/purchases";
 import { formatMoneyRange } from "../src/money";
 import { carLabel } from "../src/car";
 import { t, fill } from "../src/i18n";
@@ -59,6 +60,18 @@ import {
  * resolver, so the two can never contradict each other in the markup — the
  * failure that would matter most here is a red warning above the words "safe
  * to continue".
+ *
+ * Half of this screen is the product. The verdict, the light's name and how
+ * sure the model is are free forever: they are what a driver on the hard
+ * shoulder needs to decide whether to keep driving, and a safety judgement is
+ * not something to sell. Everything that follows — why it happened, what it
+ * costs, what breaks if they carry on — is the subscription, and a free reader
+ * sees a panel naming exactly those parts instead.
+ *
+ * That panel lists only what this particular result actually holds, for the
+ * same reason the tabs above it do. Selling a driver "what it means on your
+ * car" when the model returned no `carContext` is a promise the purchase
+ * cannot keep, and they find that out after paying.
  */
 
 type View4 = "summary" | "causes" | "actions" | "also";
@@ -78,15 +91,41 @@ export default function Result() {
   const [profile, setProfile] = useState<Profile>({});
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<View4>("summary");
+  // Starts locked. A subscriber sees the report a moment later; the opposite
+  // default would flash the whole thing to someone who has not bought it.
+  const [pro, setPro] = useState(false);
 
   useEffect(() => {
     (async () => {
-      const [history, saved] = await Promise.all([getHistory(), getProfile()]);
+      const [history, saved, subscribed] = await Promise.all([
+        getHistory(),
+        getProfile(),
+        isPro(),
+      ]);
       setEntry(history.find((h) => h.id === id) ?? null);
       setProfile(saved);
+      setPro(subscribed);
       setLoading(false);
     })();
   }, [id]);
+
+  /* The moment the whole flow is built around: they read the verdict, tapped
+     "open the full report", subscribed, and Apple's sheet dropped them back
+     here. Reading `isPro()` once on mount would leave that screen locked with
+     the receipt already issued — the report they just paid for, still behind
+     the button that sold it. So it is re-read every time the screen is looked
+     at, which is also what refreshes it after a restore or an expiry. */
+  useFocusEffect(
+    useCallback(() => {
+      let live = true;
+      isPro().then((yes) => {
+        if (live) setPro(yes);
+      });
+      return () => {
+        live = false;
+      };
+    }, []),
+  );
 
   const result = entry?.result;
 
@@ -142,10 +181,30 @@ export default function Result() {
 
   const labels = scannerPack?.labels;
   const showCost = scannerPack?.showCost ?? false;
+  const locked = !pro;
+
+  /** The report's contents, named one by one — and only the ones that are
+   *  actually in this result. Same rule as the tabs: never advertise an empty
+   *  panel, least of all one behind a price. */
+  const inTheReport = [
+    result.causes?.length ? ui.reportCauses : null,
+    result.ifIgnored ? ui.reportIfIgnored : null,
+    result.actions?.length || result.seekHelpIf?.length ? ui.reportActions : null,
+    showCost && result.cost ? ui.reportCost : null,
+    result.carContext ? ui.reportCar : null,
+    result.alsoDetected?.length ? ui.reportAlso : null,
+  ].filter((line): line is NonNullable<typeof line> => line !== null);
+
+  /* If the model returned nothing beyond the verdict, there is no report to
+     sell. Offering one anyway would be charging for an empty screen — the
+     same mistake as a tab that opens on nothing, with a price on it. */
+  const sellReport = locked && inTheReport.length > 0;
   const grade = gradeOf(result.severity);
   const verdict = verdictGrade(result.verdictLevel);
   const active = views.some((v) => v.key === view) ? view : "summary";
 
+  /* Shares what the screen is showing, and no more. A locked report that can
+     be forwarded in full out of the share sheet is not locked. */
   const share = () =>
     Share.share({
       message: [
@@ -153,7 +212,7 @@ export default function Result() {
         result.verdict,
         "",
         result.summary,
-        ...(result.actions?.length
+        ...(!locked && result.actions?.length
           ? ["", `${labels ? t(labels.actions) : t(ui.resTabActions)}:`, ...result.actions.map((a, i) => `${i + 1}. ${a}`)]
           : []),
       ].join("\n"),
@@ -222,11 +281,11 @@ export default function Result() {
 
           <ConfidenceMeter level={result.confidence} label={t(CONFIDENCE_LABEL[result.confidence])} />
 
-          {views.length > 1 ? (
+          {!locked && views.length > 1 ? (
             <Segmented items={views} value={active} onChange={setView} style={styles.tabs} />
           ) : null}
 
-          {active === "summary" ? (
+          {!locked && active === "summary" ? (
             <View style={styles.stack}>
               {/* Consequence, in the grade's own colour. This is what turns a
                   warning into a decision. */}
@@ -287,7 +346,7 @@ export default function Result() {
             </View>
           ) : null}
 
-          {active === "causes" ? (
+          {!locked && active === "causes" ? (
             <Card>
               <SectionTitle>{labels ? t(labels.causes) : ""}</SectionTitle>
               {result.causes.map((cause, i) => (
@@ -296,7 +355,7 @@ export default function Result() {
             </Card>
           ) : null}
 
-          {active === "actions" ? (
+          {!locked && active === "actions" ? (
             <View style={styles.stack}>
               {result.actions?.length ? (
                 <Card>
@@ -317,7 +376,7 @@ export default function Result() {
             </View>
           ) : null}
 
-          {active === "also" ? (
+          {!locked && active === "also" ? (
             <Card>
               <SectionTitle>{t(ui.alsoDetected)}</SectionTitle>
               {(result.alsoDetected ?? []).map((other, i) => (
@@ -329,6 +388,27 @@ export default function Result() {
             </Card>
           ) : null}
 
+          {/* What was withheld, named. A blurred screenshot of the real
+              thing would convert better and would also be a picture of an
+              answer they cannot read — this says plainly what is inside. */}
+          {sellReport ? (
+            <Card style={styles.locked}>
+              <View style={styles.lockedHead}>
+                <Feather name="lock" size={16} color={TEXT_SOFT} />
+                <SectionTitle>{t(ui.fullReport)}</SectionTitle>
+              </View>
+              <Caption>{t(ui.fullReportSub)}</Caption>
+              <View style={styles.lockedList}>
+                {inTheReport.map((line, i) => (
+                  <View key={i} style={styles.lockedRow}>
+                    <Feather name="lock" size={13} color={TEXT_FAINT} />
+                    <Text style={styles.lockedText}>{t(line)}</Text>
+                  </View>
+                ))}
+              </View>
+            </Card>
+          ) : null}
+
           {/* Said once, at the foot, in the smallest type on the screen —
               present because it has to be, not competing with the verdict. */}
           <Text style={styles.disclaimer}>{t(pack.disclaimer)}</Text>
@@ -336,7 +416,16 @@ export default function Result() {
       </SafeAreaView>
 
       <SafeAreaView edges={["bottom"]} style={styles.footer}>
-        <Button label={t(ui.scanAgain)} variant="primary" block onPress={() => router.replace("/")} />
+        {sellReport ? (
+          <Button
+            label={t(ui.openFullReport)}
+            variant="primary"
+            block
+            onPress={() => router.push("/paywall")}
+          />
+        ) : (
+          <Button label={t(ui.scanAgain)} variant="primary" block onPress={() => router.replace("/")} />
+        )}
       </SafeAreaView>
     </View>
   );
@@ -442,6 +531,18 @@ const styles = StyleSheet.create({
 
   alsoRow: { flexDirection: "row", alignItems: "center", gap: SP.md, minHeight: 32 },
   alsoText: { flex: 1, color: TEXT, ...TYPE.body, fontFamily: FONT.regular, textAlign: READ },
+
+  locked: { gap: SP.sm },
+  lockedHead: { flexDirection: "row", alignItems: "center", gap: SP.sm },
+  lockedList: { gap: SP.sm, marginTop: SP.xs },
+  lockedRow: { flexDirection: "row", alignItems: "center", gap: SP.sm },
+  lockedText: {
+    flex: 1,
+    color: TEXT,
+    ...TYPE.body,
+    fontFamily: FONT.regular,
+    textAlign: READ,
+  },
 
   disclaimer: {
     color: TEXT_FAINT,

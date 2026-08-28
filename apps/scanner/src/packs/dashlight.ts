@@ -137,8 +137,9 @@ export const dashlight: ScannerPack = {
    *
    * Priced low on purpose. A scan costs about 4 cents to serve, so break-even
    * is over a hundred scans a week — cost has no opinion here, and what a
-   * lower price buys instead is conversion, fewer refunds, and less of the
-   * revenue coming from someone forgetting to cancel.
+   * lower price buys instead is conversion, fewer refunds, and fewer people
+   * paying only because they missed a renewal date. That last one is policy,
+   * not a hoped-for side-effect: see the runbook's §4a.
    *
    * `fallbackPrice` is only what the paywall shows before RevenueCat answers.
    * The real prices come from the store, so changing a number here changes

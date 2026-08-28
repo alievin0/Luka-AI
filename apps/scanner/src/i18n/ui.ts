@@ -643,6 +643,22 @@ export const ui = {
   whatItMeans: L("What it means", "ما معناها"),
   commonCauses: L("Common causes", "الأسباب الشائعة"),
   whatToDoNow: L("What to do now", "ما العمل الآن"),
+
+  /* The report behind the paywall.
+     Each line names something this particular result actually contains — an
+     empty promise on a locked panel is a worse sale than no panel at all. */
+  fullReport: L("The full report", "التقرير الكامل"),
+  fullReportSub: L(
+    "We know which light it is. There are details worth reading before you act.",
+    "عرفنا المصباح. لكن هناك تفاصيل مهمة قبل أن تتصرّف.",
+  ),
+  openFullReport: L("Open the full report", "افتح التقرير الكامل"),
+  reportCauses: L("The likely causes", "الأسباب المحتملة"),
+  reportIfIgnored: L("What happens if you ignore it", "ما الذي يحدث إذا أهملتها"),
+  reportActions: L("What to do, step by step", "خطوات التصرّف، واحدة تلو الأخرى"),
+  reportCost: L("What the repair should cost", "تقدير تكلفة الإصلاح"),
+  reportCar: L("What it means on your own car", "ماذا تعني في سيارتك تحديداً"),
+  reportAlso: L("Every other light that is lit", "بقية المصابيح المضيئة في الصورة"),
   backToList: L("Back to the list", "العودة إلى القائمة"),
   allLights: L("All", "الكل"),
 
