@@ -12,6 +12,19 @@ import type { Text } from "../i18n";
 
 export type Severity = "critical" | "warning" | "info";
 export type VerdictLevel = "stop" | "caution" | "ok";
+
+/**
+ * What to do with the car in the next minute.
+ *
+ * Separate from `verdictLevel` because they answer different questions.
+ * "Stop" says the situation is serious; this says whether the car may be
+ * moved at all, which is what someone standing on a hard shoulder is deciding.
+ * A brake fault and a flashing engine light are both "stop" and differ here.
+ *
+ * The model classifies. The words shown for each class are the app's own, so
+ * the one instruction that could get somebody hurt is never generated text.
+ */
+export type Roadside = "do-not-move" | "move-to-safety" | "drive-with-care" | "monitor";
 export type Confidence = "high" | "medium" | "low";
 export type Locale = "en" | "ar";
 
@@ -151,6 +164,7 @@ export type ScanReading = {
   confidence: Confidence;
   verdict: string;
   verdictLevel: VerdictLevel;
+  roadside: Roadside;
   summary: string;
   facts: { label: string; value: string }[];
   causes: string[];

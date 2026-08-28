@@ -305,7 +305,7 @@ export const ui = {
   cardCautionTitle: L("WARNING", "تحذير"),
   cardCautionLine: L("Keep going, carefully", "يمكنك المتابعة بحذر"),
   cardOkTitle: L("ALL CLEAR", "لا داعي للقلق"),
-  cardOkLine: L("Safe to keep driving", "يمكنك المتابعة بأمان"),
+  cardOkLine: L("No need to stop", "لا يوجد ما يستدعي التوقف"),
 
   trialSafeTitle: L("Try {n} days free — no risk", "جرّب {n} أيام مجاناً — دون أي مخاطرة"),
   trialSafeBody: L(
@@ -653,6 +653,60 @@ export const ui = {
     "عرفنا المصباح. لكن هناك تفاصيل مهمة قبل أن تتصرّف.",
   ),
   openFullReport: L("Open the full report", "افتح التقرير الكامل"),
+
+  /* ---- the roadside decision ------------------------------------------
+     The model picks one of four classes; these are the words for them. They
+     live here, not in the model's output, because an instruction that can get
+     somebody hurt should be the same every time for the same class, written
+     once, in reviewed Arabic. */
+  roadDoNotMoveTitle: L("Do not move the car", "لا تحرّك السيارة"),
+  roadDoNotMoveLine: L(
+    "Leaving it where it is does less harm than driving it.",
+    "تركها مكانها أقل ضرراً من تحريكها.",
+  ),
+  roadMoveToSafetyTitle: L("Move only to somewhere safe", "تحرّك إلى مكان آمن فقط"),
+  roadMoveToSafetyLine: L(
+    "Do not continue the journey. Get off the carriageway and stop.",
+    "لا تُكمل الرحلة. اخرج عن مسار السير وتوقّف.",
+  ),
+  roadDriveWithCareTitle: L("You can continue, carefully", "يمكنك المتابعة بحذر"),
+  roadDriveWithCareLine: L(
+    "Ease off the speed and book a check soon.",
+    "خفّف السرعة واحجز موعد فحص قريباً.",
+  ),
+  roadMonitorTitle: L("Keep an eye on it", "راقب الوضع"),
+  roadMonitorLine: L("Nothing to change right now.", "لا حاجة إلى تغيير شيء الآن."),
+
+  safePlaceQuestion: L("Are you somewhere safe?", "هل أنت في مكان آمن؟"),
+  safePlaceYes: L("Yes", "نعم"),
+  safePlaceNo: L("No", "لا"),
+  safePlaceGood: L(
+    "Good. Switch the engine off and stay clear of moving traffic.",
+    "جيد. أطفئ المحرّك وابقَ بعيداً عن مسار السير.",
+  ),
+  safePlaceSteps: [
+    L("Turn your hazard lights on now.", "شغّل أضواء التحذير الآن."),
+    L(
+      "Ease over to the hard shoulder or the nearest exit — no sudden braking.",
+      "اتّجه تدريجياً إلى كتف الطريق أو أقرب مخرج، دون فرملة مفاجئة.",
+    ),
+    L(
+      "Stop as far from moving traffic as you can.",
+      "توقّف بعيداً عن مسار السير قدر المستطاع.",
+    ),
+    L(
+      "Get out on the side away from traffic, and stand behind the barrier if there is one.",
+      "اخرج من الجهة البعيدة عن السير، وقف خلف الحاجز إن وُجد.",
+    ),
+    L("Call for roadside help.", "اطلب المساعدة على الطريق."),
+  ],
+
+  /* Sits with the verdict, in the verdict's own colour — not in the footer.
+     The app read a lamp; the driver is sitting in the whole car. */
+  lampOnly: L(
+    "This reading is from the lamp alone. If you see smoke, smell burning, hear an unusual noise, or the car handles differently — stop, whatever this says.",
+    "هذه القراءة مبنيّة على المصباح وحده. فإن رأيت دخاناً أو شممت رائحة احتراق أو سمعت صوتاً غير معتاد أو تغيّرت استجابة السيارة — فأوقفها مهما قالت هذه النتيجة.",
+  ),
 
   /* The day before the trial converts. Deliberately plain: this exists so
      that nobody pays because they lost track of a date. */

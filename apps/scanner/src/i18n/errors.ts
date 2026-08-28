@@ -15,6 +15,23 @@ import type { Text } from "./index";
  */
 const L = (en: string, ar: string): Text => ({ en, ar });
 
+/**
+ * The verdict the app writes when it overrules the model's.
+ *
+ * `clampForSafety` raises the level of a result that contradicts itself, and
+ * the model's own sentence cannot come along: it was written for the level it
+ * has just lost. These replace it. They are deliberately shorter and blunter
+ * than anything the model produces — the app is overruling a judgement here,
+ * not paraphrasing one, and it knows less than the model did about the light.
+ *
+ * Indexed by the request's locale rather than resolved through `t()`, which
+ * reads a module-level locale fixed at startup and on a server is nobody's.
+ */
+export const clampedVerdict = {
+  stop: L("Stop driving now", "أوقف القيادة الآن"),
+  caution: L("Not certain — treat it with caution", "النتيجة غير مؤكدة — تعامل معها بحذر"),
+};
+
 export const apiError = {
   // Rate limits. Worded per surface, because what there was too much of is
   // the only part of the sentence the reader can act on.

@@ -76,6 +76,16 @@ import {
 
 type View4 = "summary" | "causes" | "actions" | "also";
 
+/** The words for each roadside class, and whether it needs the safe-place
+ *  question. Only the two that mean "the journey is over" ask it — putting it
+ *  under "you can continue" would teach people to dismiss it. */
+const ROADSIDE = {
+  "do-not-move": { title: ui.roadDoNotMoveTitle, line: ui.roadDoNotMoveLine, ask: true, tone: "critical" },
+  "move-to-safety": { title: ui.roadMoveToSafetyTitle, line: ui.roadMoveToSafetyLine, ask: true, tone: "critical" },
+  "drive-with-care": { title: ui.roadDriveWithCareTitle, line: ui.roadDriveWithCareLine, ask: false, tone: "warning" },
+  monitor: { title: ui.roadMonitorTitle, line: ui.roadMonitorLine, ask: false, tone: "info" },
+} as const;
+
 const CONFIDENCE_LABEL = {
   high: ui.confidenceHigh,
   medium: ui.confidenceMedium,
@@ -94,6 +104,7 @@ export default function Result() {
   // Starts locked. A subscriber sees the report a moment later; the opposite
   // default would flash the whole thing to someone who has not bought it.
   const [pro, setPro] = useState(false);
+  const [safeHere, setSafeHere] = useState<boolean | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -182,6 +193,7 @@ export default function Result() {
   const labels = scannerPack?.labels;
   const showCost = scannerPack?.showCost ?? false;
   const locked = !pro;
+  const roadside = ROADSIDE[result.roadside] ?? null;
 
   /** The report's contents, named one by one — and only the ones that are
    *  actually in this result. Same rule as the tabs: never advertise an empty
@@ -258,6 +270,48 @@ export default function Result() {
               reason={result.summary}
             />
           ) : null}
+
+          {/* What to do with the car, before what is wrong with it. This is
+              the product: every competitor stops at "here is what the light
+              means", and a driver on the hard shoulder has already read that
+              and still does not know whether to switch the engine off.
+
+              Free, always, and outside the paywall gate entirely — it is the
+              safety half of the answer, and the words are the app's own, so
+              nothing here can be a hallucination. */}
+          {roadside ? (
+            <Card tone={roadside.tone} style={styles.road}>
+              <Text style={[styles.roadTitle, { color: gradeOf(roadside.tone).fg }]}>
+                {t(roadside.title)}
+              </Text>
+              <Body style={{ color: TEXT }}>{t(roadside.line)}</Body>
+
+              {roadside.ask ? (
+                <View style={styles.safe}>
+                  <Text style={styles.safeQ}>{t(ui.safePlaceQuestion)}</Text>
+                  {safeHere === null ? (
+                    <View style={styles.safeRow}>
+                      <Button label={t(ui.safePlaceYes)} variant="secondary" onPress={() => setSafeHere(true)} />
+                      <Button label={t(ui.safePlaceNo)} variant="secondary" onPress={() => setSafeHere(false)} />
+                    </View>
+                  ) : safeHere ? (
+                    <Body style={{ color: TEXT }}>{t(ui.safePlaceGood)}</Body>
+                  ) : (
+                    <View style={styles.safeSteps}>
+                      {ui.safePlaceSteps.map((step, i) => (
+                        <Step key={i} index={i + 1} text={t(step)} />
+                      ))}
+                    </View>
+                  )}
+                </View>
+              ) : null}
+            </Card>
+          ) : null}
+
+          {/* The reservation, standing with the verdict rather than filed at
+              the foot in the smallest type. The app looked at one lamp; the
+              driver is sitting in the whole car. */}
+          <Text style={styles.lampOnly}>{t(ui.lampOnly)}</Text>
 
           {/* Only then: what it was. The symbol is large because matching a
               shape is faster than reading a name. */}
@@ -531,6 +585,20 @@ const styles = StyleSheet.create({
 
   alsoRow: { flexDirection: "row", alignItems: "center", gap: SP.md, minHeight: 32 },
   alsoText: { flex: 1, color: TEXT, ...TYPE.body, fontFamily: FONT.regular, textAlign: READ },
+
+  road: { gap: SP.sm },
+  roadTitle: { ...TYPE.section, fontFamily: FONT.bold, textAlign: READ },
+  safe: { gap: SP.md, marginTop: SP.sm, borderTopWidth: 1, borderTopColor: BORDER, paddingTop: SP.md },
+  safeQ: { color: TEXT, ...TYPE.body, fontFamily: FONT.bold, textAlign: READ },
+  safeRow: { flexDirection: "row", gap: SP.sm },
+  safeSteps: { gap: SP.sm },
+  lampOnly: {
+    color: TEXT_SOFT,
+    ...TYPE.caption,
+    fontFamily: FONT.regular,
+    textAlign: READ,
+    marginTop: -SP.md,
+  },
 
   locked: { gap: SP.sm },
   lockedHead: { flexDirection: "row", alignItems: "center", gap: SP.sm },

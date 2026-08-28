@@ -43,6 +43,7 @@ export const ACTION_TEXT = "#0C0E13";
 
 export type Severity = "critical" | "warning" | "info";
 export type VerdictLevel = "stop" | "caution" | "ok";
+export type Roadside = "do-not-move" | "move-to-safety" | "drive-with-care" | "monitor";
 
 /**
  * Red stops you, amber slows you, green lets you go.

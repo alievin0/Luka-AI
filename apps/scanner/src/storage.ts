@@ -17,9 +17,13 @@ const KEYS = {
 /**
  * How many scans a user gets before the paywall.
  *
- * One, because one is all this app is asked for. A warning light comes on two
- * to four times a year, so a second free scan is not a second chance to be
- * convinced — it is the next emergency, months away, answered for nothing.
+ * Two, and each returns the verdict only.
+ *
+ * The count is set against the market rather than derived: Signal, the closest
+ * direct competitor, gives two free camera scans, and arriving with one would
+ * read as meaner for no gain anybody notices. What matters is not how many
+ * scans are free but how much of the answer each returns, and on that axis two
+ * verdicts are still less than what Signal gives away. Two scans cost 8 cents.
  *
  * The reason there used to be two no longer applies. It was that a first scan
  * is often a test — a dashboard that is not lit, a photo too dark to read —
@@ -33,7 +37,7 @@ const KEYS = {
  * whether to keep driving, which is never sold — and the report behind it is
  * what the subscription is for.
  */
-export const FREE_SCANS = 1;
+export const FREE_SCANS = 2;
 
 export type HistoryEntry = {
   id: string;

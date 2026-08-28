@@ -196,11 +196,44 @@ if (open.length) {
   for (const n of open) console.log(`     ungated: ${n.condition.getText(result)}`);
 }
 
-// One free scan. The number is the business model; a stray edit to it is the
-// difference between selling a report and giving two away.
+// Two free scans, verdict-only. The number is set against Signal's free tier;
+// the depth is what keeps it from being the product.
 const storage = fs.readFileSync(path.join(ROOT, "src/storage.ts"), "utf8");
 const free = storage.match(/export const FREE_SCANS = (\d+);/);
-ok(`FREE_SCANS is 1 (found ${free?.[1] ?? "nothing"})`, free?.[1] === "1");
+ok(`FREE_SCANS is 2 (found ${free?.[1] ?? "nothing"})`, free?.[1] === "2");
+
+/* The roadside decision is the safety half of the answer and the reason the
+   app is not another symbol reader. It goes free for the same reason the
+   verdict does, and it is one `locked` away from not being. */
+// `safePlaceQuestion` appears exactly once and only inside the roadside card,
+// so it locates the block without matching the paid panels — `Step` does not,
+// because the paid "what to do" list renders Steps too.
+const safeQ = resultNodes.filter(
+  (n) => ts.isPropertyAccessExpression(n) && n.name.text === "safePlaceQuestion",
+);
+ok(`result.tsx renders the roadside decision (${safeQ.length} anchor)`, safeQ.length === 1);
+ok("and it is never behind the paywall", safeQ.length === 1 && !behindTheGate(safeQ[0]));
+
+// The clamp is a colour change unless it takes the sentence with it.
+const api = fs.readFileSync(path.join(ROOT, "app/api/scan+api.ts"), "utf8");
+const clamp = api.slice(api.indexOf("function clampForSafety"), api.indexOf("MAX_IMAGE_BYTES"));
+// Both raises, not either: an earlier version of this check matched one and
+// passed while the other silently kept the model's sentence.
+for (const level of ["stop", "caution"]) {
+  ok(
+    `a clamp to "${level}" loses the model's words too`,
+    new RegExp(`verdict:\\s*clampedVerdict\\.${level}\\b`).test(clamp),
+  );
+}
+ok("and a critical light can never say the journey continues", /roadside:\s*"move-to-safety"/.test(clamp));
+
+// The app looked at a lamp; the driver is in a car.
+ok(
+  "no screen states the car is safe",
+  !/يمكنك المتابعة بأمان|Safe to keep driving/.test(
+    fs.readFileSync(path.join(ROOT, "src/i18n/ui.ts"), "utf8"),
+  ),
+);
 
 /* --------------------------------------------------------------- report */
 

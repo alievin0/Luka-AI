@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { SCANNER_PACKS } from "../../src/packs/registry";
 import { checkRateLimit, clientKey } from "../../src/rate-limit";
 import type { ScanResult } from "../../src/packs/types";
-import { apiError } from "../../src/i18n/errors";
+import { apiError, clampedVerdict } from "../../src/i18n/errors";
 
 const MODEL = process.env.DASHLIGHT_MODEL || "claude-opus-5";
 
@@ -60,6 +60,7 @@ const RESULT_SCHEMA = {
     "confidence",
     "verdict",
     "verdictLevel",
+    "roadside",
     "summary",
     "facts",
     "causes",
@@ -78,6 +79,13 @@ const RESULT_SCHEMA = {
     confidence: { type: "string", enum: ["high", "medium", "low"] },
     verdict: { type: "string" },
     verdictLevel: { type: "string", enum: ["stop", "caution", "ok"] },
+    // What to do with the car, as a class rather than a sentence. The model
+    // decides which class; the app owns the wording, so the one instruction
+    // that could get someone hurt is never generated text.
+    roadside: {
+      type: "string",
+      enum: ["do-not-move", "move-to-safety", "drive-with-care", "monitor"],
+    },
     summary: { type: "string" },
     facts: {
       type: "array",
@@ -142,6 +150,18 @@ const RESULT_SCHEMA = {
  * critical finding, but a prompt is not a guarantee — this makes it one.
  * Never let a critical result read as "safe to continue".
  *
+ * "Read as" is the whole point, and an earlier version of this got it wrong.
+ * It raised `verdictLevel` and left `verdict` alone — but the level is only a
+ * colour, and the sentence is what the driver actually reads. The result was
+ * a red band above the model's own "safe to keep driving", which is worse than
+ * either mistake by itself: it looks like the app disagreeing with itself over
+ * whether to get out of the car. So a raised level takes the sentence with it,
+ * replaced by one the app owns. The model's summary is kept — it explains the
+ * light, which is still true — and only the instruction is overruled.
+ *
+ * `roadside` is clamped on the same rule: nothing critical may come back
+ * saying the journey can continue.
+ *
  * It also drops what the schema forces the model to write about a photo it
  * said it could not read. One flat shape means a not-detected answer still
  * carries a title, a verdict and three facts; they are guesses about a light
@@ -149,17 +169,22 @@ const RESULT_SCHEMA = {
  * is ever shown. Keeping them would make an honest "I could not read this"
  * look like a reading.
  */
-function clampForSafety(result: ScanResult): ScanResult {
+function clampForSafety(result: ScanResult, locale: "en" | "ar"): ScanResult {
   if (!result.detected) {
     return { detected: false, notDetectedReason: result.notDetectedReason };
   }
-  if (result.severity === "critical" && result.verdictLevel === "ok") {
-    return { ...result, verdictLevel: "stop" };
+  let clamped = result;
+
+  if (clamped.severity === "critical" && clamped.verdictLevel === "ok") {
+    clamped = { ...clamped, verdictLevel: "stop", verdict: clampedVerdict.stop[locale] };
   }
-  if (result.confidence === "low" && result.verdictLevel === "ok") {
-    return { ...result, verdictLevel: "caution" };
+  if (clamped.confidence === "low" && clamped.verdictLevel === "ok") {
+    clamped = { ...clamped, verdictLevel: "caution", verdict: clampedVerdict.caution[locale] };
   }
-  return result;
+  if (clamped.severity === "critical" && (clamped.roadside === "drive-with-care" || clamped.roadside === "monitor")) {
+    clamped = { ...clamped, roadside: "move-to-safety" };
+  }
+  return clamped;
 }
 
 /** Roughly 1024px of JPEG at q0.7, base64 — well above what the app sends. */
@@ -277,7 +302,7 @@ export async function POST(request: Request) {
     );
 
     const parsed = JSON.parse(text.text) as ScanResult;
-    return Response.json(clampForSafety(parsed));
+    return Response.json(clampForSafety(parsed, locale));
   } catch (error) {
     if (error instanceof Anthropic.RateLimitError) {
       return Response.json(
