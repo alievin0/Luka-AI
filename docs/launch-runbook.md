@@ -241,14 +241,38 @@ until the day you launch. It is just not safe to leave once you have.
 so after `FREE_SCANS = 2` the user hits a wall with no way through. App Review
 rejects that.
 
-### 4a. Decide the price first
+### 4a. The price — decided, 28 Aug 2026
 
-The app currently offers **$6.99/week** and **$39.99/year** with a 3-day trial
-(`src/packs/dashlight.ts:126-141`). That shape came from the gold-scanner idea.
-Your own market brief recommends **$9.99/month** for this app
-(`app-profit-research-2026.md:170`, beside this file). One of the two is wrong. Decide now,
-because the products you create in App Store Connect have to match, and renaming
-them later is painful.
+**$4.99 a week and $29.99 a year, both with a 3-day trial.** Create exactly
+these in App Store Connect; the app's `fallbackPrice` values are kept equal to
+them so the paywall does not lie in the moment before RevenueCat answers.
+
+The code used to carry $6.99 / $39.99, inherited from the gold-scanner idea in
+`app-profit-research-2026.md:164`, while the same brief recommended $9.99 a
+month for this app at line 170. Two things settled it.
+
+**Cost had no opinion.** A scan is a 1024 px JPEG, a ~1160-token system prompt,
+a ~505-token schema and ~1000 output tokens including thinking: about **4 cents**
+on Opus 5, which is what the probe actually billed. Break-even at $4.99 a week is
+over a hundred scans a week. Every candidate price was profitable by two orders
+of magnitude, so unit economics could not choose.
+
+**Usage frequency did.** A warning light comes on two to four times a year, so
+this is a crisis app rather than a habit. Monthly is the worst fit — too dear to
+buy on impulse, too short to retain. Weekly converts in the moment; yearly serves
+the smaller group who want the guide and the history.
+
+**Why the lower pair.** A weekly plan on a crisis app inevitably earns some of
+its revenue from someone forgetting to cancel. That is worth being deliberate
+about rather than pretending otherwise: a lower price means better conversion,
+fewer refunds, fewer one-star reviews, and less exposure at review time. The
+three defences already in the app — the 3-day trial, a paywall that states the
+terms plainly, and a restore button that reports its outcome — are the rest of
+that answer, and none of them should be weakened.
+
+**Also do this:** enrol in **Apple's Small Business Program**. It cuts the
+commission from 30% to 15% for anyone under $1M a year, it is free, and this
+account qualifies. On $4.99 a week it is the difference between $3.49 and $4.24.
 
 ### 4b. Create the products
 
@@ -279,7 +303,7 @@ The store-side product ids are yours to choose — the app never sees them.
 `react-native-purchases` is a native module: **Expo Go cannot load it.** You need
 a dev build (step 5). Then, in an App Store sandbox account, check all four:
 
-- [ ] the plans show the store's real prices, not `$6.99` / `$39.99`
+- [ ] the plans show the store's real prices, not the `$4.99` / `$29.99` fallbacks
 - [ ] the yearly plan is preselected and shows its badge and note
 - [ ] the CTA says "ابدأ تجربة 3 أيام", and **cancelling Apple's sheet returns
       the button to normal** rather than leaving it spinning

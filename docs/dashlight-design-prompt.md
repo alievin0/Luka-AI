@@ -96,9 +96,9 @@ what worries you most when a light comes on. Then a plain-language notice that
 photos are analysed by AI, with consent.
 
 **7 — Paywall.** Headline: *"Am I in trouble, and can I keep driving?"* /
-*"أنا بورطة؟ وبقدر أكمل سواقة؟"* Five value lines. Two plans: Weekly $6.99
-with a 3-day trial, and Yearly $39.99 marked "Best value" and preselected,
-with the note *"Under $0.77 a week"*.
+*"أنا بورطة؟ وبقدر أكمل سواقة؟"* Five value lines. Two plans: Weekly $4.99
+with a 3-day trial, and Yearly $29.99 marked "Best value" and preselected,
+with the note *"Under $0.58 a week"*.
 
 ### Visual direction
 

@@ -128,17 +128,37 @@ export const dashlight: ScannerPack = {
       },
     ],
   },
+  /**
+   * A warning light comes on two to four times a year, so this is a crisis
+   * app and not a habit: the weekly plan is what converts in the moment, and
+   * the yearly one serves the smaller group who want the guide and the
+   * history. Monthly was rejected for being both too dear to buy on impulse
+   * and too short to retain.
+   *
+   * Priced low on purpose. A scan costs about 4 cents to serve, so break-even
+   * is over a hundred scans a week — cost has no opinion here, and what a
+   * lower price buys instead is conversion, fewer refunds, and less of the
+   * revenue coming from someone forgetting to cancel.
+   *
+   * `fallbackPrice` is only what the paywall shows before RevenueCat answers.
+   * The real prices come from the store, so changing a number here changes
+   * nothing a customer is charged — App Store Connect has to be changed too,
+   * and these have to be kept equal to it or the paywall lies for a moment.
+   */
   pricing: {
     entitlement: "pro",
     defaultProductId: "annual",
     products: [
-      { id: "weekly", label: L("Weekly", "أسبوعي"), fallbackPrice: "$6.99", period: L("week", "أسبوع"), trialDays: 3 },
+      { id: "weekly", label: L("Weekly", "أسبوعي"), fallbackPrice: "$4.99", period: L("week", "أسبوع"), trialDays: 3 },
       {
         id: "annual",
         label: L("Yearly", "سنوي"),
-        fallbackPrice: "$39.99",
+        fallbackPrice: "$29.99",
         period: L("year", "سنة"),
-        note: L("Under $0.77 a week", "أقل من $0.77 أسبوعياً"),
+        // 29.99 / 52 = 0.577. Nothing recomputes this line, so it has to be
+        // re-derived by hand whenever the yearly price moves — a note claiming
+        // the wrong weekly equivalent beside a real store price is a rejection.
+        note: L("Under $0.58 a week", "أقل من $0.58 أسبوعياً"),
         badge: L("Best value", "الأفضل"),
         trialDays: 3,
       },
