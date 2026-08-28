@@ -98,19 +98,36 @@ Take the origin it prints and put it in `.env`:
 EXPO_PUBLIC_API_URL=https://your-deployment.expo.app
 ```
 
-**Then prove it works** before trusting it — this is one command and it saves a
-build cycle:
+**Then prove it works** — with a real image. Send a real photo:
 
 ```bash
+set -a; source .env; set +a
+IMG=$(base64 -i <some-photo>.jpg | tr -d '\n')
 curl -sS -X POST "$EXPO_PUBLIC_API_URL/api/scan" \
   -H 'Content-Type: application/json' \
-  -d '{"packId":"dashlight"}'
+  -d "{\"packId\":\"dashlight\",\"locale\":\"ar\",\"base64\":\"$IMG\"}"
 ```
 
-A JSON error about a missing image means the route is live and the key is set.
-`الخدمة غير مهيّأة` / "This service isn't set up on the server yet" means the
-deployment has no `ANTHROPIC_API_KEY` — set it in the EAS/Vercel dashboard, not
-just in your local `.env`.
+A JSON body containing `detected` — `true` with the light, or `false` with a
+reason — is the feature working.
+
+**Do not use the empty-payload version of this** (`-d '{"packId":"dashlight"}'`)
+as the proof. It returns `No image received.` and reads like success, but the
+route answers it before it ever calls the model, so it passes identically when
+the API key is revoked and when the request the model gets is malformed. Both
+of those happened on 28 Aug 2026, one after the other, and that curl reported
+health through both. It tells you the route is deployed and nothing else.
+
+What the failures look like, and what each means:
+
+| Response | Cause |
+| --- | --- |
+| `الخدمة غير مهيّأة` | no `ANTHROPIC_API_KEY` in the deployment |
+| `مفتاح الوصول على الخادم غير صالح` | the key is there and rejected — revoked, or the deployment predates the new one |
+| `حدث خطأ في أثناء التحليل` | the model call itself failed. The route discards the reason; `node scripts/probe-scan.js <photo.jpg>` sends the same request and prints it |
+
+A deployment reads its environment when it is created, so a key changed in
+`.env` after the last deploy is not the key production is using. Redeploy.
 
 ---
 
