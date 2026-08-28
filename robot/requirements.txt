@@ -1,0 +1,6 @@
+# العقل — يعمل على أي جهاز (لابتوب أو Raspberry Pi)
+anthropic>=0.60.0
+
+# للجسم الحقيقي فقط (ثبّتها على الـ Raspberry Pi):
+#   pip install gpiozero picamera2
+#   sudo apt install espeak-ng
