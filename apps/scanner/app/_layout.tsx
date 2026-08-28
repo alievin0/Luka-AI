@@ -9,6 +9,7 @@ import { pack, isAudio, isProgram, isScanner } from "../src/packs";
 import { t, isRTL } from "../src/i18n";
 import { ui } from "../src/i18n/ui";
 import { initPurchases } from "../src/purchases";
+import { syncTrialEndingReminder } from "../src/reminders";
 import { useAppFonts } from "../src/type";
 import { recoverInterruptedLectures } from "../src/lectures";
 import { useReducedMotion } from "../src/motion";
@@ -28,7 +29,12 @@ export default function RootLayout() {
   const stillness = useReducedMotion();
 
   useEffect(() => {
-    initPurchases();
+    // Awaited, not fired and forgotten: the reminder reads the entitlement,
+    // and asking before RevenueCat is configured answers "no trial" every
+    // time. Re-synced on every launch because auto-renewal can be turned off
+    // outside the app, and a warning about a charge that is no longer coming
+    // is the same false claim as promising a trial nobody can have.
+    initPurchases().then(() => void syncTrialEndingReminder());
     // A lecture still marked "recording" at launch is one the app was killed
     // during; without this the home list shows it as live forever.
     if (isAudio(pack)) recoverInterruptedLectures();

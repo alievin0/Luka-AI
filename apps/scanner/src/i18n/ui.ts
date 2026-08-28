@@ -653,6 +653,18 @@ export const ui = {
     "عرفنا المصباح. لكن هناك تفاصيل مهمة قبل أن تتصرّف.",
   ),
   openFullReport: L("Open the full report", "افتح التقرير الكامل"),
+
+  /* The day before the trial converts. Deliberately plain: this exists so
+     that nobody pays because they lost track of a date. */
+  trialEndsTitle: L("Your trial ends tomorrow", "تنتهي تجربتك غداً"),
+  trialEndsBody: L(
+    "The subscription starts at {price} unless you cancel first. You can cancel from your account settings.",
+    "يبدأ الاشتراك بـ {price} ما لم تُلغِ قبل ذلك. ويمكنك الإلغاء من إعدادات حسابك.",
+  ),
+  trialEndsBodyNoPrice: L(
+    "The paid subscription starts unless you cancel first. You can cancel from your account settings.",
+    "يبدأ الاشتراك المدفوع ما لم تُلغِ قبل ذلك. ويمكنك الإلغاء من إعدادات حسابك.",
+  ),
   reportCauses: L("The likely causes", "الأسباب المحتملة"),
   reportIfIgnored: L("What happens if you ignore it", "ما الذي يحدث إذا أهملتها"),
   reportActions: L("What to do, step by step", "خطوات التصرّف، واحدة تلو الأخرى"),

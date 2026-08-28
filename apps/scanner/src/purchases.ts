@@ -192,6 +192,46 @@ export async function purchase(productId: string): Promise<Outcome> {
   }
 }
 
+/**
+ * The trial the buyer is in right now, if they are in one.
+ *
+ * `willRenew` is the field that decides whether this is worth telling them
+ * about. Someone who has already turned off auto-renewal is not going to be
+ * charged, and reminding them that they will be would be false — the exact
+ * failure this whole area is being careful about, pointed the other way.
+ *
+ * `price` is the store's own string for the product the trial converts into,
+ * looked up through the current offering. When it cannot be found the caller
+ * says the same thing without a number rather than guessing at one.
+ */
+export type Trial = { endsAt: number; price: string | null };
+
+export async function currentTrial(): Promise<Trial | null> {
+  if (!purchasesAvailable() || !Purchases) return null;
+  try {
+    const info = await Purchases.getCustomerInfo();
+    const entitlement = info.entitlements.active[ENTITLEMENT];
+    if (!entitlement || entitlement.periodType !== "TRIAL") return null;
+    if (!entitlement.willRenew) return null;
+    const endsAt = entitlement.expirationDateMillis;
+    if (!endsAt) return null;
+
+    let price: string | null = null;
+    try {
+      const offerings = await Purchases.getOfferings();
+      const match = offerings.current?.availablePackages.find(
+        (p) => p.product.identifier === entitlement.productIdentifier,
+      );
+      price = match?.product.priceString ?? null;
+    } catch {
+      // A missing price costs a detail in the reminder, not the reminder.
+    }
+    return { endsAt, price };
+  } catch {
+    return null;
+  }
+}
+
 export async function restore(): Promise<Outcome> {
   if (!purchasesAvailable() || !Purchases) return "failed";
   try {

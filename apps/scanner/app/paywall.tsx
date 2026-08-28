@@ -26,6 +26,7 @@ import {
   purchasesAvailable,
   restoreAndReport,
 } from "../src/purchases";
+import { syncTrialEndingReminder } from "../src/reminders";
 
 /**
  * The purchase screen.
@@ -116,6 +117,10 @@ export default function Paywall() {
     try {
       const outcome = await purchase(selected);
       if (outcome === "active") {
+        // Scheduled here rather than at the next launch, because someone who
+        // buys and does not reopen the app for three days is precisely the
+        // person the notice exists for.
+        void syncTrialEndingReminder();
         router.back();
         return;
       }

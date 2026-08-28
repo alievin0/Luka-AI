@@ -126,6 +126,34 @@ const leaks = screens.filter((f) =>
 ok(`no screen reads storeTrialDays (${screens.length} files)`, leaks.length === 0);
 if (leaks.length) console.log(`     read by: ${leaks.join(", ")}`);
 
+/* ------------------------------------------------- the trial-ending notice
+
+   The notice says a charge is coming tomorrow. For someone who has already
+   turned auto-renewal off, that is false — and it is the same false claim as
+   promising a trial nobody can have, pointed the other way. `willRenew` is
+   what separates the two, and it is one condition deep inside a function
+   whose removal changes nothing visible until a customer is told they are
+   about to be billed for something they cancelled. */
+
+const currentTrialFn = all.find(
+  (n) => ts.isFunctionDeclaration(n) && n.name && n.name.text === "currentTrial",
+);
+ok("purchases.ts exposes currentTrial()", Boolean(currentTrialFn));
+ok(
+  "and it only reports a trial that is actually going to be charged",
+  Boolean(currentTrialFn) && /\bwillRenew\b/.test(currentTrialFn.getText(purchases)),
+);
+
+// Scheduling without cancelling first leaves yesterday's notice in place after
+// the facts under it have changed.
+const reminders = fs.readFileSync(path.join(ROOT, "src/reminders.ts"), "utf8");
+const sync = reminders.slice(reminders.indexOf("export async function syncTrialEndingReminder"));
+ok(
+  "the trial notice is re-synced, not scheduled once",
+  sync.includes("cancelScheduledNotificationAsync") &&
+    sync.indexOf("cancelScheduledNotificationAsync") < sync.indexOf("scheduleNotificationAsync"),
+);
+
 /* ------------------------------------------------- 2. the safety judgement
 
    A driver stopped on the hard shoulder is asking one question: can I keep

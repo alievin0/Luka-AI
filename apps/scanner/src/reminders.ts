@@ -2,8 +2,9 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
 import { activePackId, pack } from "./packs";
-import { t } from "./i18n";
+import { t, fill } from "./i18n";
 import { ui } from "./i18n/ui";
+import { currentTrial } from "./purchases";
 
 /**
  * A single daily local reminder.
@@ -15,6 +16,7 @@ import { ui } from "./i18n/ui";
 
 const KEY = `@${activePackId}:reminderHour`;
 const IDENTIFIER = `${activePackId}-daily`;
+const TRIAL_ID = `${activePackId}-trial-ending`;
 
 export const DEFAULT_HOUR = 19;
 
@@ -79,4 +81,59 @@ export async function scheduleReminder(hour: number): Promise<number | null> {
 
   await AsyncStorage.setItem(KEY, String(hour));
   return hour;
+}
+
+/* --------------------------------------------------------- the trial notice */
+
+/**
+ * One notification, a day before a free trial turns into a charge.
+ *
+ * This is here to lose revenue on purpose. A weekly plan on an app people
+ * open two to four times a year will collect from anyone who loses track of
+ * the date, and the decision recorded in the runbook's §4a is that it should
+ * not: someone pays because the app was worth it, or they do not pay. Telling
+ * them plainly, a day out, is what that decision costs.
+ *
+ * It re-syncs rather than schedules once, because the thing it describes can
+ * stop being true — cancel auto-renewal and the charge is not coming, and a
+ * notification insisting otherwise is exactly the false claim this app spends
+ * so much effort not making. `currentTrial()` returns null in that case, and
+ * this cancels.
+ *
+ * Silent when notifications were never permitted. Asking for permission over
+ * a warning that a charge is due reads as a threat rather than a courtesy, so
+ * it only schedules where the daily reminder already earned the grant.
+ */
+export async function syncTrialEndingReminder(): Promise<boolean> {
+  await Notifications.cancelScheduledNotificationAsync(TRIAL_ID).catch(() => {});
+
+  const trial = await currentTrial();
+  if (!trial) return false;
+
+  const when = new Date(trial.endsAt - 24 * 60 * 60 * 1000);
+  // A trial shorter than a day, or one already inside its final day, has no
+  // "tomorrow" to warn about. Saying so late is worse than not saying it.
+  if (when.getTime() <= Date.now()) return false;
+
+  const granted = (await Notifications.getPermissionsAsync()).granted;
+  if (!granted) return false;
+
+  if (Platform.OS === "android") {
+    await Notifications.setNotificationChannelAsync("trial", {
+      name: t(ui.trialEndsTitle),
+      importance: Notifications.AndroidImportance.DEFAULT,
+    });
+  }
+
+  await Notifications.scheduleNotificationAsync({
+    identifier: TRIAL_ID,
+    content: {
+      title: t(ui.trialEndsTitle),
+      body: trial.price
+        ? fill(ui.trialEndsBody, { price: trial.price })
+        : t(ui.trialEndsBodyNoPrice),
+    },
+    trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: when, channelId: "trial" },
+  });
+  return true;
 }
