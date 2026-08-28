@@ -1,12 +1,19 @@
 # Launch runbook — مصابيح السيارة (Dash Light)
 
 Everything left before this app can be submitted, in the order it has to happen,
-with the exact names and commands. Each step says **why** it blocks, so you can
-tell a real blocker from a nice-to-have when you are short of time.
+with the exact names and commands.
 
-Steps 1–5 are blockers: skip one and the app either does not work or does not
-pass review. Steps 6–8 are the launch itself. Step 9 is the only one that
-decides whether the product is any good.
+Every step carries one of three labels, because they are not the same kind of
+thing and treating them alike wastes the time you have least of:
+
+- **عائق — Blocks:** you cannot ship without it. Skipping it means the build
+  refuses to be made, or App Review rejects the app. §§1, 2, 4.
+- **خطر مؤجّل — Risk once live:** the app ships and works without it. It starts
+  costing you the day real users can reach it, not before. §3.
+- **Not a blocker:** something is wrong, but nothing stops. §6.
+
+§§5, 7, 8 are the launch itself. §9 is the only one that decides whether the
+product is any good.
 
 Nothing here needs me. Everything that could be done from a container is done.
 
@@ -35,13 +42,18 @@ The `sk-ant-…` key was pasted into a chat. Treat it as public.
 
 ## 1. Deploy the privacy pages, and open them in a browser
 
-**Why it blocks:** a privacy policy that 404s is an automatic App Review
-rejection. The app links to `https://luka-ai.vercel.app/privacy/dashlight`, a
-URL inferred from the Vercel project name that **has never been loaded by
-anyone** (`src/legal.ts:12-17` says so).
+**عائق — Blocks:** a privacy policy that 404s is an automatic App Review
+rejection.
+
+The domain is now known and loaded: `https://luka-ai-psi.vercel.app`. Vercel
+appended `-psi` because the bare name was taken, which is why the first guess in
+`src/legal.ts` was wrong — it is now the default there, and
+`EXPO_PUBLIC_SITE_URL` still overrides it when a custom domain is attached.
 
 The pages exist in the Next.js app at the repo root — `app/privacy/[app]/`,
-`app/terms/`, `app/support/`.
+`app/terms/[app]/`, `app/support/[app]/`. All three take the app id, so a
+reviewer opening Dash Light's terms reads Dash Light's terms and nothing about
+gold hallmarks or lecture recordings.
 
 ```bash
 # from the repo root
@@ -67,7 +79,7 @@ EXPO_PUBLIC_SITE_URL=https://your-real-domain.com
 
 ## 2. Deploy the scan API, and pin its address
 
-**Why it blocks:** without `EXPO_PUBLIC_API_URL`, a store build has no server to
+**عائق — Blocks:** without `EXPO_PUBLIC_API_URL`, a store build has no server to
 reach and every scan fails. The build now refuses to be made at all rather than
 shipping like that — `app.config.ts` throws on an EAS production build with the
 variable unset — so this step cannot be skipped by accident.
@@ -104,14 +116,34 @@ just in your local `.env`.
 
 ## 3. Provision the shared rate limiter, and verify its wire format
 
-**Why it blocks:** the paid routes are public and unauthenticated, and every
-call spends money. Without a shared counter the limit lives in one instance's
-memory: it resets on every deploy and does not span instances, so N instances
-mean N times the allowance.
+**خطر مؤجّل — Risk once live.** Do this before you press Submit, not before
+you build.
+
+**Today the risk is zero.** The app is not on a store, and nobody but you knows
+the API origin. Nothing here is stopping anything.
+
+**The day it is published, the risk is real.** The paid routes are public and
+unauthenticated — they have to be, the app ships no secret — and every call
+spends money. The origin is visible to anyone who watches the app's own traffic,
+so the only thing standing between a stranger's `while true` loop and your API
+bill is the limiter.
+
+And the limiter's `MAX_PER_WINDOW = 30` is not the number that gets enforced.
+Without a shared counter it lives in one instance's memory, which fails in two
+directions at once: the API runs as many Cloudflare instances, each with its own
+count, so the real allowance is 30 × instances; and every deploy wipes them, so
+it resets on its own.
 
 1. Create a free Redis database at <https://console.upstash.com>. Pick the
    region closest to most of your users, not to you — the API is a Cloudflare
    Worker running everywhere, so the database is the one fixed point.
+
+   An existing Upstash database from another project works too. Keys are
+   namespaced `ratelimit:<client>`, so they cannot collide, and at three
+   commands per request the free tier's 500k/month is roughly 166k scans — not
+   a real ceiling at this size. The only cost of sharing is blast radius: flush
+   or delete that database while working on the other project and this app's
+   limiter silently drops back to memory.
 2. Open the database, find its **REST API** section, and copy the URL and token
    into `.env`. The two lines are already there, commented out, carrying the
    example values — uncomment them and **replace the `xxx`**:
@@ -148,13 +180,13 @@ mean N times the allowance.
 
 Until it passes, nothing breaks — the limiter falls back to per-instance memory
 and logs a warning once. That is what shipped before, so this is safe to leave
-until the day you launch. It is just not safe to leave forever.
+until the day you launch. It is just not safe to leave once you have.
 
 ---
 
 ## 4. Set up the subscription
 
-**Why it blocks:** `purchasesAvailable()` is `false` in every build that exists,
+**عائق — Blocks:** `purchasesAvailable()` is `false` in every build that exists,
 so after `FREE_SCANS = 2` the user hits a wall with no way through. App Review
 rejects that.
 
@@ -268,6 +300,7 @@ Outside the repository entirely. Both languages, since you are launching both:
 - [ ] Restore reports its outcome
 - [ ] The AI-disclosure screen appears during onboarding — App Review has
       required it since Nov 2025, and it is already there
+- [ ] The shared rate limiter is provisioned and its probe passes (§3)
 - [ ] `npm run check` passes from `apps/scanner`
 
 ---
