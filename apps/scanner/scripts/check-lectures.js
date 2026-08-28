@@ -145,13 +145,127 @@ if (!/isAudio\(pack\)\s*\?[\s\S]{0,120}?ui\.clearLectures/.test(settings)) {
   );
 }
 
+/* ------------------------------------------- and it actually deletes, when run */
+
+/**
+ * The assertions above are about the shape of the source. These run the real
+ * `removeLecture` and `deleteAllLectures` against a stub store and a stub
+ * filesystem, because "calls deleteRecording" and "deletes the recording" are
+ * not the same claim, and this one destroys a student's data.
+ *
+ * Same loader the other checkers use: strip the imports, inject stubs for what
+ * the module body touches, transpile, run.
+ */
+function loadLectures(store, disk, reminders) {
+  const source = read("src/lectures.ts").replace(/^import[\s\S]*?;$/gm, "");
+  const prelude = `
+    const activePackId = "mahdar";
+    const Platform = { OS: "ios" };
+    const AsyncStorage = {
+      getItem: async (k) => (__store.has(k) ? __store.get(k) : null),
+      setItem: async (k, v) => { __store.set(k, v); },
+      removeItem: async (k) => { __store.delete(k); },
+    };
+  `;
+  const append = "\nmodule.exports = { removeLecture, deleteAllLectures, getLectures };";
+  const { outputText } = ts.transpileModule(prelude + source + append, {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
+  });
+
+  /** A filesystem of paths. A Directory owns every path beneath it. */
+  const join = (...parts) => parts.join("/");
+  class Dir {
+    constructor(...uris) { this.uri = join(...uris.map((u) => (u && u.uri) || u)); }
+    get exists() { return [...disk].some((f) => f === this.uri || f.startsWith(this.uri + "/")); }
+    delete() { for (const f of [...disk]) if (f === this.uri || f.startsWith(this.uri + "/")) disk.delete(f); }
+    create() {}
+  }
+  class Fil {
+    constructor(...uris) { this.uri = join(...uris.map((u) => (u && u.uri) || u)); }
+    get exists() { return disk.has(this.uri); }
+    delete() { disk.delete(this.uri); }
+  }
+  const shim = (name) => {
+    if (name === "expo-file-system") return { File: Fil, Directory: Dir, Paths: { document: "doc" } };
+    if (name === "./lecture-export") return { cancelTaskReminders: async (l) => reminders.push(l.id) };
+    throw new Error(`unstubbed require: ${name}`);
+  };
+
+  const box = { exports: {} };
+  new Function("module", "exports", "require", "__store", outputText)(box, box.exports, shim, store);
+  return box.exports;
+}
+
+async function behaviour() {
+  const lecture = (id) => ({
+    id,
+    title: id,
+    at: 1,
+    duration: 60,
+    audioChunks: [{ uri: `doc/lectures/${id}/000.m4a`, at: 0, duration: 60 }],
+    segments: [],
+    status: "ready",
+  });
+
+  {
+    const store = new Map([
+      ["@mahdar:lectures", JSON.stringify([lecture("L1"), lecture("L2")])],
+      ["@mahdar:lectureCount", "7"],
+    ]);
+    const disk = new Set(["doc/lectures/L1/000.m4a", "doc/lectures/L2/000.m4a"]);
+    const reminders = [];
+    const api = loadLectures(store, disk, reminders);
+
+    await api.removeLecture(lecture("L1"));
+    const left = JSON.parse(store.get("@mahdar:lectures"));
+    assert("removing one lecture leaves the other", left.length === 1 && left[0].id === "L2");
+    assert("its audio is gone from disk", !disk.has("doc/lectures/L1/000.m4a"));
+    assert("its folder is gone with it", ![...disk].some((f) => f.startsWith("doc/lectures/L1")));
+    assert("the other lecture's audio is untouched", disk.has("doc/lectures/L2/000.m4a"));
+    assert("its task reminders were cancelled", reminders.includes("L1"));
+    assert("the lifetime counter is unchanged", store.get("@mahdar:lectureCount") === "7");
+  }
+
+  {
+    const store = new Map([
+      ["@mahdar:lectures", JSON.stringify([lecture("L1"), lecture("L2")])],
+      ["@mahdar:lectureCount", "7"],
+    ]);
+    // One chunk left in the cache directory, the way persistChunk falls back
+    // when the move fails — outside the lectures tree the bulk delete removes.
+    const stray = "cache/ImageManipulator/stray.m4a";
+    const withStray = JSON.parse(store.get("@mahdar:lectures"));
+    withStray[1].audioChunks.push({ uri: stray, at: 60, duration: 60 });
+    store.set("@mahdar:lectures", JSON.stringify(withStray));
+    const disk = new Set(["doc/lectures/L1/000.m4a", "doc/lectures/L2/000.m4a", stray]);
+    const reminders = [];
+    const api = loadLectures(store, disk, reminders);
+
+    await api.deleteAllLectures();
+    assert("delete-all empties the list", JSON.parse(store.get("@mahdar:lectures")).length === 0);
+    assert("and takes the whole lectures tree", ![...disk].some((f) => f.startsWith("doc/lectures")));
+    assert("including a chunk that fell back to the cache", !disk.has(stray));
+    assert("cancelling every lecture's reminders", reminders.length === 2);
+    assert(
+      "and still does not buy a free lecture",
+      store.get("@mahdar:lectureCount") === "7",
+    );
+  }
+}
+
+function assert(what, condition) {
+  if (condition) console.log(`ok   ${what}`);
+  else fail(what);
+}
+
 /* --------------------------------------------------------------------- report */
 
-console.log(`${shapes.length} saveLecture call sites, ${REMOVAL_PARTS.length} removal parts`);
-
-if (problems.length) {
-  for (const p of problems) console.log(`  ✗ ${p}`);
-  console.log(`\n${problems.length} problems.`);
-  process.exit(1);
-}
-console.log("A lecture keeps its audio while it lives, and takes all of it when it goes.");
+behaviour().then(() => {
+  console.log(`\n${shapes.length} saveLecture call sites, ${REMOVAL_PARTS.length} removal parts`);
+  if (problems.length) {
+    for (const p of problems) console.log(`  ✗ ${p}`);
+    console.log(`\n${problems.length} problems.`);
+    process.exit(1);
+  }
+  console.log("A lecture keeps its audio while it lives, and takes all of it when it goes.");
+});
