@@ -72,7 +72,7 @@ If the domain is not `luka-ai.vercel.app`, put the real one in `.env`:
 EXPO_PUBLIC_SITE_URL=https://your-real-domain.com
 ```
 
-**Decided, 28 Aug 2026:** the support contact is `lukaai.help@gmail.com`, one
+**Decided, 28 Aug 2026:** the support contact is `lukai.help@gmail.com`, one
 address for all six apps, written once at `app/privacy/apps.ts`. It replaced a
 personal Gmail, which was legal but published on the store listing.
 
