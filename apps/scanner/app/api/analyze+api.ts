@@ -191,7 +191,8 @@ export async function POST(request: Request) {
     locale?: string;
   } | null;
 
-  const selected = PACKS[body?.packId ?? ""];
+  const id = body?.packId ?? "";
+  const selected = Object.hasOwn(PACKS, id) ? PACKS[id] : undefined;
   if (!selected || selected.kind !== "audio") {
     return Response.json({ error: apiError.unknownPack }, { status: 400 });
   }

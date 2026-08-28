@@ -231,7 +231,8 @@ export async function POST(request: Request) {
     locale?: string;
   } | null;
 
-  const selected = SCANNER_PACKS[body?.packId ?? ""];
+  const id = body?.packId ?? "";
+  const selected = Object.hasOwn(SCANNER_PACKS, id) ? SCANNER_PACKS[id] : undefined;
   if (!selected) {
     return Response.json({ error: apiError.unknownScanType }, { status: 400 });
   }

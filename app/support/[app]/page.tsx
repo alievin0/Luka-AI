@@ -26,7 +26,7 @@ export async function generateMetadata({
   params: Promise<{ app: string }>;
 }): Promise<Metadata> {
   const { app } = await params;
-  const entry = APPS[app as AppId];
+  const entry = Object.hasOwn(APPS, app) ? APPS[app as AppId] : undefined;
   if (!entry) return { title: "Support" };
   return {
     title: `${entry.name} — Support`,
@@ -40,7 +40,7 @@ export default async function Support({
   params: Promise<{ app: string }>;
 }) {
   const { app } = await params;
-  const entry = APPS[app as AppId];
+  const entry = Object.hasOwn(APPS, app) ? APPS[app as AppId] : undefined;
   if (!entry) notFound();
 
   return (

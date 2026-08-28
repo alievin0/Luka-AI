@@ -27,7 +27,7 @@ export async function generateMetadata({
   params: Promise<{ app: string }>;
 }): Promise<Metadata> {
   const { app } = await params;
-  const entry = APPS[app as AppId];
+  const entry = Object.hasOwn(APPS, app) ? APPS[app as AppId] : undefined;
   if (!entry) return { title: "Terms of Use" };
   return {
     title: `${entry.name} — Terms of Use`,
@@ -41,7 +41,7 @@ export default async function Terms({
   params: Promise<{ app: string }>;
 }) {
   const { app } = await params;
-  const entry = APPS[app as AppId];
+  const entry = Object.hasOwn(APPS, app) ? APPS[app as AppId] : undefined;
   if (!entry) notFound();
 
   return (
