@@ -7,6 +7,7 @@ import Feather from "@expo/vector-icons/Feather";
 import { SymbolBadge } from "../src/components/SymbolBadge";
 import { currencyFor, getHistory, getProfile, type HistoryEntry, type Profile } from "../src/storage";
 import { isPro } from "../src/purchases";
+import { decide } from "../src/decision";
 import { formatMoneyRange } from "../src/money";
 import { carLabel } from "../src/car";
 import { t, fill } from "../src/i18n";
@@ -195,28 +196,12 @@ export default function Result() {
   const showCost = scannerPack?.showCost ?? false;
   const locked = !pro;
 
-  /**
-   * The decision hierarchy, enforced here rather than asked for in the prompt.
-   *
-   * A reported symptom outranks everything the photo produced. The model never
-   * saw it — it was answered in the app, after the scan — so nothing upstream
-   * can account for it, and the prompt cannot be told to.
-   *
-   * Without this the screen contradicted itself: a green band reading "no need
-   * to stop" with "stop the car now" in a red card underneath it, which is the
-   * same failure the server-side clamp was fixed for. One reported symptom
-   * therefore rewrites the level, the sentence and the movement together, and
-   * every one of them is read from these two values below rather than from
-   * `result` directly.
-   *
-   * It only ever raises. Answering "no" does not turn a red light green: the
-   * driver has confirmed the absence of the symptoms they can perceive, not
-   * examined the car.
-   */
-  const overridden = symptoms === true;
-  const level = overridden ? "stop" : result.verdictLevel;
-  const severity = overridden ? "critical" : result.severity;
-  const roadside = ROADSIDE[overridden ? "do-not-move" : result.roadside] ?? null;
+  /* The decision hierarchy lives in src/decision.ts, where it can be given
+     inputs and asked what it concluded. Keeping it here would leave the one
+     rule that can get somebody hurt testable only by reading the JSX. */
+  const decision = decide(result, symptoms);
+  const { overridden, level, severity } = decision;
+  const roadside = ROADSIDE[decision.roadside] ?? null;
 
   /** The report's contents, named one by one — and only the ones that are
    *  actually in this result. Same rule as the tabs: never advertise an empty

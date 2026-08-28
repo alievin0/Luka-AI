@@ -239,6 +239,13 @@ ok(
    The guard is that nothing rendered may read result.verdictLevel or
    result.severity raw. Both are only correct once `overridden` has been
    consulted, so every reference has to sit inside a conditional that does. */
+ok(
+  "result.tsx delegates the decision to decide()",
+  resultNodes.some(
+    (n) => ts.isCallExpression(n) && n.expression.getText(result) === "decide",
+  ),
+);
+
 const insideOverride = (node) => {
   for (let n = node; n; n = n.parent) {
     if (ts.isConditionalExpression(n) && /\boverridden\b/.test(n.condition.getText(result))) return true;

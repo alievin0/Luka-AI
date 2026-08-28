@@ -22,12 +22,25 @@
  *
  * Name the files after what they are and it will check the claim for you:
  *
- *   engine-red.jpg  abs-amber.jpg  green-only.jpg  multi-3lights.jpg
- *   blurry.jpg  dark.jpg  night.jpg  notdashboard-wall.jpg  unknown-lamp.jpg
+ *   normal reading   engine-1.jpg  abs-2.jpg  battery-3.jpg
+ *   by colour        red-1.jpg  amber-2.jpg  green-3.jpg  blue-4.jpg
+ *   hard conditions  night-1.jpg  glare-2.jpg  reflection-3.jpg
+ *                    blurry-4.jpg  far-5.jpg  obscured-6.jpg  dark-7.jpg
+ *   logical cases    multi-1.jpg  nowarning-2.jpg  notdashboard-3.jpg
+ *                    unknown-4.jpg
  *
- * A leading word before the first dash is read as the expectation: "engine",
- * "abs" and so on are matched against the glyph; "blurry", "dark", "night",
- * "notdashboard" are expected to come back detected:false.
+ * The word before the first dash is the expectation.
+ *   a glyph name   ("engine", "abs")  must come back as that glyph
+ *   a colour       ("red", "amber")   must come back at that severity —
+ *                                     a green light graded as a warning is as
+ *                                     wrong as a red one missed
+ *   "night"        is a condition, not an excuse: it must still read
+ *   "blurry" "dark" "glare" "reflection" "far" "obscured" "notdashboard"
+ *                                     must come back detected:false
+ *   "nowarning"    an unlit dashboard — must not invent a lamp
+ *   "multi"        must populate alsoDetected
+ *   "unknown"      a symbol outside the 43 — must leave glyph unset rather
+ *                                     than forcing the nearest match
  *
  * Needs ANTHROPIC_API_KEY in the environment (`set -a; source .env; set +a`).
  * Costs one scan per image, about 4 cents each.
@@ -159,14 +172,23 @@ async function send(label, schema, image, model, effort) {
    the app cannot fix it after the fact — clampForSafety catches two of these
    and nothing catches the rest.                                              */
 
-const NOT_A_DASHBOARD = ["blurry", "dark", "notdashboard", "unreadable"];
+/** Filenames whose leading word says the photo should defeat the reader. */
+const UNREADABLE = ["blurry", "dark", "glare", "reflection", "far", "obscured", "notdashboard", "unreadable"];
+
+/** Filenames that name a colour rather than a lamp: the expectation is the
+ *  severity band, not a glyph. Green and blue lights are information, and a
+ *  reader that grades them as warnings is as wrong as one that misses a red. */
+const COLOUR_SEVERITY = { red: "critical", amber: "warning", green: "info", blue: "info" };
+
+/** A dashboard with nothing lit is the quietest failure available: it invites
+ *  the model to find a lamp that is not there. */
+const NO_WARNING = ["nowarning", "clean", "unlit"];
 
 function violations(r, expectation) {
   const out = [];
+  const shouldFail = UNREADABLE.includes(expectation) || NO_WARNING.includes(expectation);
   if (!r.detected) {
-    if (expectation && !NOT_A_DASHBOARD.includes(expectation)) {
-      out.push(`expected ${expectation}, read nothing`);
-    }
+    if (expectation && !shouldFail) out.push(`expected ${expectation}, read nothing`);
     if (!r.notDetectedReason) out.push("not-detected with no reason to retake");
     // The server strips these; if any survive, clampForSafety did not run.
     for (const key of ["title", "verdict", "facts"]) {
@@ -174,10 +196,25 @@ function violations(r, expectation) {
     }
     return out;
   }
-  if (expectation && NOT_A_DASHBOARD.includes(expectation)) {
-    out.push(`unreadable photo read as "${r.title}"`);
+  if (UNREADABLE.includes(expectation)) out.push(`unreadable photo read as "${r.title}"`);
+  if (NO_WARNING.includes(expectation)) out.push(`invented a lamp on an unlit dashboard: "${r.title}"`);
+  if (COLOUR_SEVERITY[expectation] && r.severity !== COLOUR_SEVERITY[expectation]) {
+    out.push(`a ${expectation} light graded ${r.severity}, expected ${COLOUR_SEVERITY[expectation]}`);
   }
-  if (expectation && r.glyph && !NOT_A_DASHBOARD.includes(expectation) && r.glyph !== expectation) {
+  if (expectation === "unknown" && r.glyph) {
+    out.push(`a symbol outside the 43 was matched to "${r.glyph}"`);
+  }
+  if (expectation === "multi" && !(r.alsoDetected || []).length) {
+    out.push("several lamps lit, only one reported");
+  }
+  if (
+    expectation &&
+    r.glyph &&
+    !shouldFail &&
+    !COLOUR_SEVERITY[expectation] &&
+    !["unknown", "multi"].includes(expectation) &&
+    r.glyph !== expectation
+  ) {
     out.push(`expected glyph ${expectation}, got ${r.glyph}`);
   }
   if (r.glyph && !GLYPHS.includes(r.glyph)) out.push(`glyph "${r.glyph}" is not one the app can draw`);
@@ -256,6 +293,13 @@ async function matrix(dir, schema, model, effort) {
 
   let bad = 0;
   let tokens = 0;
+  const tally = {
+    namedRight: 0, namedTotal: 0,
+    falseOk: 0,
+    refusedRight: 0, refusedTotal: 0,
+    multiRight: 0, multiTotal: 0,
+    unknownRight: 0, unknownTotal: 0,
+  };
   for (const name of files) {
     const expectation = name.split(/[-.]/)[0].toLowerCase();
     const { result, usage, error } = await one(path.join(dir, name), schema, model, effort);
@@ -273,6 +317,29 @@ async function matrix(dir, schema, model, effort) {
     }
     tokens += (usage?.input_tokens ?? 0) + (usage?.output_tokens ?? 0);
     const problems = violations(result, expectation);
+
+    // The five figures worth reading afterwards, counted per photograph rather
+    // than inferred from the failure list — a photo can be counted right on
+    // recognition and wrong on grading.
+    if (UNREADABLE.includes(expectation) || NO_WARNING.includes(expectation)) {
+      tally.refusedTotal += 1;
+      if (!result.detected) tally.refusedRight += 1;
+    } else if (expectation === "multi") {
+      tally.multiTotal += 1;
+      if ((result.alsoDetected || []).length) tally.multiRight += 1;
+    } else if (expectation === "unknown") {
+      tally.unknownTotal += 1;
+      if (!result.glyph) tally.unknownRight += 1;
+    } else if (COLOUR_SEVERITY[expectation]) {
+      tally.namedTotal += 1;
+      if (result.severity === COLOUR_SEVERITY[expectation]) tally.namedRight += 1;
+    } else if (expectation) {
+      tally.namedTotal += 1;
+      if (result.glyph === expectation) tally.namedRight += 1;
+    }
+    if (result.detected && result.verdictLevel === "ok" && (result.severity === "critical" || result.confidence === "low")) {
+      tally.falseOk += 1;
+    }
     const summary = result.detected
       ? `${result.glyph ?? "—"} · ${result.severity} · ${result.verdictLevel} · ${result.roadside} · ${result.confidence}`
       : `not detected — ${String(result.notDetectedReason).slice(0, 60)}`;
@@ -283,10 +350,18 @@ async function matrix(dir, schema, model, effort) {
     console.log();
   }
 
+  const pct = (n, d) => (d ? `${Math.round((n / d) * 100)}%` : "—");
+  console.log("─".repeat(60));
+  console.log(`recognition           ${pct(tally.namedRight, tally.namedTotal)}  (${tally.namedRight}/${tally.namedTotal} lamps named as expected)`);
+  console.log(`false "ok"            ${pct(tally.falseOk, files.length)}  (${tally.falseOk} reassured when they should not have)`);
+  console.log(`bad-image fallback    ${pct(tally.refusedRight, tally.refusedTotal)}  (${tally.refusedRight}/${tally.refusedTotal} unreadable photos refused)`);
+  console.log(`multi-light           ${pct(tally.multiRight, tally.multiTotal)}  (${tally.multiRight}/${tally.multiTotal} reported the other lamps)`);
+  console.log(`unknown symbols       ${pct(tally.unknownRight, tally.unknownTotal)}  (${tally.unknownTotal ? "left unmatched rather than forced" : "none tested"})`);
+  console.log("─".repeat(60));
   console.log(
     bad
-      ? `${bad} of ${files.length} photographs produced an answer that breaks the hierarchy.`
-      : `All ${files.length} answers hold. ~${tokens} tokens.`,
+      ? `\n${bad} of ${files.length} photographs produced an answer that breaks the hierarchy.`
+      : `\nAll ${files.length} answers hold. ~${tokens} tokens.`,
   );
   process.exit(bad ? 1 : 0);
 }
