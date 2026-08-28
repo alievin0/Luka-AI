@@ -3,6 +3,7 @@ import { SCANNER_PACKS } from "../../src/packs/registry";
 import { checkRateLimit, clientKey } from "../../src/rate-limit";
 import type { ScanResult } from "../../src/packs/types";
 import { apiError, clampedVerdict } from "../../src/i18n/errors";
+import { LOCALES, localeEnglishName, type Locale } from "../../src/i18n";
 
 const MODEL = process.env.DASHLIGHT_MODEL || "claude-opus-5";
 
@@ -169,7 +170,7 @@ const RESULT_SCHEMA = {
  * is ever shown. Keeping them would make an honest "I could not read this"
  * look like a reading.
  */
-function clampForSafety(result: ScanResult, locale: "en" | "ar"): ScanResult {
+function clampForSafety(result: ScanResult, locale: Locale): ScanResult {
   if (!result.detected) {
     return { detected: false, notDetectedReason: result.notDetectedReason };
   }
@@ -186,6 +187,19 @@ function clampForSafety(result: ScanResult, locale: "en" | "ar"): ScanResult {
   }
   return clamped;
 }
+
+/** The user turn, in the reader's language. One line each, so the model is not
+ *  asked to answer in a language it was addressed in only by instruction. */
+const ASK: Record<Locale, string> = {
+  en: "Analyse this photo.",
+  ar: "حلّل هذه الصورة.",
+  es: "Analiza esta foto.",
+  pt: "Analise esta foto.",
+  fr: "Analyse cette photo.",
+  de: "Analysiere dieses Foto.",
+  tr: "Bu fotoğrafı analiz et.",
+  it: "Analizza questa foto.",
+};
 
 /** Roughly 1024px of JPEG at q0.7, base64 — well above what the app sends. */
 const MAX_IMAGE_BYTES = 4_000_000;
@@ -229,7 +243,12 @@ export async function POST(request: Request) {
   }
 
   const client = new Anthropic();
-  const locale = body.locale === "ar" ? "ar" : "en";
+  // Any shipped language, not just the two the content files are authored in.
+  // An unknown tag is English rather than a rejection: a wrong language is a
+  // worse answer, an error is no answer.
+  const locale: Locale = LOCALES.some((l) => l.code === body.locale)
+    ? (body.locale as Locale)
+    : "en";
 
   try {
     const response = await client.messages.create({
@@ -264,7 +283,7 @@ export async function POST(request: Request) {
             // Arabic for an English user against its own instructions.
             {
               type: "text",
-              text: locale === "ar" ? "حلّل هذه الصورة." : "Analyse this photo.",
+              text: ASK[locale] ?? ASK.en,
             },
           ],
         },

@@ -8,9 +8,43 @@ import { getLocales } from "expo-localization";
  * pack content alike — is a `Text` pair resolved through `t()`.
  */
 
-export type Locale = "en" | "ar";
+export type Locale = "en" | "ar" | "es" | "pt" | "fr" | "de" | "tr" | "it";
 
-/** A string in both shipped languages. */
+/**
+ * The shipped languages, and why these.
+ *
+ * Chosen on car ownership × iOS spend × how little English is read. A language
+ * whose speakers read English fluently — Swedish, Dutch — buys comfort rather
+ * than downloads; one whose market is cheap Android buys downloads rather than
+ * subscriptions. None of these is right-to-left, so `isRTL` stays a question
+ * about Arabic alone and no layout work follows from adding them.
+ *
+ * The name is what the model is told to answer in, so it is the language's own
+ * name for itself where that is what a speaker would expect to see.
+ */
+export const LOCALES: { code: Locale; name: string; english: string }[] = [
+  { code: "en", name: "English", english: "English" },
+  { code: "ar", name: "العربية", english: "Modern Standard Arabic" },
+  { code: "es", name: "Español", english: "Spanish" },
+  { code: "pt", name: "Português", english: "Brazilian Portuguese" },
+  { code: "fr", name: "Français", english: "French" },
+  { code: "de", name: "Deutsch", english: "German" },
+  { code: "tr", name: "Türkçe", english: "Turkish" },
+  { code: "it", name: "Italiano", english: "Italian" },
+];
+
+const CODES = LOCALES.map((l) => l.code);
+const isLocale = (value: unknown): value is Locale =>
+  typeof value === "string" && (CODES as string[]).includes(value);
+
+/**
+ * A string in the two languages the content files are authored in.
+ *
+ * Deliberately still a pair. `L(en, ar)` appears over nine hundred times, and
+ * every other language arrives as an overlay keyed on the English string
+ * rather than as two more fields on every call — see `translations` below.
+ * Adding a language is then a data file, not an edit to nine hundred lines.
+ */
 export type Text = { en: string; ar: string };
 
 /** Authoring helper so content files stay readable: L("Sit", "اجلس"). */
@@ -34,7 +68,7 @@ function stored(): Locale | null {
   try {
     const Storage = require("expo-sqlite/kv-store").default;
     const value = Storage.getItemSync(CHOICE_KEY);
-    return value === "ar" || value === "en" ? value : null;
+    return isLocale(value) ? value : null;
   } catch {
     return null;
   }
@@ -43,7 +77,7 @@ function stored(): Locale | null {
 function device(): Locale {
   try {
     const tag = getLocales()[0]?.languageCode?.toLowerCase();
-    return tag === "ar" ? "ar" : "en";
+    return isLocale(tag) ? tag : "en";
   } catch {
     return "en";
   }
@@ -67,8 +101,44 @@ export const locale: Locale = detect();
 
 export const isRTL = locale === "ar";
 
-/** Resolve a Text pair, falling back to English if a translation is missing. */
-export const t = (text: Text): string => text[locale] || text.en;
+/**
+ * Everything that is not English or Arabic, keyed on the English string.
+ *
+ * Loaded eagerly for the running language only: bundling eight dictionaries to
+ * read one is eight times the parse cost on a screen someone opens in a hurry.
+ */
+const translations: Record<string, string> = (() => {
+  switch (locale) {
+    case "es":
+      return require("./locales/es").default;
+    case "pt":
+      return require("./locales/pt").default;
+    case "fr":
+      return require("./locales/fr").default;
+    case "de":
+      return require("./locales/de").default;
+    case "tr":
+      return require("./locales/tr").default;
+    case "it":
+      return require("./locales/it").default;
+    default:
+      return {};
+  }
+})();
+
+/**
+ * Resolve a Text pair.
+ *
+ * English and Arabic are authored on the pair itself. Everything else is
+ * looked up by the English string, and falls back to English when a line has
+ * not been translated yet — a missing translation shows a sentence somebody
+ * can still read, rather than a key or a blank.
+ */
+export const t = (text: Text): string => {
+  if (locale === "en") return text.en;
+  if (locale === "ar") return text.ar || text.en;
+  return translations[text.en] || text.en;
+};
 
 /**
  * Resolve an error a server route sent back.
@@ -87,8 +157,18 @@ export const remote = (value: unknown): string | null => {
   return null;
 };
 
-/** Pick a value by locale without building a Text pair. */
+/** Pick a value by locale without building a Text pair. Arabic against the
+ *  rest, which is what every caller is actually asking about — RTL layout and
+ *  Arabic-specific typography. */
 export const pick = <T,>(en: T, ar: T): T => (locale === "ar" ? ar : en);
+
+/** The running language's own name, for the model and for a language picker. */
+export const localeName = (code: Locale = locale): string =>
+  LOCALES.find((l) => l.code === code)?.name ?? "English";
+
+/** Its English name, which is what the vision prompt is written in. */
+export const localeEnglishName = (code: Locale = locale): string =>
+  LOCALES.find((l) => l.code === code)?.english ?? "English";
 
 /**
  * Fill a placeholder string: fill(ui.dueIn, { n: 3 }).

@@ -145,7 +145,10 @@ ok(
   /const asksUpFront = !isScanner\(pack\);/.test(onboarding) &&
     /questions = asksUpFront \? pack\.onboarding : \[\]/.test(onboarding),
 );
-ok("and the language is offered on that first screen", /switchLanguage\(code\)/.test(onboarding));
+ok(
+  "and the language is offered on that first screen",
+  /languageChoices\(\)/.test(onboarding) && /switchLanguage\(/.test(onboarding),
+);
 
 
 /* ------------------------------------------------- the trial-ending notice

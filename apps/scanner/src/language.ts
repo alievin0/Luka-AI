@@ -1,5 +1,5 @@
 import { I18nManager, Alert } from "react-native";
-import { locale, rememberLocale, type Locale } from "./i18n";
+import { LOCALES, locale, localeName, rememberLocale, type Locale } from "./i18n";
 import { t } from "./i18n";
 import { ui } from "./i18n/ui";
 
@@ -42,4 +42,14 @@ export async function switchLanguage(next: Locale) {
   Alert.alert(t(ui.languageChanged), t(ui.restartToApply));
 }
 
-export const otherLocale = (): Locale => (locale === "ar" ? "en" : "ar");
+/**
+ * The language list, running language first.
+ *
+ * This used to be `otherLocale()` — a toggle, which is the right shape for two
+ * languages and the wrong one for eight. Callers that offered "switch to the
+ * other language" now offer a list.
+ */
+export const languageChoices = (): { code: Locale; name: string; current: boolean }[] =>
+  LOCALES.map((l) => ({ code: l.code, name: l.name, current: l.code === locale }));
+
+export const currentLanguageName = () => localeName();

@@ -1,4 +1,4 @@
-import { L } from "../i18n";
+import { L, localeEnglishName } from "../i18n";
 import type { ScannerPack } from "./types";
 import { DASHLIGHT_LIBRARY } from "./dashlight-library";
 
@@ -180,7 +180,7 @@ export const dashlight: ScannerPack = {
 User context: ${profile || "unknown"}
 Currency for estimates: ${currency}
 
-WRITE EVERY USER-FACING STRING IN ${locale === "ar" ? "MODERN STANDARD ARABIC (فصحى) — clear and direct, at the level of a car owner's manual. Never colloquial or dialect. Use standard terms: مصباح تحذيري, لوحة القيادة, المحوّل الحفّاز, ناقل الحركة, المقود, العادم, غطاء المحرك" : "ENGLISH (plain, direct, no jargon without explanation)"}.
+WRITE EVERY USER-FACING STRING IN ${locale === "ar" ? "MODERN STANDARD ARABIC (فصحى) — clear and direct, at the level of a car owner's manual. Never colloquial or dialect. Use standard terms: مصباح تحذيري, لوحة القيادة, المحوّل الحفّاز, ناقل الحركة, المقود, العادم, غطاء المحرك" : `${localeEnglishName(locale).toUpperCase()} — plain and direct, at the level of a car owner's manual, using the words that country's drivers and garages actually use for these parts. No jargon without explanation, and never English words left untranslated where a normal term exists`}.
 
 Mandatory rules:
 1. Identify the most prominent LIT symbol. If several are lit, lead with the most dangerous.

@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState } from "react";
 import { View, Text, StyleSheet, Pressable, ScrollView, Alert } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { t, locale, fill } from "../i18n";
-import { switchLanguage, otherLocale } from "../language";
+import { switchLanguage, languageChoices } from "../language";
 import { ui } from "../i18n/ui";
 import { FONTS, SCALE } from "../type";
 import { useLayout } from "../layout";
@@ -99,10 +99,11 @@ export function AudioHome({ pack }: { pack: AudioPack }) {
   /** Confirms first: switching language restarts the app, and a restart
    *  nobody expected reads as a crash. */
   const askSwitchLanguage = () => {
-    const next = otherLocale();
     Alert.alert(t(ui.language), t(ui.confirmSwitchLanguage), [
-      { text: t(ui.home), style: "cancel" },
-      { text: next === "ar" ? "العربية" : "English", onPress: () => void switchLanguage(next) },
+      ...languageChoices()
+        .filter((l) => !l.current)
+        .map((l) => ({ text: l.name, onPress: () => void switchLanguage(l.code) })),
+      { text: t(ui.home), style: "cancel" as const },
     ]);
   };
 

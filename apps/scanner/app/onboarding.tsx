@@ -16,8 +16,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Haptics from "expo-haptics";
 import { pack, activePackId, isAudio, isScanner, optionLabel, optionValue } from "../src/packs";
-import { t, isRTL, locale } from "../src/i18n";
-import { switchLanguage } from "../src/language";
+import { t, isRTL } from "../src/i18n";
+import { switchLanguage, languageChoices } from "../src/language";
 import { ui } from "../src/i18n/ui";
 import { UI_FONT } from "../src/ui-font";
 import { theme, withAlpha } from "../src/theme";
@@ -144,16 +144,16 @@ export default function Onboarding() {
                 reload, which is why it belongs here: nothing has been answered
                 yet, so nothing is lost by restarting. */}
             <View style={styles.langRow}>
-              {(["ar", "en"] as const).map((code) => (
+              {languageChoices().map((lang) => (
                 <Pressable
-                  key={code}
-                  onPress={() => void switchLanguage(code)}
-                  style={[styles.lang, locale === code && styles.langOn]}
+                  key={lang.code}
+                  onPress={() => void switchLanguage(lang.code)}
+                  style={[styles.lang, lang.current && styles.langOn]}
                   accessibilityRole="radio"
-                  accessibilityState={{ selected: locale === code }}
+                  accessibilityState={{ selected: lang.current }}
                 >
-                  <Text style={[styles.langText, locale === code && styles.langTextOn]}>
-                    {code === "ar" ? "العربية" : "English"}
+                  <Text style={[styles.langText, lang.current && styles.langTextOn]}>
+                    {lang.name}
                   </Text>
                 </Pressable>
               ))}
@@ -275,9 +275,9 @@ export default function Onboarding() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: theme.bg },
   safe: { flex: 1 },
-  langRow: { flexDirection: "row", gap: 10, marginTop: 26 },
+  langRow: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8, marginTop: 26 },
   lang: {
-    minWidth: 108,
+    minWidth: 96,
     paddingVertical: 11,
     paddingHorizontal: 20,
     borderRadius: 999,

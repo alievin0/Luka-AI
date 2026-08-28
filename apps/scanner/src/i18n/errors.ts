@@ -1,4 +1,4 @@
-import type { Text } from "./index";
+import type { Locale, Text } from "./index";
 
 /**
  * The errors the API routes send back.
@@ -27,9 +27,27 @@ const L = (en: string, ar: string): Text => ({ en, ar });
  * Indexed by the request's locale rather than resolved through `t()`, which
  * reads a module-level locale fixed at startup and on a server is nobody's.
  */
-export const clampedVerdict = {
-  stop: L("Stop driving now", "أوقف القيادة الآن"),
-  caution: L("Not certain — treat it with caution", "النتيجة غير مؤكدة — تعامل معها بحذر"),
+export const clampedVerdict: Record<"stop" | "caution", Record<Locale, string>> = {
+  stop: {
+    en: "Stop driving now",
+    ar: "أوقف القيادة الآن",
+    es: "Deje de conducir ahora",
+    pt: "Pare de dirigir agora",
+    fr: "Arrêtez-vous immédiatement",
+    de: "Fahren Sie sofort nicht weiter",
+    tr: "Şimdi sürmeyi bırakın",
+    it: "Fermati subito",
+  },
+  caution: {
+    en: "Not certain — treat it with caution",
+    ar: "النتيجة غير مؤكدة — تعامل معها بحذر",
+    es: "No es seguro: tómelo con precaución",
+    pt: "Não é certo — trate com cautela",
+    fr: "Incertain — soyez prudent",
+    de: "Nicht sicher — mit Vorsicht behandeln",
+    tr: "Kesin değil — dikkatli olun",
+    it: "Non è certo — trattalo con prudenza",
+  },
 };
 
 export const apiError = {

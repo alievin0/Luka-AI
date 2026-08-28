@@ -1,4 +1,4 @@
-import type { Text } from "../i18n";
+import type { Locale, Text } from "../i18n";
 
 /* Two app archetypes share this engine.
  *
@@ -26,7 +26,9 @@ export type VerdictLevel = "stop" | "caution" | "ok";
  */
 export type Roadside = "do-not-move" | "move-to-safety" | "drive-with-care" | "monitor";
 export type Confidence = "high" | "medium" | "low";
-export type Locale = "en" | "ar";
+/* Re-exported rather than redeclared: this file had its own two-language copy,
+   which quietly stopped matching the day six more shipped. */
+export type { Locale };
 
 /**
  * An onboarding answer.

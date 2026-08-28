@@ -4,7 +4,7 @@ import { useFocusEffect, useRouter } from "expo-router";
 import Constants from "expo-constants";
 import { pack, activePackId, isAudio, isProgram, isScanner } from "../../src/packs";
 import { privacyUrl, supportUrl, termsUrl } from "../../src/legal";
-import { switchLanguage, otherLocale } from "../../src/language";
+import { switchLanguage, languageChoices, currentLanguageName } from "../../src/language";
 import { t, locale } from "../../src/i18n";
 import { ui } from "../../src/i18n/ui";
 import { UI_FONT } from "../../src/ui-font";
@@ -170,12 +170,13 @@ export default function Settings() {
           label={t(ui.language)}
           value={locale === "ar" ? "العربية" : "English"}
           onPress={() =>
+            /* A list, not a toggle. Each language is named in itself, which is
+               the only label a speaker of it can be relied on to recognise. */
             Alert.alert(t(ui.language), t(ui.confirmSwitchLanguage), [
-              { text: t(ui.home), style: "cancel" },
-              {
-                text: otherLocale() === "ar" ? "العربية" : "English",
-                onPress: () => void switchLanguage(otherLocale()),
-              },
+              ...languageChoices()
+                .filter((l) => !l.current)
+                .map((l) => ({ text: l.name, onPress: () => void switchLanguage(l.code) })),
+              { text: t(ui.home), style: "cancel" as const },
             ])
           }
         />
