@@ -1,0 +1,117 @@
+{
+  "_": "App Store listing copy for Dash Light, one block per storefront language.",
+  "_shipped": "The eight languages the app itself renders. A ninth storefront would be a listing in a language the app does not speak, which converts a download into a refund.",
+  "_limits": "Apple: name 30, subtitle 30, keywords 100. Apple indexes name + subtitle + keywords as one bag, so a word spent twice is a word wasted. scripts/check-aso.js enforces both.",
+
+  "en-US": {
+    "name": "Dashboard Light Scanner",
+    "subtitle": "Check Engine Light Meaning",
+    "keywords": "warning,symbol,indicator,fault,vehicle,auto,repair,cost,diagnose,tire,brake,battery,coolant,abs",
+    "shots": [
+      "A light came on. Now what?",
+      "Stop · Caution · No need to stop",
+      "Photograph it. Get the answer.",
+      "Answered for your car",
+      "And what the repair costs",
+      "48 lights, searchable offline"
+    ]
+  },
+
+  "ar-SA": {
+    "name": "لمبات السيارة: مصابيح الطبلون",
+    "subtitle": "صوّرها واعرف ماذا تفعل الآن",
+    "keywords": "تحذير,لمبة,المحرك,عطل,تشخيص,ورشة,إصلاح,تكلفة,بطارية,فرامل,زيت,إطار,رمز,فحص",
+    "shots": [
+      "اشتعلت لمبة. ماذا تفعل الآن؟",
+      "أوقف · انتبه · لا حاجة للتوقف",
+      "صوّرها. اعرف الجواب.",
+      "الجواب لسيارتك أنت",
+      "وكم تكلفة الإصلاح",
+      "٤٨ لمبة، بحث بلا إنترنت"
+    ]
+  },
+
+  "es-ES": {
+    "name": "Testigos del Salpicadero",
+    "subtitle": "Qué significa esa luz",
+    "keywords": "avería,motor,coche,auto,taller,reparación,síntoma,alerta,indicador,batería,freno,aceite,rueda",
+    "shots": [
+      "Se encendió un testigo. ¿Y ahora?",
+      "Pare · Precaución · Puede seguir",
+      "Fotografíalo. Ten la respuesta.",
+      "La respuesta para tu coche",
+      "Y cuánto cuesta repararlo",
+      "48 testigos, sin conexión"
+    ]
+  },
+
+  "pt-BR": {
+    "name": "Luzes do Painel do Carro",
+    "subtitle": "O que significa essa luz",
+    "keywords": "falha,motor,alerta,indicador,símbolo,oficina,reparo,custo,bateria,freio,óleo,pneu,diagnóstico",
+    "shots": [
+      "Acendeu uma luz. E agora?",
+      "Pare · Atenção · Pode seguir",
+      "Fotografe. Tenha a resposta.",
+      "A resposta para o seu carro",
+      "E quanto custa o reparo",
+      "48 luzes, sem internet"
+    ]
+  },
+
+  "fr-FR": {
+    "name": "Voyants Tableau de Bord",
+    "subtitle": "Que signifie ce voyant ?",
+    "keywords": "panne,moteur,voiture,auto,garage,réparation,coût,symbole,alerte,batterie,frein,huile,pneu",
+    "shots": [
+      "Un voyant s'allume. Et après ?",
+      "Arrêt · Prudence · Vous pouvez rouler",
+      "Photographiez. Obtenez la réponse.",
+      "La réponse pour votre voiture",
+      "Et le coût de la réparation",
+      "48 voyants, hors ligne"
+    ]
+  },
+
+  "de-DE": {
+    "name": "Warnleuchten Auto Scanner",
+    "subtitle": "Was bedeutet diese Leuchte?",
+    "keywords": "kontrollleuchte,armaturenbrett,symbol,motor,werkstatt,reparatur,kosten,batterie,bremse,öl,reifen",
+    "shots": [
+      "Eine Leuchte an. Und jetzt?",
+      "Stopp · Achtung · Weiterfahren ok",
+      "Fotografieren. Antwort erhalten.",
+      "Die Antwort für Ihr Auto",
+      "Und was die Reparatur kostet",
+      "48 Leuchten, auch offline"
+    ]
+  },
+
+  "tr": {
+    "name": "Araba İkaz Işıkları",
+    "subtitle": "Bu ışık ne anlama gelir?",
+    "keywords": "gösterge,paneli,arıza,motor,sembol,uyarı,servis,tamir,maliyet,akü,fren,yağ,lastik,teşhis",
+    "shots": [
+      "Bir ışık yandı. Şimdi ne olacak?",
+      "Dur · Dikkat · Devam edebilirsin",
+      "Fotoğrafla. Cevabı al.",
+      "Kendi arabanız için cevap",
+      "Ve tamir ne kadar tutar",
+      "48 ikaz ışığı, çevrimdışı"
+    ]
+  },
+
+  "it": {
+    "name": "Spie Cruscotto Auto",
+    "subtitle": "Cosa significa questa spia",
+    "keywords": "guasto,motore,simbolo,avviso,indicatore,officina,riparazione,costo,batteria,freno,olio,gomma",
+    "shots": [
+      "Si è accesa una spia. E ora?",
+      "Stop · Attenzione · Puoi proseguire",
+      "Fotografala. Ottieni la risposta.",
+      "La risposta per la tua auto",
+      "E quanto costa la riparazione",
+      "48 spie, anche offline"
+    ]
+  }
+}

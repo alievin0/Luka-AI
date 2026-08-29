@@ -11,7 +11,7 @@
     "deploy:api": "eas deploy",
     "check:emphasis": "node scripts/check-emphasis.js",
     "check:transcribe": "node scripts/check-transcribe.js",
-    "check": "npm run typecheck && npm run check:arabic && npm run check:schema && npm run check:symbols && npm run check:lectures && npm run check:ratelimit && npm run check:paywall && npm run check:revenuecat && npm run check:privacy && npm run check:clamp && npm run check:decision && npm run check:locales && npm run check:emphasis && npm run check:transcribe && npm run check:ics && npm run check:provenance && npm run check:study && npm run check:candidates",
+    "check": "npm run typecheck && npm run check:arabic && npm run check:schema && npm run check:symbols && npm run check:lectures && npm run check:ratelimit && npm run check:paywall && npm run check:revenuecat && npm run check:privacy && npm run check:clamp && npm run check:decision && npm run check:locales && npm run check:aso && npm run check:emphasis && npm run check:transcribe && npm run check:ics && npm run check:provenance && npm run check:study && npm run check:candidates",
     "check:ics": "node scripts/check-ics.js",
     "check:provenance": "node scripts/check-provenance.js",
     "check:study": "node scripts/check-study.js",
@@ -26,7 +26,8 @@
     "check:privacy": "node scripts/check-privacy.js",
     "check:clamp": "node scripts/check-clamp.js",
     "check:decision": "node scripts/check-decision.js",
-    "check:locales": "node scripts/check-locales.js"
+    "check:locales": "node scripts/check-locales.js",
+    "check:aso": "node scripts/check-aso.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.109.1",
