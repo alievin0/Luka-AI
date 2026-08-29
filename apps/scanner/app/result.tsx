@@ -576,6 +576,11 @@ export default function Result() {
                     style={styles.sharpenInput}
                     value={typed}
                     onChangeText={setTyped}
+                    /* Backing out mid-word used to lose the word: this was
+                       held in local state and written only by the button.
+                       Saving on blur as well costs nothing — an empty answer
+                       is ignored, and re-saving the same one is a no-op. */
+                    onBlur={() => void saveAnswer(nextQuestion.key, typed.trim())}
                     placeholder={t(nextQuestion.input.placeholder)}
                     placeholderTextColor={TEXT_FAINT}
                     keyboardType={nextQuestion.input.keyboard ?? "default"}

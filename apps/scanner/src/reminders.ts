@@ -20,6 +20,29 @@ const TRIAL_ID = `${activePackId}-trial-ending`;
 
 export const DEFAULT_HOUR = 19;
 
+/* ------------------------------------------------------ where a tap belongs
+
+   A notification is a sentence about one screen, and tapping it should open
+   that screen. Both of these used to open wherever the app was last left —
+   which for the trial notice meant reading "you will be charged tomorrow" and
+   landing on the camera, with the setting that stops the charge two taps away
+   and unnamed.
+
+   The route travels in the notification's own payload, so it survives the app
+   being killed between the schedule and the tap. That payload is data, not
+   code: it is matched against this list rather than handed to the router, so
+   a route can never arrive from anywhere but here. */
+
+const ROUTES = ["/", "/settings"] as const;
+export type ReminderRoute = (typeof ROUTES)[number];
+
+export function routeOfNotification(data: unknown): ReminderRoute | null {
+  const route = (data as { route?: unknown } | null | undefined)?.route;
+  return typeof route === "string" && (ROUTES as readonly string[]).includes(route)
+    ? (route as ReminderRoute)
+    : null;
+}
+
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowBanner: true,
@@ -70,6 +93,7 @@ export async function scheduleReminder(hour: number): Promise<number | null> {
         pack.kind === "program"
           ? t(ui.reminderBody)
           : t(ui.reminderBodyScanner),
+      data: { route: "/" satisfies ReminderRoute },
     },
     trigger: {
       type: Notifications.SchedulableTriggerInputTypes.DAILY,
@@ -132,6 +156,9 @@ export async function syncTrialEndingReminder(): Promise<boolean> {
       body: trial.price
         ? fill(ui.trialEndsBody, { price: trial.price })
         : t(ui.trialEndsBodyNoPrice),
+      /* Settings, not the camera: the screen this sentence is about is the
+         one carrying Restore and the link out to the subscription. */
+      data: { route: "/settings" satisfies ReminderRoute },
     },
     trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: when, channelId: "trial" },
   });

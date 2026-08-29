@@ -28,6 +28,7 @@ import {
 } from "../../src/scanner-ui";
 import { SeverityDot, EmptyState, Caption, Pill } from "../../src/components/scanner-kit";
 import { NAV_CLEARANCE } from "../../src/components/ScannerNav";
+import { useTabToTop } from "../../src/tab-to-top";
 
 /**
  * Every scan the driver has made.
@@ -42,6 +43,7 @@ export default function History() {
   const [entries, setEntries] = useState<HistoryEntry[]>([]);
   const [pro, setPro] = useState(false);
   const [vehicle, setVehicle] = useState<string | null>(null);
+  const list = useTabToTop<HistoryEntry>();
 
   /* Re-read on focus rather than once on mount. Someone who has just bought
      the subscription comes back to this screen from Apple's sheet, and a
@@ -90,6 +92,7 @@ export default function History() {
           />
         ) : (
           <FlatList
+            ref={list}
             contentContainerStyle={styles.content}
             data={visible}
             keyExtractor={(item) => item.id}

@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, FlatList, Pressable } from "react-native";
 import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { SymbolBadge } from "../../src/components/SymbolBadge";
-import { pack, isScanner } from "../../src/packs";
+import { pack, isScanner, type LibraryEntry } from "../../src/packs";
 import { normalise } from "../../src/countries";
 import { t, fill } from "../../src/i18n";
 import { ui } from "../../src/i18n/ui";
@@ -24,6 +24,7 @@ import {
 } from "../../src/scanner-ui";
 import { SeverityDot, SearchField, Button, Segmented, type TabItem } from "../../src/components/scanner-kit";
 import { NAV_CLEARANCE } from "../../src/components/ScannerNav";
+import { useTabToTop } from "../../src/tab-to-top";
 
 /**
  * The light guide.
@@ -66,6 +67,7 @@ export default function Library() {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
+  const list = useTabToTop<LibraryEntry>();
 
   const scannerPack = isScanner(pack) ? pack : null;
   const entries = useMemo(() => scannerPack?.library ?? [], [scannerPack]);
@@ -111,6 +113,7 @@ export default function Library() {
         </View>
 
         <FlatList
+          ref={list}
           data={matches}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.list}

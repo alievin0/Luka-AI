@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { I18nManager, View, ActivityIndicator } from "react-native";
 import { Stack, useRouter, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
+import * as Notifications from "expo-notifications";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { theme } from "../src/theme";
 import { isOnboarded } from "../src/storage";
@@ -9,7 +10,7 @@ import { pack, isAudio, isProgram, isScanner } from "../src/packs";
 import { t, isRTL } from "../src/i18n";
 import { ui } from "../src/i18n/ui";
 import { initPurchases } from "../src/purchases";
-import { syncTrialEndingReminder } from "../src/reminders";
+import { routeOfNotification, syncTrialEndingReminder } from "../src/reminders";
 import { useAppFonts } from "../src/type";
 import { recoverInterruptedLectures } from "../src/lectures";
 import { useReducedMotion } from "../src/motion";
@@ -39,6 +40,32 @@ export default function RootLayout() {
     // during; without this the home list shows it as live forever.
     if (isAudio(pack)) recoverInterruptedLectures();
   }, []);
+
+  /* A tapped notification opens the screen it is about.
+
+     Without this the app opens wherever it was last left, which for the
+     trial notice means being told a charge is coming tomorrow and landing on
+     the camera. `ready` gates it because a navigation issued before the
+     router has mounted is dropped silently, and the cold-start read has to
+     happen after that gate for the same reason: the tap that launched the
+     app fired before any listener existed, so it is fetched rather than
+     heard. Someone who is not onboarded is bounced back by the effect below,
+     which runs on every segment change — including this one. */
+  useEffect(() => {
+    if (!ready) return;
+    let cancelled = false;
+    const open = (response: Notifications.NotificationResponse | null) => {
+      if (cancelled || !response) return;
+      const route = routeOfNotification(response.notification.request.content.data);
+      if (route) router.navigate(route as never);
+    };
+    void Notifications.getLastNotificationResponseAsync().then(open);
+    const subscription = Notifications.addNotificationResponseReceivedListener(open);
+    return () => {
+      cancelled = true;
+      subscription.remove();
+    };
+  }, [ready, router]);
 
   // Re-read on every navigation rather than caching once at mount: finishing
   // onboarding writes to storage and navigates, and a cached `false` here

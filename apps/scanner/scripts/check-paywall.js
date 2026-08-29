@@ -203,6 +203,40 @@ ok(
     sync.indexOf("cancelScheduledNotificationAsync") < sync.indexOf("scheduleNotificationAsync"),
 );
 
+/* Where the notice lands.
+
+   Every other notification in this app is an invitation — miss it and you
+   have missed nothing. This one is a deadline, and it is the only screen in
+   Dash Light where being dropped in the wrong place costs the reader money:
+   told a charge is coming tomorrow, and left on the camera with the setting
+   that stops it unnamed and two taps away.
+
+   The route rides in the notification's payload, so nothing but the payload
+   proves it is there — a `data` block is easy to drop in an edit that looks
+   like it is only changing wording, and the loss is invisible until the day
+   someone taps. */
+
+const trialRoute = sync.match(/route:\s*"([^"]+)"/)?.[1] ?? null;
+ok(
+  `the trial notice carries the screen it is about (${trialRoute ?? "no route"})`,
+  trialRoute === "/settings",
+);
+
+const layout = fs.readFileSync(path.join(ROOT, "app/_layout.tsx"), "utf8");
+ok(
+  "and a tap on it is heard, warm and cold",
+  layout.includes("addNotificationResponseReceivedListener") &&
+    layout.includes("getLastNotificationResponseAsync"),
+);
+// A route out of a notification payload is data. Handing it to the router
+// unread would make any process that can post a notification a navigator.
+ok(
+  "and the route is matched against a list, not handed to the router",
+  /\brouteOfNotification\(/.test(layout) &&
+    /const ROUTES = \[/.test(reminders) &&
+    /ROUTES as readonly string\[\]\)\.includes\(route\)/.test(reminders),
+);
+
 /* ------------------------------------------------- 2. the safety judgement
 
    A driver stopped on the hard shoulder is asking one question: can I keep
