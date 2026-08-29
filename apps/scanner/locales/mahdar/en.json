@@ -1,0 +1,7 @@
+{
+  "CFBundleDisplayName": "Mahdar",
+  "NSCameraUsageDescription": "Not used by this app.",
+  "NSPhotoLibraryUsageDescription": "Not used by this app.",
+  "NSMicrophoneUsageDescription": "Mahdar needs the microphone to record the lecture and turn it into notes and a summary.",
+  "NSSpeechRecognitionUsageDescription": "Mahdar turns the lecturer's speech into text on your device, as it is spoken."
+}

@@ -1,0 +1,5 @@
+{
+  "CFBundleDisplayName": "Gold Scanner",
+  "NSCameraUsageDescription": "We need the camera to photograph the hallmark stamped on your gold.",
+  "NSPhotoLibraryUsageDescription": "We need photo access so you can pick a photo of the hallmark."
+}

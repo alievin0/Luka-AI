@@ -1,0 +1,7 @@
+{
+  "CFBundleDisplayName": "مَحضَر",
+  "NSCameraUsageDescription": "لا يستخدمه هذا التطبيق.",
+  "NSPhotoLibraryUsageDescription": "لا يستخدمه هذا التطبيق.",
+  "NSMicrophoneUsageDescription": "يحتاج مَحضَر إلى الميكروفون لتسجيل المحاضرة وتحويلها إلى نص وملخّص.",
+  "NSSpeechRecognitionUsageDescription": "يحوّل مَحضَر كلام المحاضر إلى نص على جهازك لحظة بلحظة."
+}

@@ -1,0 +1,5 @@
+{
+  "CFBundleDisplayName": "Dash Light",
+  "NSCameraUsageDescription": "We need the camera to photograph your dashboard and identify the warning light.",
+  "NSPhotoLibraryUsageDescription": "We need photo access so you can pick a dashboard photo."
+}
