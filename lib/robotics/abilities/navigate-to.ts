@@ -41,6 +41,51 @@ export const navigateTo: Ability<NavigateInput, NavigateReport> = {
     tags: ["navigation", "core"],
     risk: "motion",
     requires: ["drive", "lidar"],
+    // Having a lidar is not the same as being able to see. This is the
+    // capability the safety model leans on hardest, so it says what it needs.
+    evidence: [
+      {
+        source: "lidar",
+        because: "everything it avoids, it avoids because the scan showed it",
+        maxAgeMs: 500,
+        minCompleteness: 0.5,
+        acceptDegraded: true,
+      },
+      {
+        source: "pose",
+        because: "a goal in world coordinates is meaningless without knowing where the robot is",
+      },
+      {
+        source: "transport",
+        because: "a command that does not arrive is not a command",
+        acceptDegraded: true,
+      },
+    ],
+    proof: {
+      status: "SIMULATED",
+      basis:
+        "1.02x path efficiency and zero collisions across the cluttered-office and corridor " +
+        "scenarios, over five seeds. Simulator only; no physical robot has run this.",
+      verification:
+        "Drive a measured course on a real robot with a tape-measured start and finish, and " +
+        "compare travelled distance against the straight line. Repeat with an obstacle added " +
+        "after planning has started.",
+      failureModes: [
+        "A lidar whose extrinsics are wrong reports obstacles in the wrong place, and the robot " +
+          "avoids things that are not there while driving into things that are.",
+        "Guessed wheelbase or wheel radius makes odometry drift, so the goal moves relative to " +
+          "the robot as it travels.",
+        "Narrow gaps: the swept-disc clearance uses one footprint radius and will refuse a gap " +
+          "an oblong robot could actually pass through.",
+      ],
+      degradedModes: [
+        "Accepts a scan with half its beams answering, which narrows the field it can plan in " +
+          "rather than stopping it.",
+      ],
+      safetyBoundary:
+        "Never commands a speed above what the governor allows for the current clearance, and " +
+        "never drives on a scan below half completeness.",
+    },
     typicalDurationMs: 12_000,
     inputSchema: {
       type: "object",

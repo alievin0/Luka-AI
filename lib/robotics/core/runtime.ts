@@ -4,6 +4,8 @@
 
 import { makeRng } from "./math.ts";
 import { validate } from "./schema.ts";
+import { gatherEvidence } from "./evidence.ts";
+import { evaluateGate } from "./gate.ts";
 import type { AbilityRegistry } from "./registry.ts";
 import { createInMemoryBackend, createMemory, sharedBackend, type MemoryBackend } from "./memory.ts";
 import { SafetyGovernor } from "../safety/governor.ts";
@@ -451,6 +453,35 @@ export class RobotRuntime {
     );
     if (missing.length > 0) {
       return fail(`${manifest.id} needs hardware this robot lacks: ${missing.join(", ")}`, "hardware");
+    }
+
+    // Having the hardware is the first question and not the important one. A
+    // robot can have a lidar bolted to it and a driver publishing NaN across
+    // every beam, and pass the check above.
+    //
+    // Where a capability says what evidence it needs, that is checked against
+    // what the robot can currently justify believing, and the refusal names
+    // the requirement, the reading and its age rather than a boolean.
+    if (manifest.evidence && manifest.evidence.length > 0) {
+      const verdict = evaluateGate(manifest.evidence, gatherEvidence(this.robot, this.now()));
+      if (!verdict.admitted) {
+        this.emit({ kind: "warn", message: `${manifest.id} refused — ${verdict.refusal}` });
+        return fail(`${manifest.id} refused: ${verdict.refusal}`, "precondition");
+      }
+      if (verdict.degraded) {
+        // Admitted on evidence worse than it would like. Said out loud, because
+        // a capability running degraded and one running normally produce the
+        // same-looking result otherwise.
+        this.emit({
+          kind: "warn",
+          message:
+            `${manifest.id} is running on degraded evidence: ` +
+            verdict.checks
+              .filter((c) => c.evidence?.quality === "degraded")
+              .map((c) => c.detail)
+              .join(" "),
+        });
+      }
     }
 
     const parsed = validate<I>(manifest.inputSchema, input ?? {});

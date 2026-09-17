@@ -4,6 +4,7 @@
 // aborted at any instant.
 
 import type { Pose2, Vec2 } from "./math.ts";
+import type { CapabilityEvidenceRecord, EvidenceRequirement } from "./gate.ts";
 
 /**
  * How much damage this ability can do if it misbehaves. The safety governor
@@ -57,6 +58,22 @@ export type AbilityManifest = {
   tags: string[];
   risk: RiskClass;
   requires: HardwareCapability[];
+  /**
+   * What this capability needs to be true of the robot's senses, not just of
+   * its parts. Checked before every run; a failure refuses with the reading
+   * and its age rather than a boolean.
+   *
+   * Optional, so existing abilities keep working — but an ability that moves a
+   * robot and declares nothing here is trusting whatever comes back.
+   */
+  evidence?: EvidenceRequirement[];
+  /**
+   * How far this has actually been demonstrated, and on what.
+   *
+   * The distinction is between what a simulator agreed with and what a machine
+   * did. Nothing raises this on its own.
+   */
+  proof?: CapabilityEvidenceRecord;
   inputSchema: JsonSchema;
   /** Roughly how long a nominal run takes, in ms. Used by the planner. */
   typicalDurationMs: number;

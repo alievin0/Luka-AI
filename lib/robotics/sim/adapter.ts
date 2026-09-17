@@ -111,7 +111,15 @@ export class SimRobotAdapter implements RobotIO {
       const hit = this.world.raycast(pose, angle, lidarMaxRange);
       ranges[i] = clamp(this.world.noisy(hit, 0.015), 0.02, lidarMaxRange);
     }
-    return { ranges, fov: lidarFov, maxRange: lidarMaxRange, t: this.world.timeMs };
+    // The simulated world's clock is the sensor's own clock here, so these are
+    // stamped rather than left to be read as arrival times.
+    return {
+      ranges,
+      fov: lidarFov,
+      maxRange: lidarMaxRange,
+      t: this.world.timeMs,
+      stamp: "sensor" as const,
+    };
   }
 
   imu(): ImuSample {
