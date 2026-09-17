@@ -4,6 +4,7 @@ import { AbilityRegistry } from "../core/registry.ts";
 import { adaptiveGrasp } from "./adaptive-grasp.ts";
 import { anomalySentinel } from "./anomaly-sentinel.ts";
 import { balanceRecover } from "./balance-recover.ts";
+import { hardwareCheckout } from "./checkout.ts";
 import { exploreFrontier } from "./explore-frontier.ts";
 import { handover } from "./handover.ts";
 import { intentTelegraph } from "./intent-telegraph.ts";
@@ -22,6 +23,7 @@ export const ALL_ABILITIES: Array<Ability<never, never>> = [
   anomalySentinel,
   balanceRecover,
   exploreFrontier,
+  hardwareCheckout,
   handover,
   intentTelegraph,
   learnFromDemo,
@@ -44,6 +46,7 @@ export {
   anomalySentinel,
   balanceRecover,
   exploreFrontier,
+  hardwareCheckout,
   handover,
   intentTelegraph,
   learnFromDemo,

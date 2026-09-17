@@ -19,13 +19,23 @@ export { SafetyGovernor, DEFAULT_LIMITS, nearestObstacle, type SafetyLimits } fr
 
 export { SimWorld, type SimWorldConfig, type SimRobot, TIP_ANGLE } from "./sim/world.ts";
 export { SimRobotAdapter, FULL_HARDWARE } from "./sim/adapter.ts";
+export {
+  type RobotProfile,
+  PROFILES,
+  SIMULATED_ROVER,
+  GENERIC_ROVER_TEMPLATE,
+  limitsFrom,
+  validateProfile,
+  abilityFitness,
+} from "./hal/profile.ts";
 export { SCENARIOS, scenario, type Scenario, type ScenarioName } from "./sim/scenarios.ts";
 
 export { ALL_ABILITIES, createRegistry } from "./abilities/index.ts";
 
 import { AbilityRegistry } from "./core/registry.ts";
 import { RobotRuntime } from "./core/runtime.ts";
-import { createInMemoryBackend, type MemoryBackend } from "./core/memory.ts";
+import { createInMemoryBackend, createMemory, type MemoryBackend } from "./core/memory.ts";
+import { limitsFrom, type RobotProfile } from "./hal/profile.ts";
 import { SafetyGovernor, type SafetyLimits } from "./safety/governor.ts";
 import { SimRobotAdapter, FULL_HARDWARE } from "./sim/adapter.ts";
 import { SimWorld } from "./sim/world.ts";
@@ -45,6 +55,11 @@ export type SimRig = {
 
 export type SimRigOptions = {
   scenario?: ScenarioName;
+  /**
+   * The robot this rig is standing in for. Its limits become the governor's
+   * limits, and abilities can read it to refuse what the platform cannot do.
+   */
+  profile?: RobotProfile;
   seed?: number;
   /** 0 = as fast as possible (tests), 1 = wall-clock (live UI). */
   realtimeFactor?: number;
@@ -70,11 +85,15 @@ export function createSimRig(options: SimRigOptions = {}): SimRig {
     { robot: SimRobotAdapter; runtime: RobotRuntime; governor: SafetyGovernor }
   >();
 
+  const profile = options.profile;
+
   for (const spawn of spawns) {
     world.addRobot(spawn.id, { x: spawn.x, y: spawn.y }, spawn.theta ?? 0, {
       charge: spawn.charge,
     });
-    const governor = new SafetyGovernor({ limits: options.limits });
+    const governor = new SafetyGovernor({
+      limits: { ...(profile ? limitsFrom(profile) : {}), ...options.limits },
+    });
     const robot = new SimRobotAdapter(world, spawn.id, governor, {
       capabilities: options.capabilities ?? FULL_HARDWARE,
     });
@@ -87,6 +106,7 @@ export function createSimRig(options: SimRigOptions = {}): SimRig {
       memoryBackend,
       realtimeFactor: options.realtimeFactor ?? 0,
     });
+    if (profile) createMemory(spawn.id, memoryBackend).set("profile", profile);
     fleet.set(spawn.id, { robot, runtime, governor });
   }
 
