@@ -13,6 +13,7 @@ import { NextRequest } from "next/server";
 import { getSession, endSession, type SessionOptions } from "@/lib/robotics/live/session.ts";
 import { abilityTools, executeAbilityTool, toToolName } from "@/lib/robotics/claude/tools.ts";
 import type { ScenarioName } from "@/lib/robotics/sim/scenarios.ts";
+import { LOOMING_STATE_KEY, type LoomingState } from "@/lib/robotics/abilities/looming.ts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -265,6 +266,9 @@ function sessionOptionsFrom(url: URL): SessionOptions {
   };
 }
 
+const round1 = (v: number) => Math.round(v * 10) / 10;
+const round2 = (v: number) => Math.round(v * 100) / 100;
+
 function snapshot(session: ReturnType<typeof getSession>) {
   const rig = session.rig;
   const lead = rig.world.robot(rig.robot.id);
@@ -277,9 +281,25 @@ function snapshot(session: ReturnType<typeof getSession>) {
     ranges.push(Math.round(scan.ranges[i] * 100) / 100);
   }
 
+  // What the fly circuit is doing right now. It rides the frame rather than
+  // the log, because it changes every tick and the log is for things worth
+  // reading.
+  const looming = rig.runtime.memory().get<LoomingState>(LOOMING_STATE_KEY);
+
   return {
     t: rig.world.timeMs,
     busy: session.isBusy,
+    looming: looming
+      ? {
+          lc4: [round1(looming.lc4.L), round1(looming.lc4.R)],
+          lplc2: [round1(looming.lplc2.L), round1(looming.lplc2.R)],
+          gf: [looming.giantFibre.L, looming.giantFibre.R],
+          theta: [round2(looming.stimulus.L.theta), round2(looming.stimulus.R.theta)],
+          expansion: [round2(looming.stimulus.L.dTheta), round2(looming.stimulus.R.dTheta)],
+          escaping: looming.escaping,
+          escapes: looming.escapes,
+        }
+      : null,
     robots: rig.world.allRobots().map((r) => ({
       id: r.id,
       x: r.pose.x,

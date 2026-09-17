@@ -73,6 +73,27 @@ export type LoomingInput = {
   cancelSelfMotion?: boolean;
 };
 
+/**
+ * Where the reflex publishes what its circuit is doing, so a viewer can watch
+ * it rather than take the summary on trust. Written every tick and read by
+ * whoever is drawing; nothing in the reflex depends on anyone reading it.
+ */
+export const LOOMING_STATE_KEY = "looming:state";
+
+export type LoomingState = {
+  t: number;
+  /** Mean firing rate per cell, spikes per second. */
+  lc4: { L: number; R: number };
+  lplc2: { L: number; R: number };
+  /** Giant Fibre spikes this tick. */
+  giantFibre: { L: number; R: number };
+  /** Angular size and expansion rate the circuit is being driven with. */
+  stimulus: { L: LoomingStimulus; R: LoomingStimulus };
+  /** True while an escape is latched. */
+  escaping: boolean;
+  escapes: number;
+};
+
 export type LoomingReport = {
   /** Times the Giant Fibre fired and the robot acted on it. */
   escapes: number;
@@ -251,6 +272,16 @@ export const loomingReflex: Ability<LoomingInput, LoomingReport> = {
 
       const verdict = circuit.advance(periodMs, stimulus);
       const now = ctx.now();
+
+      ctx.memory.set<LoomingState>(LOOMING_STATE_KEY, {
+        t: now,
+        lc4: verdict.visual.lc4,
+        lplc2: verdict.visual.lplc2,
+        giantFibre: verdict.giantFibre,
+        stimulus,
+        escaping: now < latchedUntil,
+        escapes: report.escapes,
+      });
 
       if (verdict.triggered && now >= latchedUntil) {
         // The Giant Fibre has committed. In the fly this is irreversible within

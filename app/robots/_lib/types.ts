@@ -58,8 +58,29 @@ export type WorldSetup = {
   obstacles: Obstacle[];
 };
 
+/**
+ * What the fly's escape circuit is doing, when it is running. Two numbers per
+ * population because the circuit is bilateral, and that is what makes the
+ * reflex directional.
+ */
+export type LoomingView = {
+  /** Mean rate per cell, spikes/s: [left, right]. */
+  lc4: [number, number];
+  lplc2: [number, number];
+  /** Giant Fibre spikes this frame. */
+  gf: [number, number];
+  /** Angular size, radians. */
+  theta: [number, number];
+  /** Expansion rate, rad/s, after the robot's own motion is taken out. */
+  expansion: [number, number];
+  escaping: boolean;
+  escapes: number;
+};
+
 export type Frame = {
   t: number;
+  /** Null until the looming reflex is running. */
+  looming?: LoomingView | null;
   robots: Array<{
     id: string;
     x: number;

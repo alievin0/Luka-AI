@@ -440,6 +440,12 @@ export type EscapeVerdict = {
   giantFibre: { L: number; R: number };
   /** Jump-motor spikes this step, per side. */
   motor: { L: number; R: number };
+  /**
+   * Mean firing rate of each visual population, spikes per second per cell.
+   * Not needed to decide anything — this is so the circuit can be watched
+   * rather than only trusted.
+   */
+  visual: { lc4: { L: number; R: number }; lplc2: { L: number; R: number } };
   /** Simulated time, ms. */
   timeMs: number;
 };
@@ -532,6 +538,12 @@ export class EscapeCircuit {
     this.elapsedMs += steps * this.stepMs;
     const counts = { L: 0, R: 0 };
     const motor = { L: 0, R: 0 };
+    const visual = {
+      lc4: { L: 0, R: 0 },
+      lplc2: { L: 0, R: 0 },
+    };
+    const lc4Set = { L: new Set(this.lc4.L), R: new Set(this.lc4.R) };
+    const lplc2Set = { L: new Set(this.lplc2.L), R: new Set(this.lplc2.R) };
 
     for (let i = 0; i < steps; i += 1) {
       for (const side of ["L", "R"] as Side[]) {
@@ -545,8 +557,15 @@ export class EscapeCircuit {
         else if (this.giantFibre.R.has(n)) counts.R += 1;
         if (this.jumpMotor.L.has(n)) motor.L += 1;
         else if (this.jumpMotor.R.has(n)) motor.R += 1;
+        else if (lc4Set.L.has(n)) visual.lc4.L += 1;
+        else if (lc4Set.R.has(n)) visual.lc4.R += 1;
+        else if (lplc2Set.L.has(n)) visual.lplc2.L += 1;
+        else if (lplc2Set.R.has(n)) visual.lplc2.R += 1;
       }
     }
+
+    const perSecond = (spikes: number, cells: number) =>
+      cells === 0 || durationMs === 0 ? 0 : (spikes * 1000) / (durationMs * cells);
 
     const triggered = counts.L > 0 || counts.R > 0;
     const side: Side | null = !triggered ? null : counts.L >= counts.R ? "L" : "R";
@@ -556,6 +575,16 @@ export class EscapeCircuit {
       side,
       giantFibre: counts,
       motor,
+      visual: {
+        lc4: {
+          L: perSecond(visual.lc4.L, this.lc4.L.length),
+          R: perSecond(visual.lc4.R, this.lc4.R.length),
+        },
+        lplc2: {
+          L: perSecond(visual.lplc2.L, this.lplc2.L.length),
+          R: perSecond(visual.lplc2.R, this.lplc2.R.length),
+        },
+      },
       timeMs: this.elapsedMs,
     };
   }

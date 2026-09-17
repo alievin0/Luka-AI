@@ -2,7 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { drawScene } from "../_lib/scene.ts";
-import { DEFAULT_LAYERS, emptyScene, type Frame, type WorldSetup } from "../_lib/types.ts";
+import {
+  DEFAULT_LAYERS,
+  emptyScene,
+  type Frame,
+  type LoomingView,
+  type WorldSetup,
+} from "../_lib/types.ts";
 
 type Turn = {
   role: "user" | "assistant";
@@ -351,6 +357,7 @@ export default function TalkPage() {
               {lead && <Chip>🏃 {lead.speed.toFixed(2)} m/s</Chip>}
               {lead?.holding && <Chip>📦 {lead.holding}</Chip>}
             </div>
+            {hud?.looming && <FlyBrain state={hud.looming} />}
             {hud?.safety && (
               <div className="pointer-events-none absolute bottom-3 right-3 max-w-[75%]">
                 <span
@@ -491,6 +498,87 @@ export default function TalkPage() {
         </aside>
       </div>
     </main>
+  );
+}
+
+/**
+ * The fly's escape circuit, drawn.
+ *
+ * Two hemispheres side by side, because the circuit is bilateral and that is
+ * what makes the reflex directional. The two visual populations measure
+ * different things — LC4 how fast something is growing, LPLC2 how big it is —
+ * and the Giant Fibre below them is the single cell that decides. When it
+ * fires, the robot is already moving.
+ */
+function FlyBrain({ state }: { state: LoomingView }) {
+  // Rates run to a few hundred spikes per second; the bar is a fraction of a
+  // ceiling rather than an absolute, so it stays readable.
+  const bar = (rate: number) => Math.max(0, Math.min(1, rate / 260));
+
+  return (
+    <div
+      dir="ltr"
+      className={`pointer-events-none absolute left-3 top-3 w-44 rounded-xl border p-2.5 text-[10px] backdrop-blur transition-colors ${
+        state.escaping
+          ? "border-rose-400/50 bg-rose-950/70"
+          : "border-slate-700/60 bg-slate-900/70"
+      }`}
+    >
+      <div className="mb-2 flex items-center justify-between">
+        <span className="font-semibold text-slate-200">🪰 fly escape circuit</span>
+        <span className="text-slate-400">{state.escapes}</span>
+      </div>
+
+      {(
+        [
+          ["LC4", "how fast it grows", state.lc4, "bg-sky-400"],
+          ["LPLC2", "how big it is", state.lplc2, "bg-violet-400"],
+        ] as const
+      ).map(([label, note, rates, colour]) => (
+        <div key={label} className="mb-1.5">
+          <div className="flex justify-between text-slate-400">
+            <span className="font-medium text-slate-300">{label}</span>
+            <span>{note}</span>
+          </div>
+          <div className="mt-0.5 flex gap-1">
+            {([0, 1] as const).map((side) => (
+              <div key={side} className="h-1.5 flex-1 overflow-hidden rounded bg-slate-800">
+                <div
+                  className={`h-full ${colour} transition-[width] duration-100`}
+                  style={{ width: `${bar(rates[side]) * 100}%` }}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+
+      <div className="mt-2 border-t border-slate-700/60 pt-1.5">
+        <div className="flex justify-between text-slate-400">
+          <span className="font-medium text-slate-300">DNp01</span>
+          <span>giant fibre</span>
+        </div>
+        <div className="mt-1 flex gap-1">
+          {([0, 1] as const).map((side) => (
+            <div
+              key={side}
+              className={`h-3 flex-1 rounded text-center text-[9px] leading-3 ${
+                state.gf[side] > 0
+                  ? "bg-rose-500 font-bold text-white"
+                  : "bg-slate-800 text-slate-600"
+              }`}
+            >
+              {side === 0 ? "L" : "R"}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-2 flex justify-between text-slate-500">
+        <span>θ {Math.round((Math.max(...state.theta) * 180) / Math.PI)}°</span>
+        <span>dθ {Math.max(...state.expansion).toFixed(1)}/s</span>
+      </div>
+    </div>
   );
 }
 

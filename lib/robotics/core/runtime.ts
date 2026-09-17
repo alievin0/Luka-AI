@@ -129,6 +129,14 @@ export class RobotRuntime {
     this.rng = makeRng(options.seed ?? 20260917);
   }
 
+  /**
+   * This robot's memory, for a caller outside an ability that needs to read
+   * what one published — a viewer drawing the state of a circuit, say.
+   */
+  memory(): ReturnType<typeof createMemory> {
+    return createMemory(`${this.rawRobot.id}`, this.memoryBackend);
+  }
+
   // --- events --------------------------------------------------------------
 
   on(listener: (event: AbilityEvent) => void): () => void {
