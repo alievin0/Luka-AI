@@ -265,8 +265,18 @@ export type BatteryState = {
 export type GripperState = {
   /** 0 = fully open, 1 = fully closed. */
   closure: number;
-  /** Newtons currently applied. */
+  /**
+   * Newtons currently applied, or NaN when the gripper has no force sensing.
+   *
+   * NaN rather than zero on purpose. A position-servo gripper with no load cell
+   * does not apply zero force — it applies an unknown force, and reporting that
+   * as zero is how a controller squeezing an egg concludes it has not started
+   * squeezing yet. NaN makes any arithmetic on it obviously wrong instead of
+   * plausibly wrong.
+   */
   force: number;
+  /** False when force and slip are not measured on this hardware. */
+  forceSensed?: boolean;
   holding: string | null;
   /** Tactile slip signal, 0..1 — how much the held object is sliding. */
   slip: number;

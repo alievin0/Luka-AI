@@ -202,12 +202,19 @@ export class SimRobotAdapter implements RobotIO {
 
   gripper(): GripperState {
     const robot = this.self;
+    // Closure and what is held come from the servo and the world; force and
+    // slip come from a sensor most grippers do not have. A robot without one
+    // reports that it does not know, rather than reporting zero.
+    const sensed = this.capabilities.includes("tactile");
     return {
       closure: robot.gripperClosure,
-      force: robot.gripperForce,
+      force: sensed ? robot.gripperForce : Number.NaN,
+      forceSensed: sensed,
       holding: robot.holding,
-      slip: clamp(this.world.noisy(robot.slip, 0.01), 0, 1),
-      externalPull: Math.max(this.world.noisy(robot.externalPull, 0.05), 0),
+      slip: sensed ? clamp(this.world.noisy(robot.slip, 0.01), 0, 1) : Number.NaN,
+      externalPull: sensed
+        ? Math.max(this.world.noisy(robot.externalPull, 0.05), 0)
+        : Number.NaN,
     };
   }
 

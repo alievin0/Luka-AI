@@ -595,3 +595,31 @@ test("balance refuses to judge a fall it cannot see", async () => {
   assert.equal(result.failure, "precondition");
   assert.match(result.summary, /not produced a new sample/);
 });
+
+test("a gripper with no force sensor does not report zero force", async () => {
+  // Most cheap arms are position servos with no load cell. Reporting their
+  // force as zero is how a controller squeezing an egg concludes it has not
+  // started squeezing yet.
+  const blind = createSimRig({
+    scenario: "kitchen-fetch",
+    capabilities: ["drive", "arm", "gripper", "lidar", "camera", "battery"],
+  });
+  const state = blind.runtime.rawRobot.gripper();
+  assert.equal(state.forceSensed, false);
+  assert.ok(Number.isNaN(state.force), `reported a force of ${state.force} with no sensor`);
+  // Closure is a servo reading and is still available.
+  assert.ok(Number.isFinite(state.closure));
+
+  // And the ability that needs force is refused by name rather than running
+  // blind — this is the one the research called a hard refusal.
+  const result = await blind.runtime.run("grasp.adaptive", { target: "tin" });
+  assert.equal(result.ok, false);
+  assert.equal(result.failure, "hardware");
+  assert.match(result.summary, /tactile/);
+
+  // With the sensor present, the same call gets real numbers.
+  const seeing = createSimRig({ scenario: "kitchen-fetch", profile: SIMULATED_ROVER });
+  const sensed = seeing.runtime.rawRobot.gripper();
+  assert.equal(sensed.forceSensed, true);
+  assert.ok(Number.isFinite(sensed.force));
+});
