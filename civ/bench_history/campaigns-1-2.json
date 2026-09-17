@@ -1,0 +1,42 @@
+{
+  "_frozen": "Campaigns #1 and #2 as reported by the owner's own machine. PERMANENT.",
+  "_rule": "These numbers are never rewritten, rescored or recomputed. Later evaluator fixes (R16, R17) do NOT apply retroactively; they are why campaign #3 exists.",
+  "_provenance": "Pasted verbatim from the owner's terminal, 2026-09-17. Both campaigns ran commit b99459986d82.",
+  "campaigns": [
+    {
+      "campaign_id": 1, "commit": "b99459986d82", "provider": "claude",
+      "model": "claude-sonnet-5", "repeats": 5, "tasks": 7, "runs": 70,
+      "conclusion": "INSUFFICIENT_EVIDENCE",
+      "why": "2 task(s) decided, 3 needed; no per-cell shortfall",
+      "tasks_decided": 2, "multi_led": 2, "single_led": 0, "ties": 5, "sign_test_p": 0.5,
+      "usd_as_reported": 0.908883, "usd_at_published_rates": 0.605922,
+      "per_task": {
+        "T01-exact-output":         {"s": 1.0,  "m": 1.0,  "s_usd": 0.00549,  "m_usd": 0.036234, "s_lat": 2033.2, "m_lat": 7675.8,  "s_tok": 950,  "m_tok": 4870,  "s_tc": 5, "m_tc": 5, "s_runs": [1.0,1.0,1.0,1.0,1.0], "m_runs": [1.0,1.0,1.0,1.0,1.0]},
+        "T02-multi-constraint":     {"s": 0.76, "m": 1.0,  "s_usd": 0.074115, "m_usd": 0.111114, "s_lat": 7778.2, "m_lat": 12422.4, "s_tok": 6705, "m_tok": 12822, "s_tc": 0, "m_tc": 5, "s_runs": [0.8,0.8,0.8,0.8,0.6], "m_runs": [1.0,1.0,1.0,1.0,1.0]},
+        "T03-edge-cases":           {"s": 1.0,  "m": 1.0,  "s_usd": 0.040215, "m_usd": 0.088875, "s_lat": 4928.6, "m_lat": 12505.8, "s_tok": 3469, "m_tok": 8597,  "s_tc": 5, "m_tc": 5, "s_runs": [1.0,1.0,1.0,1.0,1.0], "m_runs": [1.0,1.0,1.0,1.0,1.0]},
+        "T04-conflicting-spec":     {"s": 0.8,  "m": 1.0,  "s_usd": 0.06183,  "m_usd": 0.169146, "s_lat": 9259.4, "m_lat": 25295.0, "s_tok": 4862, "m_tok": 18238, "s_tc": 1, "m_tc": 0, "s_runs": [1.0,1.0,0.0,1.0,1.0], "m_runs": [1.0,1.0,1.0,1.0,1.0]},
+        "T05-tool-required":        {"s": 1.0,  "m": 1.0,  "s_usd": 0.026085, "m_usd": 0.10989,  "s_lat": 3149.4, "m_lat": 14043.4, "s_tok": 3463, "m_tok": 13726, "s_tc": 0, "m_tc": 2, "s_runs": [1.0,1.0,1.0,1.0,1.0], "m_runs": [1.0,1.0,1.0,1.0,1.0]},
+        "T06-factual-verification": {"s": 0.0,  "m": 0.0,  "s_usd": 0.01602,  "m_usd": 0.096855, "s_lat": 2604.2, "m_lat": 13564.0, "s_tok": 2308, "m_tok": 12841, "s_tc": 0, "m_tc": 0, "s_runs": [0.0,0.0,0.0,0.0,0.0], "m_runs": [0.0,0.0,0.0,0.0,0.0], "s_completeness": 1.0, "m_completeness": 1.0, "s_unsupported": 5, "m_unsupported": 5},
+        "T07-long-chain":           {"s": 1.0,  "m": 1.0,  "s_usd": 0.013965, "m_usd": 0.059049, "s_lat": 2545.8, "m_lat": 9277.4,  "s_tok": 1655, "m_tok": 6687,  "s_tc": 5, "m_tc": 5, "s_runs": [1.0,1.0,1.0,1.0,1.0], "m_runs": [1.0,1.0,1.0,1.0,1.0]}
+      }
+    },
+    {
+      "campaign_id": 2, "commit": "b99459986d82", "provider": "claude",
+      "model": "claude-sonnet-5", "repeats": 5, "tasks": 7, "runs": 70,
+      "conclusion": "INSUFFICIENT_EVIDENCE",
+      "why": "2 task(s) decided, 3 needed; no per-cell shortfall",
+      "tasks_decided": 2, "multi_led": 2, "single_led": 0, "ties": 5, "sign_test_p": 0.5,
+      "usd_as_reported": 0.914715, "usd_at_published_rates": 0.60981,
+      "_note": "Ran the SAME pre-R16/R17 commit as campaign #1. A replication, not a second measurement.",
+      "per_task": {
+        "T01-exact-output":         {"s": 1.0,  "m": 1.0,  "s_usd": 0.00549,  "m_usd": 0.039612, "s_lat": 1955.0, "m_lat": 8535.8,  "s_tok": 950,  "m_tok": 5132,  "s_tc": 5, "m_tc": 5, "s_runs": [1.0,1.0,1.0,1.0,1.0], "m_runs": [1.0,1.0,1.0,1.0,1.0]},
+        "T02-multi-constraint":     {"s": 0.8,  "m": 0.88, "s_usd": 0.074115, "m_usd": 0.144045, "s_lat": 7681.8, "m_lat": 14542.8, "s_tok": 6705, "m_tok": 17419, "s_tc": 0, "m_tc": 2, "s_runs": [0.8,0.8,0.8,0.8,0.8], "m_runs": [0.8,1.0,1.0,0.8,0.8]},
+        "T03-edge-cases":           {"s": 1.0,  "m": 1.0,  "s_usd": 0.040575, "m_usd": 0.093747, "s_lat": 4961.0, "m_lat": 13404.4, "s_tok": 3493, "m_tok": 8749,  "s_tc": 5, "m_tc": 5, "s_runs": [1.0,1.0,1.0,1.0,1.0], "m_runs": [1.0,1.0,1.0,1.0,1.0]},
+        "T04-conflicting-spec":     {"s": 0.8,  "m": 1.0,  "s_usd": 0.052245, "m_usd": 0.15033,  "s_lat": 8021.6, "m_lat": 22333.4, "s_tok": 4223, "m_tok": 16002, "s_tc": 2, "m_tc": 1, "s_runs": [1.0,0.0,1.0,1.0,1.0], "m_runs": [1.0,1.0,1.0,1.0,1.0]},
+        "T05-tool-required":        {"s": 1.0,  "m": 1.0,  "s_usd": 0.02307,  "m_usd": 0.099552, "s_lat": 2830.4, "m_lat": 13242.6, "s_tok": 3262, "m_tok": 12316, "s_tc": 0, "m_tc": 1, "s_runs": [1.0,1.0,1.0,1.0,1.0], "m_runs": [1.0,1.0,1.0,1.0,1.0]},
+        "T06-factual-verification": {"s": 0.0,  "m": 0.0,  "s_usd": 0.016335, "m_usd": 0.103611, "s_lat": 3340.6, "m_lat": 16150.2, "s_tok": 2329, "m_tok": 13725, "s_tc": 0, "m_tc": 0, "s_runs": [0.0,0.0,0.0,0.0,0.0], "m_runs": [0.0,0.0,0.0,0.0,0.0], "s_completeness": 1.0, "m_completeness": 1.0, "s_unsupported": 5, "m_unsupported": 5},
+        "T07-long-chain":           {"s": 1.0,  "m": 1.0,  "s_usd": 0.01452,  "m_usd": 0.057492, "s_lat": 2698.2, "m_lat": 9115.0,  "s_tok": 1692, "m_tok": 5540,  "s_tc": 5, "m_tc": 5, "s_runs": [1.0,1.0,1.0,1.0,1.0], "m_runs": [1.0,1.0,1.0,1.0,1.0]}
+      }
+    }
+  ]
+}

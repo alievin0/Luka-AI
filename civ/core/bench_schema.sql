@@ -112,3 +112,34 @@ WHEN NEW.single_tools_sha <> NEW.multi_tools_sha
   OR NEW.single_budget <> NEW.multi_budget
 BEGIN SELECT RAISE(ABORT,
   'LAW 11: the two conditions were not offered the same tools, input and budget'); END;
+
+-- ── LAW 12: a closed campaign is history ────────────────────────────────
+-- Recalibration exists because the harness was wrong. The temptation it
+-- creates is to re-score the campaigns that exposed the fault. A fixed
+-- evaluator applied backwards would produce numbers no model ever earned.
+-- Campaigns #1 and #2 stand as run, defects and all.
+DROP TRIGGER IF EXISTS law_closed_campaign_is_history;
+CREATE TRIGGER law_closed_campaign_is_history BEFORE UPDATE ON bench_campaigns
+WHEN OLD.finished_at IS NOT NULL AND OLD.finished_at <> ''
+BEGIN SELECT RAISE(ABORT,
+  'LAW 12: a closed campaign cannot be rewritten; run a new campaign instead'); END;
+
+DROP TRIGGER IF EXISTS law_closed_campaign_runs_are_history;
+CREATE TRIGGER law_closed_campaign_runs_are_history BEFORE UPDATE ON bench_runs
+WHEN EXISTS (SELECT 1 FROM bench_campaigns c WHERE c.id = OLD.campaign_id
+             AND c.finished_at IS NOT NULL AND c.finished_at <> '')
+BEGIN SELECT RAISE(ABORT,
+  'LAW 12: a run inside a closed campaign cannot be rewritten'); END;
+
+DROP TRIGGER IF EXISTS law_closed_campaign_evals_are_history;
+CREATE TRIGGER law_closed_campaign_evals_are_history BEFORE UPDATE ON bench_evaluations
+WHEN EXISTS (SELECT 1 FROM bench_runs r JOIN bench_campaigns c ON c.id = r.campaign_id
+             WHERE r.id = OLD.bench_run_id
+             AND c.finished_at IS NOT NULL AND c.finished_at <> '')
+BEGIN SELECT RAISE(ABORT,
+  'LAW 12: an evaluation inside a closed campaign cannot be re-scored'); END;
+
+DROP TRIGGER IF EXISTS law_closed_campaign_no_delete;
+CREATE TRIGGER law_closed_campaign_no_delete BEFORE DELETE ON bench_campaigns
+WHEN OLD.finished_at IS NOT NULL AND OLD.finished_at <> ''
+BEGIN SELECT RAISE(ABORT, 'LAW 12: a closed campaign cannot be deleted'); END;
