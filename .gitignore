@@ -29,3 +29,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# عالم المحاكاة — قاعدة البيانات محلية ولا تُرفع
+world/world.db
+world/world.db-*
+world/__pycache__/
+world/sim/__pycache__/
