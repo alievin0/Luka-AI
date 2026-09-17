@@ -23,6 +23,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { SimWorld } from "../sim/world.ts";
+import { SafetyGovernor } from "../safety/governor.ts";
 
 // The model's own constants. Duplicated deliberately: a test that imported them
 // would pass if somebody changed the model and the constants together, which is
@@ -162,4 +163,78 @@ test("the simulator has no terrain, and nothing should pretend otherwise", () =>
     "the robot passed through or over a blocking obstacle, which would mean the world " +
       "has gained geometry this test was written to say it does not have",
   );
+});
+
+// ── The other piece of maths a person's safety rests on ────────────────────
+//
+// `allowedSpeed` is the closed-form inverse of `protectiveDistance`: given how
+// far away somebody is, how fast may the robot go. Written out by hand, and a
+// hand-derived inverse is exactly the kind of thing that is nearly right.
+
+test("the speed limit is the exact inverse of the separation distance", () => {
+  // Not "conservative" — exact. A closed form that is merely close in the safe
+  // direction hides an algebra error that will not stay in the safe direction
+  // when a constant changes.
+  const governor = new SafetyGovernor();
+  const { minSeparation } = governor.limits;
+
+  for (const speed of [0.05, 0.1, 0.25, 0.5, 0.75, 1.0, 1.2]) {
+    const distance = governor.protectiveDistance(speed) + minSeparation;
+    const recovered = governor.allowedSpeed(distance);
+    assert.ok(
+      Math.abs(recovered - speed) < 1e-9,
+      `at ${speed} m/s the model wants ${distance.toFixed(4)} m, and that distance permits ` +
+        `${recovered.toFixed(4)} m/s`,
+    );
+  }
+});
+
+test("more room never permits less speed", () => {
+  // A non-monotonic speed limit is a robot that speeds up as somebody gets
+  // closer, somewhere in the middle of its range, and nothing else here would
+  // notice.
+  const governor = new SafetyGovernor();
+  let previous = -1;
+  for (let distance = 0; distance <= 8; distance += 0.005) {
+    const speed = governor.allowedSpeed(distance);
+    assert.ok(
+      speed >= previous - 1e-12,
+      `allowed speed fell from ${previous.toFixed(4)} to ${speed.toFixed(4)} at ${distance.toFixed(3)} m`,
+    );
+    previous = speed;
+  }
+});
+
+test("a longer measured latency always costs speed, never gains it", () => {
+  // The separation model uses whichever is worse, the budgeted reaction time or
+  // the measured one. A cloud policy adding a quarter of a second has to make
+  // the robot slower at every distance, not at some of them.
+  const quick = new SafetyGovernor();
+  const slow = new SafetyGovernor();
+  slow.observeLatency(0.4);
+  for (let i = 0; i < 200; i += 1) slow.observeLatency(0.4);
+
+  assert.ok(slow.effectiveReactionTime() > quick.effectiveReactionTime());
+  for (let distance = 0.5; distance <= 6; distance += 0.05) {
+    assert.ok(
+      slow.allowedSpeed(distance) <= quick.allowedSpeed(distance) + 1e-12,
+      `at ${distance.toFixed(2)} m the slower link was allowed more speed`,
+    );
+  }
+});
+
+test("a stopped robot still needs room, which is what minSeparation is for", () => {
+  // At zero speed the model still demands the human-travel term, the
+  // uncertainty and the separation floor. That is not the robot failing to stop
+  // in time — it is the model saying somebody is already too close, and the
+  // only thing a robot can do about it is not be moving.
+  const governor = new SafetyGovernor();
+  const { minSeparation, humanSpeed, uncertainty } = governor.limits;
+  const floor = governor.protectiveDistance(0) + minSeparation;
+
+  assert.ok(floor > minSeparation, "a stationary robot was given no margin at all");
+  assert.ok(
+    Math.abs(floor - (humanSpeed * governor.effectiveReactionTime() + uncertainty + minSeparation)) < 1e-9,
+  );
+  assert.equal(governor.allowedSpeed(floor * 0.9), 0, "inside the floor, anything but zero is wrong");
 });
