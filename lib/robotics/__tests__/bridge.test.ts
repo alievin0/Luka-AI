@@ -254,3 +254,42 @@ test("yaw comes out of the quaternion the way ROS means it", async () => {
     assert.ok(error < 1e-9, `${degrees}° came back as ${((read * 180) / Math.PI).toFixed(1)}°`);
   }
 });
+
+test("a stalled IMU stops advancing its timestamp", async () => {
+  // This one defeats a safety check elsewhere if it is wrong. balance.recover
+  // decides whether it can trust a tilt reading by watching the IMU timestamp
+  // move; a bridge that stamps fabricated zeros with the current time keeps
+  // that timestamp advancing forever, and the check never fires. The robot then
+  // gets told it is perfectly level while lying on the floor.
+  const { bridge, fake } = await connected({ maxStalenessMs: 1 });
+
+  fake.deliver("/imu/data", {
+    orientation: { x: 0, y: 0.2, z: 0, w: 0.98 },
+    angular_velocity: { y: 0.4, z: 0.1 },
+    linear_acceleration: { x: 1.1 },
+  });
+
+  const fresh = bridge.imu();
+  assert.ok(fresh.tilt > 0.1, `tilt came through as ${fresh.tilt}`);
+  assert.ok(fresh.t > 0);
+
+  const until = Date.now() + 12;
+  while (Date.now() < until) {
+    /* let it go stale */
+  }
+
+  const first = bridge.imu();
+  const second = bridge.imu();
+  assert.equal(first.t, fresh.t, "a stale IMU invented a fresh timestamp");
+  assert.equal(second.t, first.t, "the timestamp kept moving with no new data");
+  // And it reports the last thing it actually saw rather than a level robot.
+  assert.equal(first.tilt, fresh.tilt);
+});
+
+test("an unreported gripper does not claim zero force", async () => {
+  const { bridge } = await connected({ maxStalenessMs: 1 });
+  const grip = bridge.gripper();
+  assert.equal(grip.forceSensed, false);
+  assert.ok(Number.isNaN(grip.force), `reported ${grip.force} N with nothing published`);
+  assert.equal(grip.holding, null);
+});

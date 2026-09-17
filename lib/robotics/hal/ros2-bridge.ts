@@ -130,6 +130,18 @@ export class Ros2Bridge implements RobotIO {
   private undecodableFrames = 0;
   /** Last velocity actually reported, held so silence does not read as stopped. */
   private lastVelocity = { linear: 0, angular: 0 };
+  /**
+   * Last IMU sample actually received, with the time it arrived. Held so a
+   * stalled sensor shows up as a timestamp that stops moving, which is the only
+   * thing that distinguishes it from a robot that is genuinely level and still.
+   */
+  private lastImu: ImuSample = {
+    tilt: Number.NaN,
+    tiltRate: Number.NaN,
+    accel: Number.NaN,
+    yawRate: Number.NaN,
+    t: 0,
+  };
   private readonly onProblem?: (message: string) => void;
 
   constructor(options: Ros2BridgeOptions) {
@@ -355,17 +367,27 @@ export class Ros2Bridge implements RobotIO {
       angular_velocity: { y: number; z: number };
       linear_acceleration: { x: number };
     }>(this.topics.imu);
-    if (!msg) return { tilt: 0, tiltRate: 0, accel: 0, yawRate: 0, t: Date.now() };
+    if (!msg) {
+      // The last real sample, with the timestamp it actually arrived at.
+      //
+      // Not fresh zeros. Zeros read as perfectly level and perfectly still,
+      // which is what a robot lying on the floor looks like to anything that
+      // believes them — and stamping them with the current time is worse still,
+      // because the one signal that gives a stalled sensor away is a timestamp
+      // that stops advancing. Consumers check exactly that.
+      return this.lastImu;
+    }
     const { x, y, z, w } = msg.orientation;
     // Pitch from the quaternion, clamped because asin hates rounding error.
     const sinPitch = clamp(2 * (w * y - z * x), -1, 1);
-    return {
+    this.lastImu = {
       tilt: Math.asin(sinPitch),
       tiltRate: msg.angular_velocity.y,
       accel: msg.linear_acceleration.x,
       yawRate: msg.angular_velocity.z,
       t: Date.now(),
     };
+    return this.lastImu;
   }
 
   battery(): BatteryState {
@@ -410,15 +432,19 @@ export class Ros2Bridge implements RobotIO {
   }
 
   gripper(): GripperState {
-    return (
-      this.read<GripperState>(this.topics.gripperState) ?? {
-        closure: 0,
-        force: 0,
-        holding: null,
-        slip: 0,
-        externalPull: 0,
-      }
-    );
+    const msg = this.read<GripperState>(this.topics.gripperState);
+    if (msg) return { forceSensed: true, ...msg };
+    // No reading means an unknown force, not zero newtons. Zero is what a
+    // gripper that is not touching anything reports, so a controller closing on
+    // something fragile would read it as permission to keep squeezing.
+    return {
+      closure: Number.NaN,
+      force: Number.NaN,
+      forceSensed: false,
+      holding: null,
+      slip: Number.NaN,
+      externalPull: Number.NaN,
+    };
   }
 
   arm(): ArmState {
