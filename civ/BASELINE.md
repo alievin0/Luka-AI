@@ -6,7 +6,7 @@ fixed. Nothing in this file is a projection.
 | | |
 |---|---|
 | **Baseline commit** | `d6e792afa5bfc3a0972078f85e19e0ce7c161105` |
-| **Tag** | `civ-baseline-v1` |
+| **Tag** | `civ-baseline-v1` — **local only; could not be pushed** (see below) |
 | **Frozen** | 2026-09-17 |
 | **Runtime** | Python 3.11, standard library only. No install. |
 
@@ -25,10 +25,28 @@ The single skip is `test_claude_conforms_live`. It skips **loudly**:
 skipped 'L10-LIVE SKIPPED: no ANTHROPIC_API_KEY. The live path is UNVERIFIED until this runs.'
 ```
 
+### A note on the tag
+
+`git push` of a tag ref fails from this build environment with
+`send-pack: unexpected disconnect while reading sideband packet`, consistently,
+on both annotated and lightweight tags, while branch pushes from the same clone
+succeed. The proxy reports no relay failure, so this is an environment limit on
+tag refs, not a repository or permissions problem.
+
+**The baseline is therefore pinned by SHA, not by tag.** `d6e792afa5bfc…` is the
+authoritative reference and is what the rest of this document means. To create
+the tag from a machine without that limitation:
+
+```bash
+git tag -a civ-baseline-v1 d6e792afa5bfc3a0972078f85e19e0ce7c161105 \
+  -m "Phase 1 baseline: runtime frozen, 69 tests passing, G1 UNVERIFIED"
+git push origin civ-baseline-v1
+```
+
 Reproduce the whole freeze:
 
 ```bash
-git checkout civ-baseline-v1
+git checkout d6e792afa5bfc3a0972078f85e19e0ce7c161105
 ( cd world && python3 test_world.py )
 ( cd civ   && python3 test_civ.py && python3 test_regressions.py && python3 slice.py )
 ```
