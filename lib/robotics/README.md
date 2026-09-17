@@ -33,6 +33,25 @@ npm run robo -- run navigate.to '{"x":12,"y":8}'
 > WebSocket is not a real-time layer. And the robot's safety record depends on
 > people cooperating — `measured-crossing` measures exactly how much.
 
+## احكي معه — talk to it
+
+```bash
+cp .env.example .env.local     # وحط ANTHROPIC_API_KEY
+npm run dev                    # بعدين افتح /robots/talk
+```
+
+الروبوت بيضلّ عايش بين رسائلك: الناس بتمشي، البطارية بتنقص، الحرّاس شغّالين.
+بتحكيله بالعربي أو بالإنجليزي — كتابة أو بصوتك — وهو بينفّذ قدراته وبيرجّعلك
+الأرقام الحقيقية اللي طلعت معه، مو وصف.
+
+> `/robots/talk` puts Claude behind the wheel with the abilities as its tools and
+> the robot's own sensor readings as its context. The world keeps running between
+> your messages, which is the whole point — a robot that only exists while you
+> are typing at it is a demo, not a robot. Voice in and out where the browser
+> supports it; typing everywhere.
+
+The abilities and the `/robots` page need no API key. Only the conversation does.
+
 ---
 
 ## القدرات — The abilities

@@ -13,7 +13,7 @@ const COLORS = {
   obstacle: "#334155",
   mapFree: "rgba(56,189,248,0.10)",
   mapOccupied: "rgba(148,163,184,0.55)",
-  lidar: "rgba(250,204,21,0.07)",
+  lidar: "rgba(250,204,21,0.035)",
   lidarEdge: "rgba(250,204,21,0.35)",
   trail: "rgba(56,189,248,0.5)",
   human: "#f87171",

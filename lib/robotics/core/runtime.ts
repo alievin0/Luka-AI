@@ -240,6 +240,36 @@ export class RobotRuntime {
   }
 
   /**
+   * Keep the world running when no ability is doing it.
+   *
+   * Normally the clock only advances while something is awaiting a result. For
+   * a robot you are talking to, that is wrong: between instructions the world
+   * should keep existing — people keep walking, the battery keeps draining, the
+   * daemons keep watching. This holds the pump and steps at wall-clock pace
+   * until stopped.
+   */
+  startAmbientClock(realtimeFactor = 1): () => void {
+    if (!this.world) return () => {};
+
+    let running = true;
+    const periodMs = Math.max((this.tickSeconds * 1000) / Math.max(realtimeFactor, 0.01), 1);
+
+    const loop = async () => {
+      while (running) {
+        if (this.world?.acquirePump(this.pumpToken)) this.advance();
+        else this.governor.assess(this.robot);
+        await new Promise((resolve) => setTimeout(resolve, periodMs));
+      }
+      this.world?.releasePump(this.pumpToken);
+    };
+    void loop();
+
+    return () => {
+      running = false;
+    };
+  }
+
+  /**
    * Stop every daemon and wait for them to wind down. Daemons own the safety
    * story, so a mission is not finished until they have actually stopped.
    */

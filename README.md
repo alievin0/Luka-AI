@@ -95,9 +95,14 @@ through the same interface.
 ```bash
 npm test                 # 53 tests across the kernel, the statistics and every ability
 npm run demo             # 11 demonstrations that check their own outcomes
-npm run dev              # then open /robots for the live visualisation
+npm run dev              # then open /robots to watch, or /robots/talk to instruct it
 npm run robo -- list     # the catalogue
 ```
+
+`/robots/talk` hands Claude the abilities as tools and lets you instruct a
+persistent robot in Arabic or English, by typing or by voice, while you watch it
+move. The world keeps running between messages — people walk, the battery
+drains, the guardians watch. Only that page needs an API key.
 
 | Ability | What it does |
 | --- | --- |
