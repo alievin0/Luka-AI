@@ -220,8 +220,9 @@ exercised**; only the model's willingness was not.
 
 ## Campaign #1 — the first real benchmark, and what it actually showed
 
-Run by the owner, 2026-09-17, `claude-sonnet-5`, 70 runs, **$0.91** total.
-(My pre-run estimate was $3–6. It was high by roughly 5×.)
+Run by the owner, 2026-09-17, `claude-sonnet-5`, 70 runs, **$0.61** total.
+(My pre-run estimate was $3–6 — high by roughly 10×. The run itself first
+reported $0.91, which was also wrong: the ledger carried stale rates. See R19.)
 
 **Conclusion: `INSUFFICIENT_EVIDENCE`. 2 tasks decided, 3 required. p = 0.5.**
 Under the pre-registered rule this does **not** clear the organization to scale,
@@ -243,8 +244,8 @@ to do, on the hard task, repeatably across five runs.
 
 | | Single | Multi | Ratio |
 |---|---|---|---|
-| Total spend | $0.2377 | $0.6712 | **2.8×** |
-| T01 (trivial task, identical answer) | $0.0055 | $0.0362 | **6.6×** |
+| Total spend | $0.1585 | $0.4474 | **2.8×** |
+| T01 (trivial task, identical answer) | $0.0037 | $0.0242 | **6.6×** |
 | T04 latency | 9.3 s | 25.3 s | **2.7×** |
 | Quality per dollar | higher on **7 of 7** | — | — |
 
@@ -296,3 +297,40 @@ number turns.
 - It does **not** show multi-agent is better. The pre-registered bar was missed.
 - It does **not** carry forward as a baseline: R16 and R17 changed T05 and T06,
   so those cells are void and `input_sha` for T05 has changed.
+
+
+### R18 / R19 — found by the owner asking why any of this costs money
+
+Two defects, neither about agents:
+
+- **R18 — the free path was unreachable.** `LocalProvider` (Ollama, zero API
+  cost, still a *real* model) was implemented but never wired into `from_env()`,
+  so `CIV_PROVIDER=local` answered "unknown provider". The only zero-cost route
+  to a real model was dead code. Now selectable, and an unknown provider names
+  the valid ones instead of shrugging.
+- **R19 — the cost ledger priced models wrong, and reported it as fact.** Sonnet
+  5 was billed at 3.0/15.0 per MTok against a published 2.0/10.0, so campaign
+  #1's headline cost was overstated by 50%: **$0.61 actual, not $0.91**. The
+  Haiku entry carried a date suffix the code never requests, so asking for the
+  cheap model would have fallen through to the Sonnet default and been costed at
+  roughly 3× its real rate. An unpriced model now returns `known=False` rather
+  than borrowing another model's price.
+
+**Every ratio in campaign #1 survives unchanged** — both conditions were
+mispriced identically, so 2.8× is still 2.8× and the quality-per-dollar ordering
+is untouched. Only the absolute dollar figures moved, and they moved down.
+
+### The zero-cost and low-cost routes, now that they work
+
+| Route | Cost of a 70-run campaign | Real model? | Can it conclude? |
+|---|---|---|---|
+| `--dry-run` (MockProvider) | $0 | no | **never** — barred at `close_campaign` |
+| `CIV_PROVIDER=local` (Ollama) | $0 | **yes** | yes, subject to the model's own ability |
+| `CIV_MODEL=claude-haiku-4-5` | ~$0.30 | yes | yes |
+| `claude-sonnet-5` (campaign #1) | ~$0.61 | yes | yes |
+
+The free mock run cannot conclude by design, and that is not a limitation to be
+engineered around — it is the whole point. A fake model answers nothing about
+how real models behave in a team. The genuinely free option is a local model:
+real execution, zero API cost, and a weaker model whose own ceiling may simply
+move the ties from 1.00 to 0.00 without deciding anything.

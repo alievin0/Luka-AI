@@ -510,5 +510,80 @@ class R17_ToolTaskAnswerableWithoutTheTool(unittest.TestCase):
             self.assertEqual(B.task_input(t, "/repo"), B.task_input(t, "/repo"))
 
 
+class R18_FreeProviderWasUnreachable(unittest.TestCase):
+    """Found 2026-09-17 when the owner asked why the benchmark costs money.
+
+    LocalProvider — the only zero-API-cost path to a REAL model — was defined but
+    never wired into from_env(), so CIV_PROVIDER=local returned "unknown provider".
+    A free option that cannot be selected is not an option."""
+
+    def _env(self, **kw):
+        keep = {k: os.environ.get(k) for k in ("CIV_PROVIDER", "ANTHROPIC_API_KEY")}
+        for k, v in kw.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        return keep
+
+    def _restore(self, keep):
+        for k, v in keep.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+    def test_local_is_a_selectable_provider(self):
+        keep = self._env(CIV_PROVIDER="local", ANTHROPIC_API_KEY=None)
+        try:
+            p = P.from_env()
+            # Either a live local server, or an honest reason — never "unknown provider".
+            self.assertNotIn("unknown provider", p.why_unavailable() or "")
+        finally:
+            self._restore(keep)
+
+    def test_an_unknown_provider_still_names_the_valid_ones(self):
+        keep = self._env(CIV_PROVIDER="banana", ANTHROPIC_API_KEY=None)
+        try:
+            why = P.from_env().why_unavailable()
+            for name in ("claude", "local", "mock"):
+                self.assertIn(name, why)
+        finally:
+            self._restore(keep)
+
+
+class R19_LedgerPricedModelsWrong(unittest.TestCase):
+    """Found 2026-09-17 while answering "why does this cost money".
+
+    The ledger's RATES were wrong in both directions, and reported the error as
+    fact: Sonnet 5 was billed at 3.0/15.0 against a published 2.0/10.0, so
+    campaign #1's cost was overstated by 50% ($0.91 reported, $0.61 actual).
+    Worse, the Haiku key carried a date suffix the code never requests, so
+    CIV_MODEL=claude-haiku-4-5 fell through to the Sonnet default and would have
+    been billed at ~3x its real rate. Ratios survived — both conditions scaled
+    identically — but every absolute dollar figure was wrong."""
+
+    def test_published_rates(self):
+        for model, want in (("claude-opus-5", (5.0, 25.0)),
+                            ("claude-sonnet-5", (2.0, 10.0)),
+                            ("claude-haiku-4-5", (1.0, 5.0))):
+            rin, rout, known = P.rate_for(model)
+            self.assertTrue(known, "%s must have a known rate" % model)
+            self.assertEqual((rin, rout), want, "%s is mispriced" % model)
+
+    def test_cheaper_model_is_never_priced_as_a_dearer_one(self):
+        """The exact bug: a date-suffixed id must not fall through to Sonnet."""
+        h_in, h_out, known = P.rate_for("claude-haiku-4-5-20251001")
+        self.assertTrue(known)
+        s_in, s_out, _ = P.rate_for("claude-sonnet-5")
+        self.assertLess(h_in, s_in)
+        self.assertLess(h_out, s_out)
+
+    def test_an_unpriced_model_is_flagged_not_guessed(self):
+        rin, rout, known = P.rate_for("qwen2.5:7b")
+        self.assertFalse(known, "a local model must not be silently priced")
+        self.assertEqual((rin, rout), (0.0, 0.0))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

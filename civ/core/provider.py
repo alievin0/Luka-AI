@@ -10,25 +10,46 @@ import urllib.error
 import urllib.request
 from abc import ABC, abstractmethod
 
-# rough public rates, USD per million tokens; used for the ledger, not for billing
+# Published rates, USD per million tokens (input, output). Ledger only, not billing.
+# R19: these were wrong in BOTH directions and the ledger reported the error as
+# fact. Opus and Sonnet were overstated; the Haiku key carried a date suffix the
+# code never requests, so asking for Haiku fell through to the Sonnet default and
+# was billed at roughly 3x its real rate.
 RATES = {
-    "claude-opus-5":   (15.0, 75.0),
-    "claude-sonnet-5": (3.0, 15.0),
-    "claude-haiku-4-5-20251001": (0.80, 4.0),
+    "claude-opus-5":   (5.0, 25.0),
+    "claude-sonnet-5": (2.0, 10.0),
+    "claude-haiku-4-5": (1.0, 5.0),
 }
+# A model we have no published rate for must not be silently priced as another one.
+UNKNOWN_RATE = (0.0, 0.0)
+
+
+def rate_for(model):
+    """Rate for a model id, or (0,0) plus a flag when we genuinely do not know.
+
+    Returns (rate_in, rate_out, known). A caller that records cost must record
+    `known` too: an unpriced run is an unpriced run, not a free one."""
+    key = (model or "").strip()
+    if key in RATES:
+        return RATES[key][0], RATES[key][1], True
+    base = key.rsplit("-", 1)[0] if key[-8:].isdigit() else key   # drop a date suffix
+    if base in RATES:
+        return RATES[base][0], RATES[base][1], True
+    return UNKNOWN_RATE[0], UNKNOWN_RATE[1], False
 
 
 class Result:
     __slots__ = ("status", "text", "tokens_in", "tokens_out", "usd", "latency_ms",
-                 "error", "source", "provider", "model")
+                 "error", "source", "provider", "model", "rate_known")
 
     def __init__(self, status, source, provider, model, text="", tokens_in=0,
-                 tokens_out=0, usd=0.0, latency_ms=0, error=None):
+                 tokens_out=0, usd=0.0, latency_ms=0, error=None, rate_known=True):
         self.status, self.source = status, source
         self.provider, self.model = provider, model
         self.text, self.error = text, error
         self.tokens_in, self.tokens_out = tokens_in, tokens_out
         self.usd, self.latency_ms = usd, latency_ms
+        self.rate_known = rate_known
 
     @property
     def ok(self):
@@ -149,14 +170,15 @@ class ClaudeProvider(Provider):
                           latency_ms=int((time.time() - t0) * 1000))
         usage = out.get("usage") or {}
         ti, to = usage.get("input_tokens", 0), usage.get("output_tokens", 0)
-        rin, rout = RATES.get(model, (3.0, 15.0))
+        rin, rout, rate_known = rate_for(model)
         text = "".join(b.get("text", "") for b in out.get("content", [])
                        if b.get("type") == "text").strip()
         return Result("OK" if text else "FAILED", "model", self.name, model, text=text,
                       tokens_in=ti, tokens_out=to,
                       usd=(ti * rin + to * rout) / 1_000_000,
                       latency_ms=int((time.time() - t0) * 1000),
-                      error=None if text else "empty completion")
+                      error=None if text else "empty completion",
+                      rate_known=rate_known)
 
 
 def from_env():
@@ -167,8 +189,14 @@ def from_env():
     if want == "claude" or (not want and os.environ.get("ANTHROPIC_API_KEY")):
         p = ClaudeProvider()
         return p if p.available() else NotConfigured(p.why_unavailable())
+    if want == "local":
+        # R18. LocalProvider existed but was unreachable from here, so the only
+        # zero-cost path to a REAL model was dead code. A free option that cannot
+        # be selected is not an option.
+        p = LocalProvider()
+        return p if p.available() else NotConfigured(p.why_unavailable())
     if want:
-        return NotConfigured("unknown provider %r" % want)
+        return NotConfigured("unknown provider %r; expected 'claude', 'local' or 'mock'" % want)
     return NotConfigured("CIV_PROVIDER unset and no ANTHROPIC_API_KEY")
 
 
