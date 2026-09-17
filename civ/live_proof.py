@@ -63,33 +63,55 @@ def main():
                       (out.get("artifact_id"),)).fetchone()
     tools = con.execute("SELECT tool,cap,decision FROM tool_calls ORDER BY id").fetchall()
 
-    ok = bool(run and run["status"] == "OK" and run["source"] == "model"
-              and art and art["source"] == "model" and ev and out.get("verified"))
+    verification = con.execute(
+        "SELECT id FROM tool_calls WHERE cap='EXECUTE_SANDBOX' AND decision='ALLOW' "
+        "ORDER BY id DESC LIMIT 1").fetchone()
+
+    real_model = bool(run and run["source"] == "model" and run["status"] == "OK")
+    real_tool = bool(con.execute("SELECT COUNT(*) c FROM tool_calls WHERE decision='ALLOW'"
+                                 ).fetchone()["c"])
+    real_verify = bool(ev and json.loads(ev["detail"]).get("returncode") == 0)
 
     record = {
-        "gate": "G1 LIVE MODEL EXECUTION",
-        "verdict": "PASS" if ok else "FAIL",
-        "world_mode": store.meta(con, "mode"),
+        # identity of the run
+        "run_id": out.get("run_id"),
+        "agent_id": "AGT-000002",
+        "task_id": out.get("task_id"),
         "provider": run["provider"] if run else None,
         "model": run["model"] if run else None,
-        "run_id": out.get("run_id"),
-        "task_id": out.get("task_id"),
-        "agent_id": "AGT-000002",
-        "tokens_in": run["tokens_in"] if run else None,
-        "tokens_out": run["tokens_out"] if run else None,
-        "usd": round(run["usd"], 6) if run else None,
-        "latency_ms": run["latency_ms"] if run else None,
+        "mode": store.meta(con, "mode"),
+        # what it cost
+        "input_tokens": run["tokens_in"] if run else None,
+        "output_tokens": run["tokens_out"] if run else None,
+        "cost": round(run["usd"], 6) if run else None,
+        "latency": run["latency_ms"] if run else None,
+        # what it did
         "tool_calls": [dict(t) for t in tools],
         "artifact_id": out.get("artifact_id"),
-        "artifact_source": art["source"] if art else None,
-        "artifact_sha": art["sha"][:16] if art else None,
-        "verification": json.loads(ev["detail"]) if ev else None,
+        "artifact_sha256": art["sha"] if art else None,
+        "verification_id": verification["id"] if verification else None,
+        "evidence_id": out.get("evidence_id"),
+        "review_id": rev["id"] if rev else None,
+        "owner_signal_id": out.get("owner_signal_id"),
+        # the four questions that must never be blurred
+        "mock_content": bool(art and art["source"] != "model"),
+        "real_model_execution": real_model,
+        "real_tool_execution": real_tool,
+        "real_verification": real_verify,
+        # context
+        "gate": "G1 LIVE MODEL EXECUTION",
+        "verdict": "PASS" if (real_model and real_tool and real_verify
+                              and art and art["source"] == "model") else "FAIL",
         "evidence_provenance": ev["external_provenance"] if ev else None,
-        "review": rev["verdict"] if rev else None,
+        "verification_detail": json.loads(ev["detail"]) if ev else None,
+        "review_verdict": rev["verdict"] if rev else None,
         "chain_intact": store.verify_chain(con)[0],
         "total_usd_this_world": round(
             con.execute("SELECT COALESCE(SUM(usd),0) s FROM runs").fetchone()["s"], 6),
+        "note": ("verification_id is the tool_call that executed the artifact; "
+                 "evidence_id is the row recording its exit code and output hash"),
     }
+    ok = record["verdict"] == "PASS"
     print(json.dumps(record, ensure_ascii=False, indent=2))
     print(BAR)
     if ok:

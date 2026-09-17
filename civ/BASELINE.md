@@ -16,8 +16,13 @@ fixed. Nothing in this file is a projection.
 |---|---|---|
 | `world/test_world.py` | **16 passed** | 2.60 s |
 | `civ/test_civ.py` | **26 passed, 1 skipped** | 3.00 s |
-| `civ/test_regressions.py` | **27 passed** | 7.56 s |
-| **Total** | **69 passed, 1 skipped** | |
+| `civ/test_regressions.py` | **38 passed** | 7.63 s |
+| `civ/test_security.py` | **18 passed** | 0.49 s |
+| **Total** | **98 passed, 1 skipped** | |
+
+> The regression suite reported 27 for one commit while actually holding 38 tests:
+> classes appended after the `__main__` block were never collected. `R14` now
+> fails the build if any class is defined after it, or if `__main__` is not last.
 
 The single skip is `test_claude_conforms_live`. It skips **loudly**:
 
@@ -57,7 +62,10 @@ git checkout d6e792afa5bfc3a0972078f85e19e0ce7c161105
 |---|---|---|
 | World state, hash-chained events | **REAL** | `test_civ.py` L5, `test_regressions.py` R8 |
 | Task queue, leases, budgets | **REAL** | L7, R2 — a killed lease requeues its task |
-| Tool gateway, capability enforcement | **REAL** | L9 — denial recorded, escape refused |
+| Tool gateway: identity, capability, **scope, target, rate** | **REAL** | L9 + `test_security.py` — scope resolved canonically by the gateway, then checked, then executed |
+| Prompt-injection containment | **REAL** | 18 adversarial tests vs a fully compromised model |
+| OS-level sandbox | **NOT IMPLEMENTED** | subprocess, same user — asserted in code, not assumed |
+| Providers: MOCK · CLAUDE · LOCAL · COMPROMISED | **REAL** (interface) | `ClaudeProvider`/`LocalProvider` **UNVERIFIED** — neither reachable here |
 | Provenance (`run_id` + source match) | **REAL** | L3, R4 — the database refuses forgery |
 | Mode purity | **REAL** | L4, R1 — a model run cannot enter a simulation world |
 | Evidence with external provenance | **REAL** | a real subprocess, real exit code, real stdout |
@@ -100,6 +108,11 @@ Changing any of these requires updating `LawsAreFrozen.EXPECTED` in
 | R8 | History mutable (F5) | audit | `R8_HistoryWasMutable` |
 | R9 | Live path silently unverified (F7) | audit | `R9_LivePathWasSilentlyUnverified` |
 | R10 | Wound organ mismatch · duplicate nomination · artifact standing after its organ died | running `world/` | `world/test_world.py`, pinned by `R10_WorldEngineDefectsStayCovered` |
+| R11 | **An allowlisted interpreter was arbitrary execution.** `argv0` allowlisting plus substring denial let `python3 -c "…"` straight through | `test_security.py` | `R11_AllowlistedInterpreterWasArbitraryExecution` |
+| R12 | **Tool args could shadow gateway parameters.** An argument literally named `cap` collided with the gateway's own — attacker-chosen argument *names* are untrusted input too | `test_security.py` | `R12_ToolArgsCouldShadowGatewayParameters` |
+| R13 | Gateway and tool resolved the same relative path against **different roots** — a check passing on one string while the tool acts on another | switching scopes on | `R13_ScopeAndToolMustAgreeOnPaths` |
+| R14 | A test suite **silently under-counted**: classes after `__main__` were never collected, and 11 regressions were not running while the suite reported OK | this phase | `R14_TestSuitesMustCollectEveryClass` |
+| — | A denial whose own audit write hit a foreign-key constraint **lost the security record** | `R12` | fixed in `Gateway.call`'s logger |
 
 R6 forced a real fix during the freeze: `approvals` was the last empty table, so
 **mock content now raises an owner decision instead of silently becoming project
@@ -117,7 +130,8 @@ progress.**
 | **G4** Real artifact verification | **PASS** | Independent verifier executed it: `exit=0`, `stdout='17'` — the true count of `.py` files in this repo |
 | **G5** Provenance integrity | **PASS** | Enforced by the database, not by code (L3, R4) |
 | **G6** Independent review | **PASS** | Reviewer ≠ author enforced by trigger; REJECT is reachable |
-| **G7** Security isolation | **UNVERIFIED** | Capability gating, pause enforcement and path-escape refusal all **PASS**. But **no prompt-injection test exists**, and the sandbox is a subprocess under the same user — **not** an OS-level boundary. Do not read this row as "secure". |
+| **G7** Security isolation — *containment* | **PASS** | `test_security.py`, 18 tests, run against `CompromisedProvider`: a model that obeys **every** injected instruction. Every pass is the gateway holding, not a model declining. Two real holes were found and closed by this benchmark (R11, R12). |
+| **G7** Security isolation — *OS sandbox* | **NOT IMPLEMENTED** | Execution is a subprocess under the **same user**. No container, no seccomp, no uid separation. `test_the_sandbox_is_honestly_labelled` asserts this in code so the limitation cannot drift out of the docs. |
 | **G8** Owner observability | **PASS** | 15 `owner.py` commands, every one reading real state; drill-down to artifact, run, evidence, event |
 | **G9** Multi-agent benchmark | **NOT IMPLEMENTED** | No benchmark exists. Whether the organization beats one strong agent is **unknown**, and that is the question most likely to sink this design. |
 | **G10** Cost measurement | **PASS** (mechanism) | Per-run tokens, USD, latency recorded; daily ceiling blocks new leases. **No real cost observed** — mock runs cost $0. |
@@ -127,8 +141,12 @@ progress.**
 | **G14** Cross-project intelligence | **NOT IMPLEMENTED** | One project exists |
 | **G15** UI/UX usability | **NOT IMPLEMENTED** | CLI only. No World Map, no usability testing, no World UX team |
 
-**Score: 8 PASS · 2 UNVERIFIED · 5 NOT IMPLEMENTED.** Three of the passes are
-mechanism-only and say so.
+**Score: 9 PASS · 1 UNVERIFIED · 6 NOT IMPLEMENTED.** Three passes are
+mechanism-only and say so; G7 splits because its two halves have different answers.
+
+**G1 remains UNVERIFIED and is not modified.** No provider is reachable from the
+build container, so live model execution is unproven. It is not a failure — it is
+simply not yet earned, and nothing here says otherwise.
 
 ## What unblocks the next phase
 

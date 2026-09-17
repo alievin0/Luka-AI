@@ -294,5 +294,115 @@ class LawsAreFrozen(unittest.TestCase):
                          "schema laws and the frozen list disagree — update BASELINE.md too")
 
 
+
+
+# ── R11–R12: holes found by the security benchmark ───────────────────
+class R11_AllowlistedInterpreterWasArbitraryExecution(unittest.TestCase):
+    """Found 2026-09-17 by test_security.py S2.
+
+    EXECUTE_SANDBOX allowlisted argv0 ("python3") and denied substrings like
+    "curl". `python3 -c "import urllib.request"` passed both checks and is
+    arbitrary code execution. An allowlisted interpreter is a shell unless its
+    FLAGS are forbidden too.
+    """
+    def setUp(self):
+        self.con = fresh()
+        self.gw = vslice.build_gateway(self.con)
+
+    def test_dash_c_is_refused(self):
+        with self.assertRaises(runtime.Denied) as e:
+            self.gw.call("AGT-000003", "EXECUTE_SANDBOX",
+                         argv=["python3", "-c", "import urllib.request"])
+        self.assertIn("flags are not permitted", str(e.exception))
+
+    def test_dash_m_is_refused(self):
+        with self.assertRaises(runtime.Denied):
+            self.gw.call("AGT-000003", "EXECUTE_SANDBOX", argv=["python3", "-m", "http.server"])
+
+    def test_a_script_outside_the_artifact_root_is_refused(self):
+        with self.assertRaises(runtime.Denied):
+            self.gw.call("AGT-000003", "EXECUTE_SANDBOX",
+                         argv=["python3", os.path.join(HERE, "owner.py")])
+
+    def test_extra_arguments_are_refused(self):
+        with self.assertRaises(runtime.Denied):
+            self.gw.call("AGT-000003", "EXECUTE_SANDBOX",
+                         argv=["python3", os.path.join(vslice.ARTIFACT_DIR, "x.py"), "--evil"])
+
+
+class R12_ToolArgsCouldShadowGatewayParameters(unittest.TestCase):
+    """Found 2026-09-17 by S2's grant-permission test.
+
+    Gateway.call(self, principal_id, cap, lease_id=None, **args) meant a tool
+    argument literally named `cap` collided with the gateway's own parameter —
+    attacker-chosen argument NAMES are untrusted input too. Now positional-only.
+    """
+    def test_an_arg_named_cap_does_not_shadow_the_capability(self):
+        con = fresh()
+        gw = vslice.build_gateway(con)
+        with self.assertRaises(runtime.Denied):
+            gw.call("AGT-000002", "GRANT_PERMISSION", cap="DEPLOY_PRODUCTION")
+
+    def test_args_named_like_gateway_params_are_just_data(self):
+        con = fresh()
+        gw = vslice.build_gateway(con)
+        for name in ("cap", "principal_id", "lease_id"):
+            with self.assertRaises(runtime.Denied):
+                gw.call("AGT-000004", "EXECUTE_SANDBOX", **{name: "x"})
+
+    def test_the_signature_is_positional_only(self):
+        import inspect
+        sig = inspect.signature(runtime.Gateway.call)
+        kinds = [p.kind for p in sig.parameters.values()]
+        self.assertIn(inspect.Parameter.POSITIONAL_ONLY, kinds,
+                      "gateway params must stay positional-only")
+
+
+class R13_ScopeAndToolMustAgreeOnPaths(unittest.TestCase):
+    """Found 2026-09-17 when scopes were first switched on.
+
+    The gateway resolved a relative path against CWD while the tool resolved it
+    against the artifact dir. Two resolutions of one argument is how a check
+    passes on one string while the tool acts on another. The gateway now
+    canonicalises first and the tool receives the resolved value.
+    """
+    def test_relative_paths_resolve_against_the_grant_root(self):
+        con = fresh()
+        gw = vslice.build_gateway(con)
+        out = gw.call("AGT-000002", "WRITE_ARTIFACT", path="regression_probe.py", body="x=1\n")
+        self.assertTrue(out.startswith(os.path.abspath(vslice.ARTIFACT_DIR) + os.sep))
+        os.remove(out)
+
+    def test_the_logged_args_are_the_executed_args(self):
+        con = fresh()
+        gw = vslice.build_gateway(con)
+        out = gw.call("AGT-000002", "WRITE_ARTIFACT", path="probe2.py", body="x=1\n")
+        row = con.execute("SELECT args_sha FROM tool_calls ORDER BY id DESC LIMIT 1").fetchone()
+        self.assertEqual(row["args_sha"], store.sha({"path": out, "body": "x=1\n"}))
+        os.remove(out)
+
+
+class R14_TestSuitesMustCollectEveryClass(unittest.TestCase):
+    """Found 2026-09-17: classes appended AFTER the __main__ block were never
+    collected, so the suite silently under-counted while reporting OK."""
+
+    def test_every_test_class_in_this_file_is_collected(self):
+        import inspect
+        mod = sys.modules[__name__]
+        declared = {n for n, o in inspect.getmembers(mod, inspect.isclass)
+                    if issubclass(o, unittest.TestCase) and o.__module__ == __name__}
+        with open(__file__, encoding="utf-8") as fh:
+            src = fh.read()
+        in_file = set(re.findall(r"^class (\w+)\(unittest\.TestCase\)", src, re.M))
+        self.assertEqual(in_file - declared, set(),
+                         "class(es) defined after the __main__ block are never run")
+
+    def test_the_main_block_is_last(self):
+        with open(__file__, encoding="utf-8") as fh:
+            src = fh.read()
+        self.assertTrue(src.rstrip().endswith("unittest.main(verbosity=2)"),
+                        "__main__ must be the last thing in the file")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

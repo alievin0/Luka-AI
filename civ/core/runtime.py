@@ -4,6 +4,7 @@ Law 1 — an agent is a policy, not a process. It runs only inside a lease that
 carries a deadline, a token budget and an explicit capability set.
 """
 import json
+import os
 from datetime import datetime, timedelta, timezone
 
 from . import store
@@ -12,6 +13,72 @@ from .store import now, sha
 
 class Denied(Exception):
     pass
+
+
+def _resolve_paths(scope, args):
+    """Canonicalise path-like args against the grant's own root, in place.
+
+    The gateway is the single source of truth for what a path means. The tool
+    receives the resolved absolute path and re-checks it anyway (defence in
+    depth), but the two can no longer disagree about which file is meant.
+    """
+    roots = scope.get("path_prefix")
+    if not roots:
+        return args
+    root = os.path.abspath(roots if isinstance(roots, str) else roots[0])
+    for key in ("path", "file"):
+        if key in args and args[key] is not None:
+            raw = os.path.expanduser(str(args[key]))
+            args[key] = os.path.abspath(raw if os.path.isabs(raw) else os.path.join(root, raw))
+    return args
+
+
+def _scope_violation(scope, args):
+    """Return a reason string if args fall outside the grant's scope, else None.
+
+    Deny-by-default on every dimension the grant names. This runs in the gateway,
+    so no amount of persuasive model output can widen it.
+    """
+    if not scope:
+        return None
+    if "path_prefix" in scope:
+        target = args.get("path") or args.get("file") or ""
+        full = os.path.abspath(str(target))     # already canonical, see _resolve_paths
+        roots = scope["path_prefix"]
+        roots = [roots] if isinstance(roots, str) else roots
+        if not any(full == os.path.abspath(r) or full.startswith(os.path.abspath(r) + os.sep)
+                   for r in roots):
+            return "path %s outside %s" % (full, roots)
+    if "argv0_allow" in scope:
+        argv = args.get("argv") or []
+        if not argv or os.path.basename(str(argv[0])) not in set(scope["argv0_allow"]):
+            return "argv0 %r not in %s" % (argv[:1], scope["argv0_allow"])
+    if "argv_deny_substrings" in scope:
+        flat = " ".join(str(a) for a in (args.get("argv") or []))
+        for bad in scope["argv_deny_substrings"]:
+            if bad in flat:
+                return "argv contains forbidden %r" % bad
+    if "argv_script_root" in scope:
+        argv = [str(a) for a in (args.get("argv") or [])]
+        if len(argv) < 2:
+            return "argv must name a script to execute"
+        flags = [a for a in argv[1:] if a.startswith("-")]
+        if flags:
+            return "interpreter flags are not permitted: %s" % flags
+        if len(argv) > 2:
+            return "extra arguments are not permitted: %s" % argv[2:]
+        script = os.path.abspath(argv[1])
+        roots = scope["argv_script_root"]
+        roots = [roots] if isinstance(roots, str) else roots
+        if not any(script.startswith(os.path.abspath(r) + os.sep) for r in roots):
+            return "script %s outside %s" % (script, roots)
+        if not os.path.isfile(script):
+            return "script %s does not exist" % script
+    if "max_bytes" in scope:
+        body = args.get("body") or ""
+        if len(str(body)) > int(scope["max_bytes"]):
+            return "body %d bytes exceeds %d" % (len(str(body)), scope["max_bytes"])
+    return None
 
 
 # ── the queue ────────────────────────────────────────────────────────
@@ -27,8 +94,26 @@ def enqueue(con, objective, kind, created_by, project_id=None, required_caps=(),
     return tid
 
 
+def _grants(principal_row):
+    """Permissions may be a bare capability string or a scoped grant object:
+
+        "READ_REPO"
+        {"cap": "READ_REPO", "scope": {"path_prefix": "/repo"},
+         "rate": {"per_lease": 10, "per_hour": 200}}
+
+    Returns {cap: grant_dict}. The gateway reads this; the model never does.
+    """
+    out = {}
+    for g in json.loads(principal_row["permissions"] or "[]"):
+        if isinstance(g, str):
+            out[g] = {"cap": g}
+        elif isinstance(g, dict) and g.get("cap"):
+            out[g["cap"]] = g
+    return out
+
+
 def _caps(principal_row):
-    return set(json.loads(principal_row["permissions"] or "[]"))
+    return set(_grants(principal_row))
 
 
 def claim(con, principal_id, lease_seconds=120):
@@ -166,16 +251,27 @@ class Gateway:
     def register(self, cap, fn):
         self._tools[cap] = fn
 
-    def call(self, principal_id, cap, lease_id=None, **args):
+    def call(self, principal_id, cap, /, lease_id=None, **args):
         con = self.con
         args_sha = sha(args)
 
+        # A denial whose own audit write fails loses the security record, so the
+        # log must never be able to violate a constraint. An unknown lease is
+        # recorded as NULL with the offending value kept in the reason.
+        safe_lease = lease_id if (lease_id is not None and con.execute(
+            "SELECT 1 FROM leases WHERE id=?", (lease_id,)).fetchone()) else None
+        if lease_id is not None and safe_lease is None:
+            lease_note = " (unknown lease %r)" % (lease_id,)
+        else:
+            lease_note = ""
+
         def log(decision, reason=None, result_sha=None):
+            reason = (reason or "") + lease_note or None
             con.execute(
                 "INSERT INTO tool_calls(lease_id,principal_id,tool,cap,args_sha,decision,"
                 "reason,result_sha,at) VALUES(?,?,?,?,?,?,?,?,?)",
-                (lease_id, principal_id, cap.split(":")[0], cap, args_sha, decision,
-                 reason, result_sha, now()))
+                (safe_lease, principal_id, str(cap).split(":")[0], str(cap), args_sha,
+                 decision, reason, result_sha, now()))
             if decision != "ALLOW":
                 store.event(con, "TOOL_DENIED", actor=principal_id, subject=cap,
                             payload={"reason": reason})
@@ -190,9 +286,39 @@ class Gateway:
         if p is None:
             log("DENY", "unknown principal")
             raise Denied("unknown principal")
-        if cap not in _caps(p):
+        grants = _grants(p)
+        if cap not in grants:
             log("DENY", "capability not granted: %s" % cap)
             raise Denied("capability not granted: %s" % cap)
+        grant = grants[cap]
+
+        # ── scope: the gateway decides what the capability may touch ──
+        scope = grant.get("scope") or {}
+        args = _resolve_paths(scope, dict(args))
+        args_sha = sha(args)                    # log what will actually be executed
+        why = _scope_violation(scope, args)
+        if why:
+            log("DENY", "scope violation: %s" % why)
+            raise Denied("scope violation: %s" % why)
+
+        # ── rate: independent of anything the model asks for ──
+        rate = grant.get("rate") or {}
+        if "per_lease" in rate and lease_id is not None:
+            n = con.execute("SELECT COUNT(*) n FROM tool_calls WHERE lease_id=? AND cap=? "
+                            "AND decision='ALLOW'", (lease_id, cap)).fetchone()["n"]
+            if n >= int(rate["per_lease"]):
+                log("DENY", "rate limit: %d per lease" % rate["per_lease"])
+                raise Denied("rate limit reached for %s" % cap)
+        if "per_hour" in rate:
+            n = con.execute("SELECT COUNT(*) n FROM tool_calls WHERE principal_id=? AND cap=? "
+                            "AND decision='ALLOW' AND at > ?",
+                            (principal_id, cap,
+                             (datetime.now(timezone.utc) - timedelta(hours=1))
+                             .isoformat(timespec="microseconds"))).fetchone()["n"]
+            if n >= int(rate["per_hour"]):
+                log("DENY", "rate limit: %d per hour" % rate["per_hour"])
+                raise Denied("rate limit reached for %s" % cap)
+
         if cap not in self._tools:
             log("DENY", "no tool bound to capability")
             raise Denied("no tool bound to %s" % cap)
