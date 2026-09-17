@@ -436,5 +436,84 @@ class EveryComparisonIsSymmetric(unittest.TestCase):
         self.assertEqual(out["attempts"], 5)
 
 
+import campaign3_preflight as PF                # noqa: E402
+
+
+class Campaign3Preflight(unittest.TestCase):
+    """The seal has to actually catch tampering, or it is decoration."""
+
+    def test_checks_1_to_4_and_6_pass_on_the_sealed_tree(self):
+        ok, fails = PF.preflight(verbose=False, require_provider=False)
+        self.assertTrue(ok, "pre-flight failures: %s" % fails)
+
+    def test_it_fails_without_a_real_provider(self):
+        """A campaign cannot start against a provider that executes no model."""
+        ok, fails = PF.preflight(verbose=False, require_provider=True)
+        if not ok:
+            self.assertTrue(any("provider" in f for f in fails), fails)
+
+    def test_a_changed_task_description_breaks_the_seal(self):
+        t = V2.TASKS_V2[1]
+        before = PF.task_sha(t)
+        original = t["description"]
+        try:
+            t["description"] = original + " Also, be brief."
+            self.assertNotEqual(PF.task_sha(t), before)
+            ok, fails = PF.preflight(verbose=False, require_provider=False)
+            self.assertFalse(ok)
+            self.assertTrue(any("changed since sealing" in f for f in fails), fails)
+        finally:
+            t["description"] = original
+        self.assertEqual(PF.task_sha(t), before)
+
+    def test_a_changed_reference_answer_breaks_the_seal(self):
+        t = V2.TASKS_V2[3]
+        original = t["reference_bad"]
+        try:
+            t["reference_bad"] = "something else entirely"
+            ok, fails = PF.preflight(verbose=False, require_provider=False)
+            self.assertFalse(ok, "a moved reference answer must break the seal")
+        finally:
+            t["reference_bad"] = original
+
+    def test_a_changed_tool_grant_breaks_the_seal(self):
+        """Asymmetric tool access is the exact thing the owner forbade."""
+        t = V2.TASKS_V2[4]
+        original = list(t["allowed_tools"])
+        try:
+            t["allowed_tools"] = original + ["EXECUTE_SANDBOX"]
+            ok, fails = PF.preflight(verbose=False, require_provider=False)
+            self.assertFalse(ok)
+        finally:
+            t["allowed_tools"] = original
+
+    def test_adding_or_removing_a_task_breaks_the_seal(self):
+        added = dict(V2.TASKS_V2[2], id="V2-T10-smuggled")
+        V2.TASKS_V2.append(added)
+        try:
+            ok, fails = PF.preflight(verbose=False, require_provider=False)
+            self.assertFalse(ok)
+            self.assertTrue(any("added since sealing" in f for f in fails), fails)
+        finally:
+            V2.TASKS_V2.remove(added)
+
+    def test_the_manifest_covers_every_task_and_evaluator(self):
+        m = PF.build_manifest()
+        self.assertEqual(set(m["tasks"]), {t["id"] for t in V2.TASKS_V2})
+        self.assertEqual(set(m["evaluators"]), set(V2.CHECKERS_V2))
+        self.assertEqual(m["metrics_sha"], I.PREREGISTERED_METRICS_SHA)
+
+    def test_the_runner_cannot_start_v2_without_the_preflight(self):
+        """The checks are wired in, not merely available."""
+        with open(os.path.join(HERE, "bench_run.py"), encoding="utf-8") as fh:
+            src = fh.read()
+        self.assertIn("from campaign3_preflight import preflight", src)
+        self.assertIn('task_set", "v1") == "v2"', src)
+        self.assertIn("return 3", src)
+
+    def test_the_planned_run_count_is_ninety(self):
+        self.assertEqual(len(V2.TASKS_V2) * 5 * 2, 90)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
