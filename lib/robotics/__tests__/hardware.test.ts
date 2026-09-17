@@ -623,3 +623,41 @@ test("a gripper with no force sensor does not report zero force", async () => {
   assert.equal(sensed.forceSensed, true);
   assert.ok(Number.isFinite(sensed.force));
 });
+
+test("no sensing channel invents a reading for hardware the robot lacks", () => {
+  // A standing guard over the mistake that ran through this whole kernel: a
+  // channel that is missing reporting a value that looks fine. Each of these
+  // was a real bug, each was silent, and each was found by asking the same
+  // question — what does this return when the hardware is not there?
+  //
+  // A new channel added later should be added here too. The failure mode is not
+  // that the reading is wrong; it is that the reading is plausible.
+  const bare = createSimRig({
+    scenario: "busy-corridor",
+    capabilities: ["drive", "lidar"],
+  });
+  const robot = bare.runtime.rawRobot;
+
+  // Perception: no camera means no detections and no person tracks, rather than
+  // an empty world.
+  assert.deepEqual(robot.detectObjects(), [], "invented object detections");
+  assert.deepEqual(robot.trackHumans(), [], "invented person tracks");
+  assert.equal(
+    bare.governor.assess(robot).peopleSensed,
+    false,
+    "claimed to be sensing people with no camera",
+  );
+
+  // Touch: no tactile means an unknown force, not zero newtons.
+  const grip = robot.gripper();
+  assert.equal(grip.forceSensed, false);
+  assert.ok(Number.isNaN(grip.force), `reported ${grip.force} N with no force sensor`);
+
+  // And the whole point of all of it: a robot this stripped down is still
+  // governed, because geometry does not need any of those channels.
+  const verdict = bare.governor.assess(robot);
+  assert.ok(
+    verdict.speedScale <= 1 && Number.isFinite(verdict.speedScale),
+    "the governor produced no usable verdict for a minimal robot",
+  );
+});
