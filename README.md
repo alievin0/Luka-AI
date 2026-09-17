@@ -86,6 +86,38 @@ Open [http://localhost:3000](http://localhost:3000) and start chatting.
 - `Find me the best-rated air fryer under $120`
 - `شو صار بسلتي؟`
 
+## 🤖 Robotics: Luka's abilities
+
+The repo also carries a **robotics kernel** — thirteen programmed, tested robot
+abilities that run against a seeded physics simulator, and against real hardware
+through the same interface.
+
+```bash
+npm test                 # 39 tests across the kernel and every ability
+npm run demo             # 9 demonstrations that check their own outcomes
+npm run dev              # then open /robots for the live visualisation
+npm run robo -- list     # the catalogue
+```
+
+| Ability | What it does |
+| --- | --- |
+| `reflex.shield` | 50 Hz guardian that measures time-to-collision and brakes before anything else notices |
+| `motion.telegraph` | Announces the next move with a pre-cue that rules out the goals it is *not* going to |
+| `balance.recover` | Catches a fall using the capture point, or braces when the fall is already lost |
+| `memory.spatial` | Remembers where things were, and learns per object how fast that knowledge goes stale |
+| `learn.demo` | Watches a movement once, then performs it toward any new target, at any speed |
+| `grasp.adaptive` | Measures an unknown object's stiffness by squeezing, holds at the least force that works — or refuses |
+| `power.lifeline` | Learns the real cost per metre and calls the mission at the point of no return |
+| `swarm.auction` | Robots divide work by bidding their true costs — no dispatcher, no single point of failure |
+| `sense.anomaly` | Learns this robot's own normal and reports sustained departures before they become failures |
+| `plan.rehearse` | Runs a plan hundreds of times in a forked copy of the world before touching a motor |
+| `hri.handover` | Presents an object and releases on the feel of a person's pull, never into empty air |
+| `explore.frontier` | Maps an unknown space by driving to the boundary between the known and the unseen |
+| `navigate.to` | Gets to a point, steering around whatever appears |
+
+Full documentation, the ability contract, and how to put these on a real robot
+over ROS 2: [`lib/robotics/README.md`](lib/robotics/README.md).
+
 ## 📝 Notes & limits
 
 - The agent **researches and links — it never pays or places orders**. Checkout

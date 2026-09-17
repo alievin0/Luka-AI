@@ -8,7 +8,10 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --test-concurrency=1 \"lib/robotics/__tests__/*.test.ts\"",
+    "robo": "node scripts/robo.ts",
+    "demo": "node scripts/robo.ts demo"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.109.1",
