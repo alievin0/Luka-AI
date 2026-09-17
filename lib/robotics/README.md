@@ -317,6 +317,10 @@ The tests are behavioural, not smoke tests. They assert things like:
 
 ## نقله لروبوت حقيقي — moving it to a real robot
 
+> **الدليل المرتّب خطوة بخطوة: [BRINGUP.md](./BRINGUP.md).** من `npm install`
+> لروبوت بيتحرّك، مع شو بيفشل بكل خطوة وكيف بتتأكد إنها اشتغلت.
+> A step-by-step bring-up guide, including what fails at each step.
+
 ثلاث حاجات لازم تكون موجودة قبل ما يتحرّك عتاد فعلي، وكلها هون:
 
 **١. ملف تعريف الروبوت (`hal/profile.ts`).** وصف للآلة دقيق كفاية لتقدر تكون غلط
@@ -360,20 +364,32 @@ The tests are behavioural, not smoke tests. They assert things like:
 
 أربع حالات، كلها كانت موجودة وكلها انصلحت:
 
+ستّة منهم طلعوا **بالجسر لحاله** — وهو الكود الوحيد اللي رح يلمس آلة حقيقية،
+وكان أقل شي متغطّى باختبارات قبل هالمسح.
+
 | القناة | الغياب كان بينقرا كـ | ليش خطر |
 |---|---|---|
-| تتبّع الأشخاص | «ما في حدا قريب» (مسافة لا نهائية) | غرفة فاضية وروبوت أعمى بيعطوا نفس الرقم بالضبط |
-| وحدة البطارية | «٠٫٨ = ٨٠٪» بالتخمين | سوّاقة بتنشر ٠–١٠٠ وبطارية شبه فاضية بتنقرا ممتلئة |
-| أمر السرعة | «لسا مطلوب» للأبد | ماتت الوصلة أو العملية، والروبوت بيكمّل على آخر أمر |
-| ساعات الروبوت | «متزامنة» | مسح بيوصل بيوصف لحظة ما وصلها تقدير الموقع بعد |
+| تتبّع الأشخاص | «ما في حدا قريب» | غرفة فاضية وروبوت أعمى بيعطوا نفس الرقم |
+| وحدة البطارية | «٠٫٨ = ٨٠٪» بالتخمين | بطارية شبه فاضية على سوّاقة ٠–١٠٠ بتقرا ممتلئة |
+| أمر السرعة | «لسا مطلوب» للأبد | ماتت العملية، والروبوت بيكمّل على آخر أمر |
+| ساعات الروبوت | «متزامنة» | أكتر عطل بينحكى عنه كـ«التنقّل خربان» |
+| **ليدار ميت** | **«الطريق فاضي»** | حسّاس الأمان وقع → الروبوت بيسرّع |
+| **IMU ميت** | **«واقف مظبوط»** | روبوت ممدّد عالأرض بيجيه «مسكت السقطة» |
+| قوة الماسك | «صفر نيوتن» | متحكّم عم يعصر بيضة بيستنتج إنه لسا ما بلّش |
+| **الجسر: CBOR/JSON** | **«ما في بيانات»** | بيطلب CBOR وبيفك JSON → ما بيستقبل ولا رسالة |
+| الجسر: موقع قديم | «عند نقطة الأصل» | مكان معقول تماماً — الملاحة بتنطلق من مكان غلط |
+| الجسر: سرعة قديمة | «واقف» | هامش أمان تبع روبوت واقف لروبوت ماشي |
+| الجسر: IMU قديم | طابع زمني **جديد** | بيعطّل فحص الأمان بملف تاني |
+| **الجسر: أمر بدون اتصال** | **«وصل»** | طلبت إيقاف، انحكالك وقف، وما راح لحدا |
 
 الحل بكل حالة نفس الشكل: **خلّي الغياب قيمة صريحة، وفسّر الغامض بالاتجاه اللي
 بيأذي أقل.** `peopleSensed: false` مو نفس الشي يلي «ما في حدا». البطارية المجهولة
 بتنقرا بأسوأ احتمال وبتنحطّ عليها `confident: false`. الأمر بينتهي وبيتقفّل.
 والساعة بتنقاس وبتنرفض إذا بتزحف.
 
-> The same bug kept appearing in different clothes: a channel that was missing
-> or ambiguous read as a good value. An undetected person reads as no person. An
+> Sixteen instances, six of them in the bridge alone. The same bug kept
+> appearing in different clothes: a channel that was missing or ambiguous read
+> as a good value. An undetected person reads as no person. An
 > unknown battery unit reads as the flattering interpretation. An unrenewed
 > command reads as still wanted. Unsynchronised clocks read as synchronised. In
 > every case the fix is the same shape — make the absence an explicit value, and
