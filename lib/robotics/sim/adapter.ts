@@ -524,9 +524,12 @@ export class SimRobotAdapter implements RobotIO {
 
   receive(topic: string): unknown[] {
     const since = this.radioCursor.get(topic) ?? 0;
-    const messages = this.world.inbox(topic, since);
-    // Advance past everything published so far, including messages from peers
-    // we filter out, so nothing is re-delivered and nothing is skipped.
+    const messages = this.world.inbox(topic, since, this.id);
+    // Advance past everything that arrived, including messages from peers we
+    // filter out, so nothing is re-delivered and nothing is skipped.
+    //
+    // Only past what *arrived*: a frame this receiver lost must not move the
+    // cursor, or a later read would skip over frames behind it that did arrive.
     for (const message of messages) {
       this.radioCursor.set(topic, Math.max(this.radioCursor.get(topic) ?? 0, message.seq));
     }

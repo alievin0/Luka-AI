@@ -73,13 +73,15 @@ export type SimRigOptions = {
   beamDropout?: number;
   /** A contiguous arc of the scan that returns nothing, radians from heading. */
   blindSector?: { centre: number; width: number };
+  /** Fraction of radio frames each listener loses, 0..1. Per receiver. */
+  radioLoss?: number;
 };
 
 /** Stand up a complete simulated robot: world, safety, abilities, runtime. */
 export function createSimRig(options: SimRigOptions = {}): SimRig {
   const chosen = scenario(options.scenario ?? "cluttered-office");
   const seed = options.seed ?? chosen.world.seed ?? 1;
-  const world = new SimWorld({ ...chosen.world, seed });
+  const world = new SimWorld({ ...chosen.world, seed, radioLoss: options.radioLoss });
   const registry = options.registry ?? createRegistry();
   const memoryBackend = options.memoryBackend ?? createInMemoryBackend();
 

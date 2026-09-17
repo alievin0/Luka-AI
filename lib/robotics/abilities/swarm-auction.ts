@@ -40,9 +40,20 @@ export type SwarmReport = {
   unassigned: string[];
   /** Bidder: jobs this robot won. */
   won: string[];
+  /**
+   * Auctioneer: jobs awarded whose winner never confirmed hearing it.
+   *
+   * Not the same as unassigned. Unassigned means nobody bid; this means
+   * somebody won and may never have found out, so the job is probably not being
+   * done by anyone. It is the number to act on.
+   */
+  unconfirmed: string[];
   bidsPlaced: number;
   bidsReceived: number;
 };
+
+/** How long the auctioneer waits for winners to acknowledge, ms. */
+const ACCEPT_WINDOW_MS = 600;
 
 const TOPIC = (base: string, kind: string) => `${base}/${kind}`;
 
@@ -80,14 +91,24 @@ export const swarmAuction: Ability<SwarmInput, SwarmReport> = {
     proof: {
       status: "SIMULATED" as const,
       basis:
-        "Allocates three jobs to three robots for a total cost of 19.9, and the robot at 31% " +
-        "charge correctly sits it out. In-process radio with no loss.",
+        "Allocates three jobs to three robots and the robot at 31% charge correctly sits it " +
+        "out. Under per-receiver frame loss it never awards one job twice, at any rate tested " +
+        "up to 40%; it allocates less work rather than colliding over it, and every job whose " +
+        "winner never heard is reported unconfirmed rather than booked as done.",
       verification:
         "Two real robots on a real network, with messages dropped deliberately. The number to " +
         "watch is what happens to a job whose winner goes offline between winning and starting.",
       failureModes: [
-        "The simulated radio does not drop, duplicate or reorder. A real one does all three.",
-        "There is no mechanism for a winner that fails after winning; the job is simply not done.",
+        "The simulated radio drops frames per receiver, which is the failure that breaks " +
+          "agreement between robots. It still does not duplicate or reorder them, and a real " +
+          "one does both.",
+        "An award is acknowledged, so a job whose winner never heard is reported rather than " +
+          "booked as done — measured at ten per cent frame loss, one job in six went that way " +
+          "before the acknowledgement existed, with `unassigned` empty and the auction " +
+          "reporting complete success. The acknowledgement can be lost too, and then a job " +
+          "that *is* being done is reported unconfirmed: duplicated effort somebody knows " +
+          "about beats work nobody is doing that the books say is covered.",
+        "There is no mechanism for a winner that fails after accepting; the job is simply not done.",
         "Bids are cost estimates from the same models that are wrong elsewhere — a robot with " +
           "optimistic odometry bids low and wins jobs it should not.",
       ],
@@ -141,6 +162,7 @@ export const swarmAuction: Ability<SwarmInput, SwarmReport> = {
     const report: SwarmReport = {
       role,
       awards: [],
+      unconfirmed: [],
       unassigned: [],
       won: [],
       bidsPlaced: 0,
@@ -185,6 +207,13 @@ export const swarmAuction: Ability<SwarmInput, SwarmReport> = {
           const award = message as { taskId: string; robot: string };
           if (award?.robot === ctx.robot.id) {
             report.won.push(award.taskId);
+            // Say so. An award the auctioneer sent and nobody received is a job
+            // in its books that no robot is doing, and without this the books
+            // read as a complete allocation.
+            ctx.robot.broadcast(TOPIC(topic, "accept"), {
+              taskId: award.taskId,
+              robot: ctx.robot.id,
+            });
             ctx.emit({
               kind: "status",
               message: `Won ${award.taskId}`,
@@ -270,17 +299,55 @@ export const swarmAuction: Ability<SwarmInput, SwarmReport> = {
       });
     }
 
-    // Let the winners hear their awards before the auction closes.
-    await ctx.sleep(200);
+    // Wait for the winners to say they heard.
+    //
+    // Measured before this existed, at ten per cent frame loss — an ordinary
+    // indoor mesh — one job in six was booked as awarded and never reached the
+    // robot, while `unassigned` stayed empty and the auction reported complete
+    // success. A message sent is not a message received, and a fleet is the one
+    // place in this kernel where saying so is cheap: both ends are robots and
+    // an acknowledgement is a frame like any other.
+    //
+    // The acknowledgement can be lost too, and then the job is *reported*
+    // unconfirmed while a robot is in fact doing it. That is the right way
+    // round: duplicated effort that somebody knows about beats work nobody is
+    // doing that the books say is covered.
+    const confirmed = new Set<string>();
+    const deadline = ctx.now() + ACCEPT_WINDOW_MS;
+    while (ctx.now() < deadline && confirmed.size < report.awards.length) {
+      for (const message of ctx.robot.receive(TOPIC(topic, "accept"))) {
+        const accept = message as { taskId: string; robot: string };
+        if (accept?.taskId) confirmed.add(accept.taskId);
+      }
+      await ctx.sleep(50);
+    }
+
+    for (const award of report.awards) {
+      // The auctioneer's own wins need no frame to arrive: it is the one that
+      // wrote them down.
+      if (award.robot === ctx.robot.id) confirmed.add(award.taskId);
+    }
+    report.unconfirmed = report.awards
+      .filter((award) => !confirmed.has(award.taskId))
+      .map((award) => award.taskId);
 
     const totalCost = report.awards.reduce((sum, a) => sum + a.cost, 0);
     return {
-      ok: report.unassigned.length === 0,
-      summary: `Auctioned ${tasks.length} job(s) to ${new Set(report.awards.map((a) => a.robot)).size} robot(s) for a total cost of ${totalCost.toFixed(1)}${report.unassigned.length ? `; ${report.unassigned.length} went unclaimed` : ""}.`,
+      ok: report.unassigned.length === 0 && report.unconfirmed.length === 0,
+      summary:
+        `Auctioned ${tasks.length} job(s) to ${new Set(report.awards.map((a) => a.robot)).size} robot(s) ` +
+        `for a total cost of ${totalCost.toFixed(1)}` +
+        (report.unassigned.length ? `; ${report.unassigned.length} went unclaimed` : "") +
+        (report.unconfirmed.length
+          ? `; ${report.unconfirmed.length} awarded but never acknowledged — those jobs are in the ` +
+            "books and probably not being done"
+          : "") +
+        ".",
       data: report,
       metrics: {
         awarded: report.awards.length,
         unassigned: report.unassigned.length,
+        unconfirmed: report.unconfirmed.length,
         totalCost,
       },
       failure: report.unassigned.length === 0 ? undefined : "gave-up",

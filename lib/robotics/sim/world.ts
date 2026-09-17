@@ -180,6 +180,14 @@ export type SimWorldConfig = {
   faults?: SimFault[];
   /** Sensor noise multiplier. 0 = perfect sensors, 1 = realistic, 2 = nasty. */
   noise?: number;
+  /**
+   * Fraction of radio frames each listener loses, 0..1.
+   *
+   * Per receiver, not per message: the failure that matters between robots is
+   * one of them hearing an announcement that another missed. A few per cent is
+   * an ordinary indoor mesh; a warehouse full of steel racking is worse.
+   */
+  radioLoss?: number;
 };
 
 export type RadioMessage = {
@@ -274,6 +282,8 @@ export class SimWorld {
       ? config.humans.map((h) => ({ ...h, waypointIndex: h.waypointIndex ?? 0 }))
       : [];
     this.dock = config.dock ?? { x: 1, y: 1 };
+    this.radioLoss = config.radioLoss ?? 0;
+    this.radioSalt = String(config.seed ?? 1);
     this.noise = config.noise ?? 1;
     this.faults = config.faults ? [...config.faults] : [];
     this.rng = makeRng(config.seed ?? 1337);
@@ -409,6 +419,11 @@ export class SimWorld {
     this.robot(id).tiltRate += radPerSec;
   }
 
+  /** Fraction of frames each listener loses, 0..1. */
+  readonly radioLoss: number;
+  private radioDrops = new Map<string, boolean>();
+  private radioSalt = "";
+
   send(message: Omit<RadioMessage, "seq">): RadioMessage {
     this.radioSeq += 1;
     const full: RadioMessage = { ...message, seq: this.radioSeq };
@@ -418,9 +433,48 @@ export class SimWorld {
     return full;
   }
 
-  /** Everything on `topic` newer than the sequence number the reader has seen. */
-  inbox(topic: string, afterSeq: number): RadioMessage[] {
-    return this.radio.filter((m) => m.topic === topic && m.seq > afterSeq);
+  /**
+   * Everything on `topic` newer than the sequence number the reader has seen,
+   * as *this* reader heard it.
+   *
+   * The radio used to be a shared log: every message reached every reader,
+   * instantly, in order, always. That is not a radio, it is a variable. A mesh
+   * between robots in a building loses frames to metal and distance, and loses
+   * them *per receiver* — which is the failure that breaks agreement protocols,
+   * because one robot hears an announcement and another does not and they go on
+   * to disagree about what was decided.
+   *
+   * Loss here is deterministic given the reader, the message and the world
+   * seed, so a run still replays exactly. It is not resampled per call: asking
+   * twice must not eventually deliver a frame that was dropped, or a caller
+   * could poll its way out of packet loss, which is not a thing radios let you
+   * do.
+   */
+  inbox(topic: string, afterSeq: number, listener?: string): RadioMessage[] {
+    return this.radio.filter((m) => {
+      if (m.topic !== topic || m.seq <= afterSeq) return false;
+      if (listener === undefined || this.radioLoss <= 0) return true;
+      return !this.dropped(listener, m.seq);
+    });
+  }
+
+  /** Whether this listener lost this frame. Stable for the life of the world. */
+  private dropped(listener: string, seq: number): boolean {
+    const key = `${listener}#${seq}`;
+    const known = this.radioDrops.get(key);
+    if (known !== undefined) return known;
+    // Hashed rather than drawn from the world RNG, so that reading the radio
+    // does not perturb the physics' random sequence.
+    let hash = 2166136261;
+    const material = `${this.radioSalt}:${key}`;
+    for (let i = 0; i < material.length; i += 1) {
+      hash ^= material.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+    const unit = ((hash >>> 0) % 100000) / 100000;
+    const lost = unit < this.radioLoss;
+    this.radioDrops.set(key, lost);
+    return lost;
   }
 
   /** The newest sequence number issued, for a reader catching up. */
