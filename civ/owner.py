@@ -20,7 +20,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from core import store  # noqa: E402
+from core import org, store  # noqa: E402
 
 BAR = "─" * 74
 
@@ -235,6 +235,229 @@ def cmd_decide(c, ident=None, verdict=None, *_):
         print("rejected; project %d returned to RESEARCH." % a["project_id"])
     else:
         print("recorded: %s" % verdict)
+
+
+# ── ORGANISATIONAL VIEWS ─────────────────────────────────────────────
+def _empty(kind):
+    print("  (none yet)"); print("  %s" % kind)
+
+
+def cmd_away(c, *_):
+    """WHILE YOU WERE AWAY — only meaningful changes since you last looked."""
+    since = c.execute("SELECT value FROM owner_state WHERE key='last_seen'").fetchone()
+    since = since["value"] if since else "0000"
+    print(BAR); print("WHILE YOU WERE AWAY   (since %s)" % (since if since != "0000"
+                                                            else "the beginning"))
+    print(BAR)
+    rows = [
+        ("discoveries", "SELECT COUNT(*) c FROM discoveries WHERE created_at > ?",
+         "owner.py discoveries"),
+        ("new ideas", "SELECT COUNT(*) c FROM ideas WHERE created_at > ?", "owner.py ideas"),
+        ("opportunities", "SELECT COUNT(*) c FROM opportunities WHERE created_at > ?",
+         "owner.py opportunities"),
+        ("artifacts built", "SELECT COUNT(*) c FROM artifacts WHERE created_at > ?",
+         "owner.py built"),
+        ("experiments completed",
+         "SELECT COUNT(*) c FROM experiments WHERE completed_at > ?", "owner.py experiments"),
+        ("projects created", "SELECT COUNT(*) c FROM projects WHERE created_at > ?",
+         "owner.py projects"),
+        ("failures recorded", "SELECT COUNT(*) c FROM failures WHERE created_at > ?",
+         "owner.py failures"),
+        ("reviews", "SELECT COUNT(*) c FROM reviews WHERE created_at > ?", "owner.py reviews"),
+        ("agents proposed by the factory",
+         "SELECT COUNT(*) c FROM agent_lineage WHERE created_at > ?", "owner.py factory"),
+        ("cross-project connections",
+         "SELECT COUNT(*) c FROM cross_project_signals WHERE created_at > ?",
+         "owner.py cross"),
+    ]
+    anything = False
+    for label, q, drill in rows:
+        n = c.execute(q, (since,)).fetchone()["c"]
+        if n:
+            anything = True
+            print("  %-34s %-4d → %s" % (label, n, drill))
+    pend = c.execute("SELECT COUNT(*) c FROM approvals WHERE decision IS NULL").fetchone()["c"]
+    if pend:
+        anything = True
+        print("  %-34s %-4d → owner.py decisions" % ("DECISIONS THAT NEED YOU", pend))
+    if not anything:
+        print("  nothing meaningful changed.")
+    print(BAR)
+    hi = c.execute("SELECT * FROM signals WHERE at > ? AND priority='HIGH' "
+                   "ORDER BY id DESC LIMIT 6", (since,)).fetchall()
+    if hi:
+        print("  highest priority:")
+        for sg in hi:
+            print("    · %s" % sg["headline"])
+    c.execute("INSERT INTO owner_state(key,value) VALUES('last_seen',?) "
+              "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (store.now(),))
+    print("  (marked as seen)")
+
+
+def cmd_discoveries(c, *_):
+    print(BAR); print("DISCOVERIES   observation ≠ interpretation ≠ validated fact"); print(BAR)
+    for d in c.execute("SELECT * FROM discoveries ORDER BY id DESC LIMIT 25"):
+        print("  #%d  [%s]  confidence %.2f" % (d["id"], d["source"], d["confidence"]))
+        print("      OBSERVED:    %s" % d["observation"][:100])
+        print("      INTERPRETED: %s" % (d["interpretation"][:100] or "— none offered"))
+        print("      evidence: %s" % (d["evidence_id"] or "NONE — this is not a fact"))
+
+
+def cmd_ideas(c, *_):
+    print(BAR); print("%-5s %-13s %-9s %s" % ("ID", "STATUS", "SOURCE", "PROBLEM")); print(BAR)
+    for i in c.execute("SELECT * FROM ideas ORDER BY id DESC LIMIT 30"):
+        print("%-5d %-13s %-9s %s" % (i["id"], i["status"], i["source"], i["problem"][:44]))
+
+
+def cmd_opportunities(c, *_):
+    print(BAR); print("%-5s %-12s %-10s %s" % ("ID", "STATUS", "SOURCE", "PROBLEM")); print(BAR)
+    for o in c.execute("SELECT * FROM opportunities ORDER BY id DESC LIMIT 30"):
+        flag = "" if o["evidence_id"] else "   ⚠ no evidence"
+        print("%-5d %-12s %-10s %s%s" % (o["id"], o["status"], o["source"],
+                                         o["problem"][:40], flag))
+
+
+def cmd_experiments(c, *_):
+    print(BAR); print("EXPERIMENTS"); print(BAR)
+    for e in c.execute("SELECT * FROM experiments ORDER BY id DESC"):
+        print("  #%d  %-12s %s" % (e["id"], e["status"], e["hypothesis"][:52]))
+        print("      success: %s | failure: %s" % (e["success_criteria"][:34],
+                                                   e["failure_criteria"][:34]))
+        if e["result"]:
+            print("      RESULT: %s — %s" % (e["result"], (e["conclusion"] or "")[:60]))
+            print("      next:   %s" % (e["next_action"] or "—"))
+
+
+def cmd_failures(c, *_):
+    print(BAR); print("FAILURE LIBRARY   never deleted"); print(BAR)
+    for f in c.execute("SELECT * FROM failures ORDER BY id DESC"):
+        print("  #%d  %s %s" % (f["id"], f["subject_kind"], f["subject_id"]))
+        print("      what:   %s" % f["what_happened"][:90])
+        print("      why:    %s" % f["why"][:90])
+        print("      LESSON: %s" % f["lesson"][:90])
+
+
+def cmd_disagreements(c, *_):
+    print(BAR); print("DISAGREEMENTS   preserved, never averaged"); print(BAR)
+    for d in c.execute("SELECT * FROM disagreements ORDER BY id DESC"):
+        v = org.disagreement_view(c, d["id"])
+        print("  #%d on %s %s — %s" % (d["id"], d["subject_kind"], d["subject_id"],
+                                       "UNRESOLVED" if v["unresolved"] else "aligned"))
+        for pos in v["positions"]:
+            print("      %-12s %-11s conf %.2f  %s" % (pos["principal_id"], pos["stance"],
+                                                       pos["confidence"], pos["claim"][:44]))
+            if pos["missing_evidence"]:
+                print("          missing: %s" % pos["missing_evidence"])
+
+
+def cmd_cross(c, *_):
+    print(BAR); print("CROSS-PROJECT SIGNALS"); print(BAR)
+    for x in c.execute("SELECT * FROM cross_project_signals ORDER BY strength DESC"):
+        print("  #%d  %-24s %.0f%%" % (x["id"], x["kind"], x["strength"] * 100))
+        print("      %s" % x["detail"])
+
+
+def cmd_factory(c, *_):
+    print(BAR); print("FACTORY JOBS   why each decision was made"); print(BAR)
+    for j in c.execute("SELECT * FROM factory_jobs ORDER BY id DESC"):
+        print("  #%d  %-8s %-10s %s" % (j["id"], j["kind"], j["decision"] or "-",
+                                        j["gap"][:44]))
+        print("      %s" % j["rationale"][:100])
+        if j["produced_id"]:
+            print("      produced: %s" % j["produced_id"])
+
+
+def cmd_agent(c, aid=None, *_):
+    if not aid:
+        sys.exit("usage: owner.py agent AGT-000001")
+    p = c.execute("SELECT * FROM principals WHERE id=?", (aid,)).fetchone()
+    if not p:
+        sys.exit("no such agent")
+    print(BAR); print("%s — %s (%s)" % (p["id"], p["name"], p["role"]))
+    print("  %s / %s · tier %s · autonomy %d" % (p["division"], p["department"],
+                                                 p["tier"], p["autonomy_level"]))
+    print("  lifecycle %s · runtime %s" % (p["lifecycle_state"], p["status"]))
+    print("  mission: %s" % p["mission"])
+    print(BAR)
+    lin = c.execute("SELECT * FROM agent_lineage WHERE principal_id=?", (aid,)).fetchone()
+    print("  WHY IT EXISTS: %s" % (lin["why_created"] if lin else
+                                   "founding crew — not factory-created"))
+    if lin:
+        print("      gap:      %s" % lin["capability_gap"])
+        print("      creator:  %s   job #%s" % (lin["creator"], lin["factory_job_id"]))
+        print("      expected: %s" % (lin["expected_value"] or "—"))
+    print("  PERMISSIONS: %s" % p["permissions"][:100])
+    caps = [r["capability_id"] for r in c.execute(
+        "SELECT capability_id FROM agent_capabilities WHERE principal_id=?", (aid,))]
+    print("  CAPABILITIES: %s" % (", ".join(caps) or "none"))
+    sk = c.execute("SELECT skill_id, proficiency, eval_score FROM agent_skills "
+                   "WHERE principal_id=?", (aid,)).fetchall()
+    print("  SKILLS: %s" % (", ".join("%s(%.2f%s)" % (s["skill_id"], s["proficiency"],
+                            "" if s["eval_score"] is not None else " UNTESTED")
+                            for s in sk) or "none"))
+    print(BAR)
+    print("  WHAT IT DID:")
+    print("      model runs: %d | tool calls: %d | artifacts: %d | reviews: %d"
+          % (c.execute("SELECT COUNT(*) n FROM runs WHERE principal_id=?", (aid,)).fetchone()["n"],
+             c.execute("SELECT COUNT(*) n FROM tool_calls WHERE principal_id=? AND "
+                       "decision='ALLOW'", (aid,)).fetchone()["n"],
+             c.execute("SELECT COUNT(*) n FROM artifacts WHERE principal_id=?",
+                       (aid,)).fetchone()["n"],
+             c.execute("SELECT COUNT(*) n FROM reviews WHERE reviewer_id=?",
+                       (aid,)).fetchone()["n"]))
+
+
+def cmd_passport(c, pid=None, *_):
+    if not pid:
+        sys.exit("usage: owner.py passport <project id>")
+    p = c.execute("SELECT * FROM projects WHERE id=?", (pid,)).fetchone()
+    if not p:
+        sys.exit("no such project")
+    print(BAR); print("PROJECT PASSPORT #%s — %s" % (pid, p["name"])); print(BAR)
+    print("  WHY IT EXISTS:  origin %s" % p["origin"])
+    print("  MISSION:        %s" % p["mission"])
+    print("  HYPOTHESIS:     %s" % (p["hypothesis"] or "—"))
+    print("  STAGE:          %s" % p["stage"])
+    print("  SPENT:          $%.4f" % p["usd_spent"])
+    for label, q in (
+            ("TEAM", "SELECT tm.principal_id AS a, tm.seat AS b FROM team_members tm "
+                     "JOIN teams t ON t.id=tm.team_id WHERE t.project_id=?"),
+            ("TASKS", "SELECT id AS a, objective AS b FROM tasks WHERE project_id=?"),
+            ("ARTIFACTS", "SELECT id AS a, name || ' [' || source || ']' AS b "
+                          "FROM artifacts WHERE project_id=?"),
+            ("EXPERIMENTS", "SELECT id AS a, COALESCE(result,status) || ' — ' || hypothesis "
+                            "AS b FROM experiments WHERE project_id=?")):
+        rows = c.execute(q, (pid,)).fetchall()
+        print(BAR); print("  %s (%d)" % (label, len(rows)))
+        for r in rows:
+            print("      %-14s %s" % (r["a"], str(r["b"])[:70]))
+    ds = c.execute("SELECT id FROM disagreements WHERE subject_kind='project' "
+                   "AND subject_id=?", (str(pid),)).fetchall()
+    if ds:
+        print(BAR); print("  DISAGREEMENTS")
+        for d in ds:
+            v = org.disagreement_view(c, d["id"])
+            print("      #%d %s" % (d["id"], ", ".join(v["stances"])))
+
+
+def cmd_businesses(c, *_):
+    print(BAR)
+    print("  BUSINESSES — NOT IMPLEMENTED")
+    print("  No venture has been created, so there is nothing to show. This view")
+    print("  exists as a named gap rather than an empty placeholder.")
+    print(BAR)
+
+
+def cmd_recall(c, *text):
+    if not text:
+        sys.exit('usage: owner.py recall "some text"')
+    hits = org.recall(c, " ".join(text), threshold=0.15, limit=10)
+    print(BAR); print("ORGANISATIONAL MEMORY  (lexical search, not semantic)"); print(BAR)
+    for h in hits or []:
+        print("  %-11s #%-4s %3.0f%%  %s" % (h["kind"], h["id"], h["similarity"] * 100,
+                                             h["text"][:60]))
+    if not hits:
+        print("  no prior work resembles that.")
 
 
 def cmd_pause(c, *_):

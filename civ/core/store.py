@@ -6,6 +6,7 @@ import sqlite3
 from datetime import datetime, timezone
 
 SCHEMA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "schema.sql")
+ORG_SCHEMA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "org_schema.sql")
 DEFAULT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "civ.db")
 
 MODES = ("simulation", "live", "hybrid")
@@ -28,7 +29,30 @@ def connect(path=None):
     con = sqlite3.connect(path, isolation_level=None)
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA foreign_keys=ON")
-    con.executescript(open(SCHEMA, encoding="utf-8").read())
+    for path in (SCHEMA, ORG_SCHEMA):
+        with open(path, encoding="utf-8") as fh:
+            con.executescript(fh.read())
+    # Organisational lifecycle is a DIFFERENT axis from runtime status:
+    # status says what the agent is doing right now, lifecycle_state says
+    # whether the organisation has approved it to exist at all.
+    cols = {r[1] for r in con.execute("PRAGMA table_info(principals)")}
+    if "lifecycle_state" not in cols:
+        con.execute("ALTER TABLE principals ADD COLUMN lifecycle_state TEXT NOT NULL "
+                    "DEFAULT 'ACTIVE'")
+    if "model_policy" not in cols:
+        con.execute("ALTER TABLE principals ADD COLUMN model_policy TEXT NOT NULL "
+                    "DEFAULT '{}'")
+    if "cost_limit_usd" not in cols:
+        con.execute("ALTER TABLE principals ADD COLUMN cost_limit_usd REAL NOT NULL "
+                    "DEFAULT 1.0")
+    if "task_limit" not in cols:
+        con.execute("ALTER TABLE principals ADD COLUMN task_limit INTEGER NOT NULL "
+                    "DEFAULT 50")
+    if "review_policy" not in cols:
+        con.execute("ALTER TABLE principals ADD COLUMN review_policy TEXT NOT NULL "
+                    "DEFAULT '{}'")
+    if "updated_at" not in cols:
+        con.execute("ALTER TABLE principals ADD COLUMN updated_at TEXT")
     return con
 
 

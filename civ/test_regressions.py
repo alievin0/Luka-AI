@@ -156,9 +156,12 @@ class R6_ADeclaredTableNothingWrites(unittest.TestCase):
     """AUDIT F3 — world/ declared a memories table, indexed it, and never wrote a
     single row. A schema that promises a capability the code does not use is a lie
     told in SQL."""
-    def test_a_full_slice_populates_every_declared_table(self):
+    def test_a_full_run_populates_every_declared_table(self):
+        """The runtime slice plus the organisational chain must leave no table
+        declared-but-unused. A schema promising what the code never does is F3."""
+        import org_demo
         con = fresh()
-        vslice.run_slice(con, P.MockProvider(), verbose=False)
+        org_demo.run(con, verbose=False)
         empty = []
         for (t,) in con.execute("SELECT name FROM sqlite_master WHERE type='table' "
                                 "AND name NOT LIKE 'sqlite_%' ORDER BY name"):
