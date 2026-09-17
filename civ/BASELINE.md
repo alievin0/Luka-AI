@@ -399,3 +399,59 @@ flip away from a third `INSUFFICIENT_EVIDENCE` at the same price. **The task set
 has to be recalibrated out of its ceiling before another campaign is worth
 paying for.** Two campaigns have now said the same thing; a third asking the
 same badly-calibrated questions will say it again.
+
+---
+
+## Campaign #3 — the first campaign that measured anything, and it measured the benchmark
+
+Run by the owner, 2026-09-17, `claude-sonnet-5`, commit `a344b68`, v2 task set.
+**90 runs, all COMPLETE. $0.765 total.** Frozen in `bench_history/campaign3.json`.
+
+**CONCLUSION: `INSUFFICIENT_EVIDENCE`.** 1 task decided, 3 required. Sign-test
+p = 1.0000 against α = 0.05, which needs 6 of 8 decided in one direction.
+
+### What the nine dimensions say
+
+| Dimension | Result |
+|---|---|
+| **QUALITY** | 8 of 9 tasks TIE. One decided: V2-T06, single 0.60 vs multi 0.80 |
+| **CORRECTNESS** | identical pattern; only T06 separates |
+| **RELIABILITY** | catastrophic runs: **single 7/45, multi 6/45** — a one-run difference, and 5 of each are T05, which was impossible |
+| **COST** | single **$0.186**, multi **$0.579** — **3.11×**. Single wins cost-per-verified-success on **7 of 7** tasks where either produced one |
+| **DAMAGE** | **0.00 for both** on V2-T08. The organisation did **not** break correct work |
+
+### The recalibration did not fix the ceiling
+
+Six of nine tasks scored **1.00 / 1.00** — T01, T02, T04, T07, T08, T09. The
+whole point of v2 was to move them off the ceiling and it did not work. Formal
+diagnosis of Campaign #3: **1 INVALID · 6 NEEDS_REVISION · 2 VALID.**
+
+### Three task defects, found by running it
+
+- **V2-T05 was impossible for both conditions** (0.00 on all 10 runs). The task
+  grants `READ_REPO` and hands over a file path, but `SYS_SOLO`/`SYS_BUILD`
+  permit only `{"tool":"WRITE_ARTIFACT"}` or `{"answer":...}`. **There is no
+  response shape that expresses reading a file.** In v1 this was masked because
+  the fixture was pasted into the prompt; R17 removed the paste and exposed
+  that the read path never existed. Not a finding about agents.
+- **V2-T03's specification is ambiguous** and I scored it as though it were not.
+  Both conditions scored exactly 0.6667 on all 10 runs: both signalled the zero
+  baseline correctly, and both failed only `negative_baseline_sign`.
+  `pct_change(-50, -25)` is −50% by the textbook formula `(new-old)/old` and
+  +50% by `(new-old)/abs(old)`. **The task never says which convention**, and my
+  checker demanded the second. The automated diagnosis marked T03 VALID — it
+  reads numbers and cannot see an ambiguous spec. This one needed a human read.
+- **V2-T06, the only decided task, is unstable in BOTH conditions.** Single
+  1,1,1,0,0. Multi 0,1,1,1,1. The 0.60 vs 0.80 gap is a single run out of five.
+  The diagnosis calls this noise, not signal, by the symmetric-instability rule
+  written before the campaign.
+
+### What this campaign is evidence of
+
+It is the first campaign whose runs all completed and produced real scores, so
+the instrument finally reported on itself. What it found is that **the v2 task
+set still cannot discriminate**: six tasks at ceiling, one impossible, one
+ambiguous, and the single decided task resting on one run's difference.
+
+The pre-registered conclusion stands unchanged, and it is not a failure: with
+this task set, on this model, no measurable difference was demonstrated.

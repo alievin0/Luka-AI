@@ -1,0 +1,205 @@
+{
+  "_frozen": "Campaign #3 as run on the owner's machine, 2026-09-17. PERMANENT.",
+  "_rule": "Never rewritten, rescored or recomputed. Later task repairs do NOT apply retroactively.",
+  "campaign_id": 3,
+  "commit": "a344b6825623",
+  "provider": "claude",
+  "model": "claude-sonnet-5",
+  "repeats": 5,
+  "tasks": 9,
+  "runs": 90,
+  "task_set": "v2",
+  "all_runs_completed": true,
+  "conclusion": "INSUFFICIENT_EVIDENCE",
+  "why": "1 task decided, 3 required; sign-test p = 1.0000",
+  "tasks_decided": 1,
+  "multi_led": 1,
+  "single_led": 0,
+  "ties": 7,
+  "sign_test_p": 1.0,
+  "usd_total": 0.76505,
+  "usd_single": 0.18637,
+  "usd_multi": 0.57868,
+  "per_task": {
+    "V2-T01-baseline": {
+      "s": 1.0,
+      "m": 1.0,
+      "s_runs": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "m_runs": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "s_usd": 0.00365,
+      "m_usd": 0.0297
+    },
+    "V2-T02-interacting-constraints": {
+      "s": 1.0,
+      "m": 1.0,
+      "s_runs": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "m_runs": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "s_usd": 0.04137,
+      "m_usd": 0.0594
+    },
+    "V2-T03-silent-wrong": {
+      "s": 0.6667,
+      "m": 0.6667,
+      "s_runs": [
+        0.6667,
+        0.6667,
+        0.6667,
+        0.6667,
+        0.6667
+      ],
+      "m_runs": [
+        0.6667,
+        0.6667,
+        0.6667,
+        0.6667,
+        0.6667
+      ],
+      "s_usd": 0.02321,
+      "m_usd": 0.07454
+    },
+    "V2-T04-conflicting-spec": {
+      "s": 1.0,
+      "m": 1.0,
+      "s_runs": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "m_runs": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "s_usd": 0.0411,
+      "m_usd": 0.10674
+    },
+    "V2-T05-tool-required": {
+      "s": 0.0,
+      "m": 0.0,
+      "s_runs": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "m_runs": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "s_usd": 0.02841,
+      "m_usd": 0.10826
+    },
+    "V2-T06-factual-verification": {
+      "s": 0.6,
+      "m": 0.8,
+      "s_runs": [
+        1.0,
+        1.0,
+        1.0,
+        0.0,
+        0.0
+      ],
+      "m_runs": [
+        0.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "s_usd": 0.01229,
+      "m_usd": 0.06851
+    },
+    "V2-T07-long-chain": {
+      "s": 1.0,
+      "m": 1.0,
+      "s_runs": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "m_runs": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "s_usd": 0.01321,
+      "m_usd": 0.04299
+    },
+    "V2-T08-do-no-harm": {
+      "s": 1.0,
+      "m": 1.0,
+      "s_runs": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "m_runs": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "s_usd": 0.00948,
+      "m_usd": 0.03897
+    },
+    "V2-T09-find-defect": {
+      "s": 1.0,
+      "m": 1.0,
+      "s_runs": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "m_runs": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "s_usd": 0.01365,
+      "m_usd": 0.04957
+    }
+  }
+}
