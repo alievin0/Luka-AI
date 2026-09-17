@@ -20,7 +20,8 @@ export type DemoName =
   | "map-the-room"
   | "hand-it-over"
   | "push-sweep"
-  | "measured-crossing";
+  | "measured-crossing"
+  | "fly-reflex";
 
 export type DemoOutcome = {
   ok: boolean;
@@ -606,6 +607,95 @@ export const DEMOS: Record<DemoName, Demo> = {
           `speed limiting changes that.`,
         details,
         metrics,
+      };
+    },
+  },
+  "fly-reflex": {
+    title: { en: "A fly's escape circuit, on a robot", ar: "دائرة هروب الذبابة، على روبوت" },
+    blurb:
+      "The same approach, three times: with the geometric reflex, with 367 simulated neurons from the fruit fly connectome, and with both. What the fly circuit buys is measured, not asserted.",
+    abilities: ["reflex.shield", "reflex.looming"],
+    async run(options) {
+      const details: string[] = [];
+
+      // A stationary robot and someone walking straight into it. Stationary
+      // matters: a reflex that reasons from the robot's own speed has nothing
+      // to reason with, while a looming detector does not care who is moving.
+      async function trial(
+        abilities: string[],
+        label: string,
+        withEvents: boolean,
+      ): Promise<{ reactedAt: number; closest: number; contacts: number }> {
+        const rig = rigFor("empty-hall", withEvents ? options : { ...options, onEvent: undefined });
+        const robot = rig.world.robot("luka-1");
+        rig.world.humans.push({
+          id: "walker",
+          at: { x: robot.pose.x + 7, y: robot.pose.y + 0.6 },
+          waypoints: [{ x: robot.pose.x - 3, y: robot.pose.y + 0.2 }],
+          speed: 1.5,
+          attentive: false,
+        });
+
+        const daemons = abilities.map((id) => rig.runtime.startDaemon(id, {}));
+
+        let reactedAt = 0;
+        let closest = Number.POSITIVE_INFINITY;
+        const probe = (async () => {
+          for (let i = 0; i < 300; i += 1) {
+            const here = rig.world.robot("luka-1");
+            const walker = rig.world.humans.find((h) => h.id === "walker");
+            if (walker) {
+              const gap = Math.hypot(walker.at.x - here.pose.x, walker.at.y - here.pose.y);
+              closest = Math.min(closest, gap);
+              // The robot starts still, so the first non-zero command is the
+              // moment it reacted, whatever caused it.
+              const moving =
+                Math.abs(here.commandedLinear) > 0.01 || Math.abs(here.commandedAngular) > 0.01;
+              if (moving && reactedAt === 0) reactedAt = gap;
+            }
+            await rig.runtime.sleep(20);
+          }
+        })();
+        await rig.runtime.settle(probe);
+        await rig.runtime.stopDaemons();
+        for (const d of daemons) await d.promise;
+
+        const contacts = rig.world.robot("luka-1").collisions;
+        details.push(
+          `${label}: reacted at ${reactedAt === 0 ? "never" : reactedAt.toFixed(2) + " m"}, ` +
+            `closest ${closest.toFixed(2)} m, ${contacts} contact(s).`,
+        );
+        return { reactedAt, closest, contacts };
+      }
+
+      const geometric = await trial(["reflex.shield"], "Geometric reflex alone", false);
+      const fly = await trial(["reflex.looming"], "Fly circuit alone", true);
+      const both = await trial(["reflex.shield", "reflex.looming"], "Both together", false);
+
+      const earlier = fly.reactedAt - geometric.reactedAt;
+      details.push(
+        "Bodies touch at 0.53 m centre to centre. Neither reflex can outrun a person walking " +
+          "at 1.5 m/s into a robot that reverses at 0.45, and the closest-approach figures say so.",
+      );
+
+      return {
+        // The circuit has to run and react. It is not required to beat the
+        // geometric reflex on every measure — the honest claim is about when it
+        // reacts, and that is what the summary reports.
+        ok: fly.reactedAt > 0 && both.reactedAt > 0,
+        summary:
+          `The fly circuit reacted at ${fly.reactedAt.toFixed(2)} m against the geometric reflex's ` +
+          `${geometric.reactedAt.toFixed(2)} m — ${earlier >= 0 ? `${earlier.toFixed(2)} m earlier` : `${(-earlier).toFixed(2)} m later`}. ` +
+          `367 connectome neurons, and it needs no estimate of anyone's speed to do it.`,
+        details,
+        metrics: {
+          flyReactedAt: fly.reactedAt,
+          geometricReactedAt: geometric.reactedAt,
+          bothReactedAt: both.reactedAt,
+          flyClosest: fly.closest,
+          geometricClosest: geometric.closest,
+          bothClosest: both.closest,
+        },
       };
     },
   },

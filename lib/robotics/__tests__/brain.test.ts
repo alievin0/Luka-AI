@@ -16,7 +16,7 @@ import {
 } from "../brain/circuits/escape.ts";
 import { signOf } from "../brain/connectome.ts";
 import { createSimRig } from "../index.ts";
-import type { LoomingReport } from "../abilities/looming.ts";
+import { selfMotionExpansion, type LoomingReport } from "../abilities/looming.ts";
 
 test("a neuron does not fire below its rheobase and does above it", () => {
   const net = new SpikingNetwork({ neuronCount: 1, synapses: [], stepMs: 0.5 });
@@ -381,4 +381,78 @@ test("reflex.looming pulls the robot away from someone walking into it", async (
   );
   // The robot is not allowed to have driven into the person while escaping.
   assert.equal(rig.world.robot("luka-1").collisions, 0);
+});
+
+test("a large stationary object does not trigger an escape", () => {
+  // The failure this guards against: a size channel that responds to size
+  // rather than to looming makes a robot escape from a wall it is parked
+  // beside. Measured before it was fixed — seven escapes crossing one room,
+  // every one triggered by something stationary at 28-64 degrees.
+  const circuit = new EscapeCircuit();
+  let fired = false;
+  for (let i = 0; i < 400; i += 1) {
+    // Right at the size the circuit is most sensitive to, and not moving.
+    if (circuit.advance(20, {
+      L: { theta: 0.79, dTheta: 0 },
+      R: { theta: 0.79, dTheta: 0 },
+    }).triggered) {
+      fired = true;
+      break;
+    }
+  }
+  assert.equal(fired, false, "escaped from a stationary object at peak size tuning");
+});
+
+test("the reflex subtracts the expansion the robot's own motion explains", () => {
+  // A robot driving at a stationary wall. Nothing is approaching it, but the
+  // wall grows in the scan exactly like something charging, and an uncorrected
+  // circuit escapes from its own destination.
+  const driveAtWall = (speed: number, cancel: boolean) => {
+    const circuit = new EscapeCircuit();
+    const radius = 0.25;
+    let previous = angularSize(radius, 6);
+    for (let t = 20; t < 20_000; t += 20) {
+      const range = 6 - speed * (t / 1000);
+      if (range <= 0.3) break;
+      const theta = angularSize(radius, range);
+      let dTheta = (theta - previous) / 0.02;
+      previous = theta;
+      if (cancel) dTheta -= selfMotionExpansion({ range, angle: 0 }, radius, speed, 0);
+      const stimulus = { theta, dTheta };
+      if (circuit.advance(20, { L: stimulus, R: stimulus }).triggered) return range;
+    }
+    return null;
+  };
+
+  for (const speed of [0.5, 0.8, 1.2]) {
+    assert.ok(
+      driveAtWall(speed, false) !== null,
+      `the uncorrected circuit somehow ignored a wall approached at ${speed} m/s`,
+    );
+    assert.equal(
+      driveAtWall(speed, true),
+      null,
+      `escaped from a stationary wall while driving at it at ${speed} m/s`,
+    );
+  }
+});
+
+test("the reflex still lets the robot cross a cluttered room", async () => {
+  // End to end, with everything on. The reflex firing occasionally while
+  // manoeuvring near obstacles is acceptable; preventing the trip is not.
+  const rig = createSimRig({ scenario: "cluttered-office" });
+  const daemon = rig.runtime.startDaemon<Record<string, never>, LoomingReport>(
+    "reflex.looming",
+    {},
+  );
+  const trip = await rig.runtime.run("navigate.to", { x: 9, y: 6, timeoutMs: 60_000 });
+  await rig.runtime.stopDaemons();
+  const report = await daemon.promise;
+
+  assert.equal(trip.ok, true, `the reflex blocked the trip: ${trip.summary}`);
+  assert.equal(rig.world.robot("luka-1").collisions, 0);
+  assert.ok(
+    (report.data?.suppressedBySelfMotion ?? 0) > 50,
+    `only ${report.data?.suppressedBySelfMotion} expansions were explained by self-motion`,
+  );
 });

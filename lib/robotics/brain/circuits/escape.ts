@@ -299,6 +299,12 @@ export type LoomingTuning = {
    * animal rather than a property of it.
    */
   sensitivity: number;
+  /**
+   * Expansion rate at which the size channel's gate saturates, rad/s. Below it
+   * the size response scales with how fast the object is growing; above it, the
+   * size tuning alone decides.
+   */
+  expansionReference: number;
 };
 
 export const DEFAULT_TUNING: LoomingTuning = {
@@ -308,6 +314,7 @@ export const DEFAULT_TUNING: LoomingTuning = {
   sizeWidth: 0.3,
   weightScale: 1,
   sensitivity: 4,
+  expansionReference: 0.5,
 };
 
 /** The tuning that reproduces the animal's own thresholds. */
@@ -342,14 +349,34 @@ export function lc4Drive(stimulus: LoomingStimulus, tuning: LoomingTuning): numb
   return Math.max(0, tuning.sensitivity * tuning.velocityGain * stimulus.dTheta);
 }
 
-/** Injected current for LPLC2 — Gaussian in angular size. */
+/**
+ * Injected current for LPLC2 — Gaussian in angular size, but only while
+ * something is actually expanding.
+ *
+ * The Gaussian is the published shape: LPLC2 supplies the entire size component
+ * of the Giant Fibre's response, and that component peaks at a particular
+ * angular size rather than growing without limit.
+ *
+ * The gate is the part that is easy to get wrong, and this model got it wrong
+ * first. A Gaussian in size alone is a *static size* preference: it drives the
+ * Giant Fibre whenever something large is nearby, so a robot parked beside a
+ * wall eventually escapes from the wall. Measured here — seven escapes while
+ * crossing a cluttered room, every one of them triggered by a stationary object
+ * at 28-64 degrees with almost no expansion.
+ *
+ * LPLC2 is a looming detector. Its size tuning is the size at which its
+ * *looming* response peaks, not a size it likes. So the size term scales a
+ * response to expansion rather than standing in for one, and nothing that is
+ * not growing drives it at all.
+ */
 export function lplc2Drive(stimulus: LoomingStimulus, tuning: LoomingTuning): number {
+  if (stimulus.dTheta <= 0) return 0;
   const offset = stimulus.theta - tuning.sizePeak;
-  return (
-    tuning.sensitivity *
-    tuning.sizeGain *
-    Math.exp(-(offset * offset) / (2 * tuning.sizeWidth * tuning.sizeWidth))
-  );
+  const sizeTuning = Math.exp(-(offset * offset) / (2 * tuning.sizeWidth * tuning.sizeWidth));
+  // Any real expansion saturates the gate; the size tuning then decides how
+  // strongly this population responds to it.
+  const expanding = Math.min(1, stimulus.dTheta / tuning.expansionReference);
+  return tuning.sensitivity * tuning.sizeGain * sizeTuning * expanding;
 }
 
 /** Deterministic PRNG, so a circuit is the same circuit every run. */

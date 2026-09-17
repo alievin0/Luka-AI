@@ -29,6 +29,14 @@
 // is true of the animal too, and for a robot it is correct — a slowly closing
 // gap is the navigation stack's problem, and it has time to think. But it means
 // this ability must never be described as collision avoidance. It is a startle.
+//
+// It still has false positives while manoeuvring. Crossing a cluttered room at
+// 0.8 m/s it escapes about five times in seven metres, none of which were real
+// threats. The trip completes and nothing is hit, but the number is not zero
+// and tuning it to zero would mean tuning away the real responses too. Two
+// corrections got it this far and both are documented where they are applied:
+// gating the size channel on actual expansion, in brain/circuits/escape.ts,
+// and subtracting the robot's own motion, below.
 
 import { clamp } from "../core/math.ts";
 import {
@@ -57,6 +65,12 @@ export type LoomingInput = {
   escapeSpeed?: number;
   /** Stop the mission after this many escapes. */
   escapeBudget?: number;
+  /**
+   * Subtract the expansion the robot's own motion explains. On by default, and
+   * turning it off makes the reflex escape from whatever the robot is driving
+   * towards. Only useful for seeing what the raw circuit does.
+   */
+  cancelSelfMotion?: boolean;
 };
 
 export type LoomingReport = {
@@ -70,6 +84,16 @@ export type LoomingReport = {
   peakExpansion: number;
   /** Smallest time-to-contact seen, seconds. */
   minTimeToContact: number;
+  /**
+   * Times an expansion was explained away by the robot's own motion. A large
+   * number here is the reflex correctly not escaping from its own destination.
+   */
+  suppressedBySelfMotion: number;
+  /**
+   * Frames where the nearest return jumped further than anything could have
+   * moved, so it was a different object rather than a closer one.
+   */
+  changesOfSubject: number;
   ticks: number;
   /** Cells and synapses actually simulated, so the report is checkable. */
   circuit: { cells: number; synapses: number; contacts: number };
@@ -121,6 +145,12 @@ const manifest = {
         description: "How many escapes before the mission is stopped.",
         default: 8,
       },
+      cancelSelfMotion: {
+        type: "boolean" as const,
+        description:
+          "Subtract the expansion the robot's own motion explains. Off makes it escape from whatever it drives towards.",
+        default: true,
+      },
     },
     required: [],
   },
@@ -135,6 +165,7 @@ export const loomingReflex: Ability<LoomingInput, LoomingReport> = {
     const horizon = input.horizon ?? 6;
     const escapeSpeed = input.escapeSpeed ?? 0.45;
     const budget = input.escapeBudget ?? 8;
+    const cancelSelfMotion = input.cancelSelfMotion ?? true;
 
     const circuit = new EscapeCircuit();
     const report: LoomingReport = {
@@ -143,6 +174,8 @@ export const loomingReflex: Ability<LoomingInput, LoomingReport> = {
       minRange: Number.POSITIVE_INFINITY,
       peakExpansion: 0,
       minTimeToContact: Number.POSITIVE_INFINITY,
+      suppressedBySelfMotion: 0,
+      changesOfSubject: 0,
       ticks: 0,
       circuit: {
         cells: circuit.compiled.stats.neurons,
@@ -159,33 +192,62 @@ export const loomingReflex: Ability<LoomingInput, LoomingReport> = {
 
     let previous: { L: number; R: number } | null = null;
     let latchedUntil = -Infinity;
+    let suppressed = 0;
+    let discontinuities = 0;
 
     while (!ctx.signal.aborted) {
       report.ticks += 1;
 
       const scan = ctx.robot.lidar();
-      const ranges = hemifieldRanges(scan, horizon);
-      report.minRange = Math.min(report.minRange, ranges.L, ranges.R);
+      const bearings = hemifieldRanges(scan, horizon);
+      report.minRange = Math.min(report.minRange, bearings.L.range, bearings.R.range);
 
       const dt = periodMs / 1000;
+      const velocity = ctx.robot.velocity();
       const stimulus: Record<Side, LoomingStimulus> = { L: quiet(), R: quiet() };
 
       for (const side of ["L", "R"] as Side[]) {
-        const range = ranges[side];
-        if (!Number.isFinite(range)) continue;
-        const theta = angularSize(objectRadius, range);
-        const before = previous ? previous[side] : range;
+        const bearing = bearings[side];
+        if (!Number.isFinite(bearing.range)) continue;
+        const theta = angularSize(objectRadius, bearing.range);
+        const before = previous ? previous[side] : bearing.range;
         // Expansion is only meaningful against the previous frame. On the first
         // tick there is no previous frame, so the rate is zero rather than a
         // fabricated number.
-        const dTheta = previous ? (theta - angularSize(objectRadius, before)) / dt : 0;
+        let measured = previous ? (theta - angularSize(objectRadius, before)) / dt : 0;
+
+        // The nearest return is not a tracked object. When the robot turns, or
+        // when something passes in front of something further away, the beam
+        // that was nearest is suddenly a different surface, and the range jumps.
+        // That jump is not expansion — nothing grew, the robot is just looking
+        // at a different thing — but it looks like enormous expansion to a
+        // circuit that only sees a number getting bigger.
+        //
+        // Nothing can close faster than the robot's own speed plus the fastest
+        // thing plausibly thrown at it, so a frame-to-frame change beyond that
+        // is a change of subject rather than a change of range.
+        const plausible = (Math.abs(velocity.linear) + MAX_CLOSING_SPEED) * dt;
+        if (previous && Math.abs(bearing.range - before) > plausible) {
+          measured = 0;
+          discontinuities += 1;
+        }
+
+        // Take out what the robot's own motion accounts for. Whatever is left
+        // is the object approaching under its own power, which is the only
+        // thing worth escaping from.
+        const ownMotion = cancelSelfMotion
+          ? selfMotionExpansion(bearing, objectRadius, velocity.linear, velocity.angular)
+          : 0;
+        const dTheta = measured - ownMotion;
+        if (measured > 0 && dTheta <= 0) suppressed += 1;
+
         stimulus[side] = { theta, dTheta };
         report.peakExpansion = Math.max(report.peakExpansion, dTheta);
         const ttc = timeToContact(stimulus[side]);
         if (Number.isFinite(ttc)) report.minTimeToContact = Math.min(report.minTimeToContact, ttc);
       }
 
-      previous = ranges;
+      previous = { L: bearings.L.range, R: bearings.R.range };
 
       const verdict = circuit.advance(periodMs, stimulus);
       const now = ctx.now();
@@ -235,6 +297,9 @@ export const loomingReflex: Ability<LoomingInput, LoomingReport> = {
 
     if (ctx.safety.wheelHeldBy() === "looming reflex: escape") ctx.safety.releaseWheel();
 
+    report.suppressedBySelfMotion = suppressed;
+    report.changesOfSubject = discontinuities;
+
     return {
       ok: true,
       summary:
@@ -252,21 +317,30 @@ export const loomingReflex: Ability<LoomingInput, LoomingReport> = {
   },
 };
 
+/**
+ * The fastest an object is assumed to close on the robot under its own power,
+ * m/s. A thrown ball or a running person is near this; anything faster is not
+ * something a reflex was going to save it from anyway.
+ */
+const MAX_CLOSING_SPEED = 4;
+
 function quiet(): LoomingStimulus {
   return { theta: 0, dTheta: 0 };
 }
 
+export type Bearing = { range: number; angle: number };
+
 /**
- * Closest return in each half of the scan.
+ * Closest return in each half of the scan, with the bearing it came from.
  *
  * The circuit is bilateral and that is the point: two independent hemifields
  * are what make the reflex directional. Taking the nearest return per side is
  * crude compared to a fly's retinotopy, and it is the right crudeness here —
  * the thing about to hit the robot is the thing that is closest.
  */
-function hemifieldRanges(scan: LidarScan, horizon: number): { L: number; R: number } {
-  let left = Number.POSITIVE_INFINITY;
-  let right = Number.POSITIVE_INFINITY;
+function hemifieldRanges(scan: LidarScan, horizon: number): { L: Bearing; R: Bearing } {
+  const left: Bearing = { range: Number.POSITIVE_INFINITY, angle: -Math.PI / 4 };
+  const right: Bearing = { range: Number.POSITIVE_INFINITY, angle: Math.PI / 4 };
   const n = scan.ranges.length;
   if (n === 0) return { L: left, R: right };
 
@@ -278,12 +352,50 @@ function hemifieldRanges(scan: LidarScan, horizon: number): { L: number; R: numb
     // Only what is in front matters for looming; something behind the robot is
     // not growing in a field of view it does not have.
     if (Math.abs(angle) > Math.PI / 2) continue;
-    if (angle < 0) left = Math.min(left, range);
-    else right = Math.min(right, range);
+    const side = angle < 0 ? left : right;
+    if (range < side.range) {
+      side.range = range;
+      side.angle = angle;
+    }
   }
 
   return { L: left, R: right };
 }
 
+/**
+ * The expansion the robot's own motion accounts for, rad/s.
+ *
+ * A robot driving at a stationary wall sees it grow in the scan exactly like
+ * something charging. Measured: without this correction the circuit fires at
+ * 0.88 m to 1.22 m from a wall the robot is driving into at 0.5 to 1.2 m/s.
+ * With it, never — which is the right answer, because nothing is approaching.
+ *
+ * The fly has the same problem and solves it the same way. Its escape pathway
+ * is suppressed during self-generated optic flow by a signal derived from the
+ * motor command rather than from the eye, so the animal does not startle at its
+ * own flight. A robot has a cleaner version of that signal available: it knows
+ * exactly what it told its wheels to do.
+ *
+ * For a static object at range d and bearing φ, a robot moving at v closes at
+ * v·cos φ, and since θ = 2·atan(r/d), the self-generated expansion is
+ * 2·r·v·cos φ / (d² + r²). Subtract it, and what is left is the object's own
+ * approach. A stationary robot subtracts nothing, which is exactly right.
+ */
+export function selfMotionExpansion(
+  bearing: Bearing,
+  radius: number,
+  linear: number,
+  angular: number,
+): number {
+  const d = bearing.range;
+  if (!Number.isFinite(d) || d <= 0) return 0;
+  // Only translation closes range. Turning sweeps the beam across the scene,
+  // which changes which object is nearest rather than how near it is, so the
+  // angular rate does not enter here.
+  void angular;
+  const closing = linear * Math.cos(bearing.angle);
+  return (2 * radius * closing) / (d * d + radius * radius);
+}
+
 /** Exported for the tests, which need to drive the reflex without a rig. */
-export const _internals = { hemifieldRanges, clamp };
+export const _internals = { hemifieldRanges, selfMotionExpansion, clamp };
