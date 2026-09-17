@@ -55,7 +55,8 @@ npm run dev
 1. أنشئ مشروع جديد على **supabase.com**
 2. افتح **SQL Editor** → `New query`
 3. انسخ محتوى `supabase/migrations/0001_receptionist_core.sql` **كله** والصقه → **Run**
-4. من **Settings → API** خُد القيمتين وحطهم بمتغيرات البيئة:
+4. **مهم:** شغّل `supabase/seed_demo.sql` كمان — بدونه قاعدة البيانات بتكون فاضية واللوحة بتطلع بلا أنشطة
+5. من **Settings → API** خُد القيمتين وحطهم بمتغيرات البيئة:
 
 ```bash
 SUPABASE_URL=https://<ref>.supabase.co
