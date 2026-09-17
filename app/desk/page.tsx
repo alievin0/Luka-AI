@@ -285,9 +285,23 @@ export default function DeskConsole() {
                 {profile.services.map((s) => (
                   <li key={s.id} className="flex items-baseline justify-between gap-2 text-xs">
                     <span className="text-slate-700">{s.name}</span>
-                    <span className="font-mono text-slate-500" dir="ltr">
-                      {s.durationMin}د
-                      {typeof s.price === "number" ? ` · ${s.price} ${s.currency ?? ""}` : ""}
+                    {/* Each number gets its own LTR span with the Arabic unit
+                        OUTSIDE it. Putting "30د · 20 JOD" inside one dir="ltr"
+                        element lets the bidi algorithm reorder the run, which
+                        rendered as "JOD د · 3020". */}
+                    <span className="flex shrink-0 items-baseline gap-1.5 text-slate-500">
+                      <span>
+                        <span className="font-mono" dir="ltr">{s.durationMin}</span> دقيقة
+                      </span>
+                      {typeof s.price === "number" && (
+                        <>
+                          <span className="text-slate-300">·</span>
+                          <span>
+                            <span className="font-mono" dir="ltr">{s.price}</span>{" "}
+                            {s.currency ?? ""}
+                          </span>
+                        </>
+                      )}
                     </span>
                   </li>
                 ))}
