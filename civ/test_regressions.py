@@ -647,6 +647,25 @@ class R20_PreflightPassedACampaignThatCouldNotStart(unittest.TestCase):
         finally:
             t["difficulty"] = original
 
+    def test_runtime_artifacts_never_block_a_campaign(self):
+        """Twice now the tree-clean check has blocked the owner's campaign on
+        files a RUN created — first the archive from --fresh, then SQLite's WAL
+        sidecars. Runtime output is not unverifiable drift. A smuggled source
+        file still must be."""
+        import subprocess
+        root = os.path.dirname(HERE)
+        artifacts = ["civ/civ-bench.db", "civ/civ-bench.db-wal", "civ/civ-bench.db-shm",
+                     "civ/civ-bench.db.archived-20260101T000000",
+                     "civ/civ-bench.db.archived-20260101T000000-wal",
+                     "civ/civ-bench-dry.db-wal", "civ/bench_report.json"]
+        for rel in artifacts:
+            rc = subprocess.run(["git", "check-ignore", "-q", rel], cwd=root).returncode
+            self.assertEqual(rc, 0, "%s would block a campaign" % rel)
+        # and the check must still have teeth
+        for rel in ("civ/core/smuggled.py", "civ/core/bench_tasks_v2.py"):
+            rc = subprocess.run(["git", "check-ignore", "-q", rel], cwd=root).returncode
+            self.assertNotEqual(rc, 0, "%s must NOT be ignored" % rel)
+
     def test_a_fresh_start_archives_the_old_world_rather_than_deleting_it(self):
         """LAW 12 cannot protect rows in a file that has been unlinked, and the
         owner's directive is to preserve raw evidence."""
