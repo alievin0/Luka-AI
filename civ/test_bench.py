@@ -54,11 +54,21 @@ class TaskRegistry(unittest.TestCase):
             self.assertTrue(t["rationale"], "%s must say why it exists" % t["id"])
 
     def test_invalid_input_unknown_difficulty_is_refused(self):
+        """R20 made 'trivial' a legitimate label, so this probes with a value
+        that is genuinely not one. The property under test is unchanged: the
+        schema refuses a difficulty it does not define."""
         con = world()
         with self.assertRaises(sqlite3.IntegrityError):
             con.execute("INSERT INTO bench_tasks(id,title,description,domain,difficulty,"
-                        "fixture_sha,created_at) VALUES('X','t','d','x','trivial','s',?)",
+                        "fixture_sha,created_at) VALUES('X','t','d','x','impossible','s',?)",
                         (store.now(),))
+
+    def test_trivial_is_now_a_defined_difficulty(self):
+        """R20: a baseline-competence task could not be registered at all."""
+        con = world()
+        con.execute("INSERT INTO bench_tasks(id,title,description,domain,difficulty,"
+                    "fixture_sha,created_at) VALUES('X','t','d','x','trivial','s',?)",
+                    (store.now(),))
 
 
 class Checkers(unittest.TestCase):

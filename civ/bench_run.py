@@ -296,9 +296,17 @@ def main(argv=None):
         return 2
 
     if a.fresh:
+        # R20. --fresh used to DELETE the world file, which on the owner's
+        # machine holds campaign #2's raw runs. LAW 12 cannot protect rows in a
+        # file that is unlinked, and the directive is to preserve raw evidence,
+        # so a fresh start now ARCHIVES the old world beside itself.
+        stamp = now()[:19].replace(":", "").replace("-", "")
         for ext in ("", "-wal", "-shm"):
             if os.path.exists(DB + ext):
-                os.remove(DB + ext)
+                os.rename(DB + ext, "%s.archived-%s%s" % (DB, stamp, ext))
+        if os.path.exists("%s.archived-%s" % (DB, stamp)):
+            print("previous world archived -> %s.archived-%s"
+                  % (os.path.basename(DB), stamp))
     db = os.path.join(HERE, "civ-bench-dry.db") if dry else DB
     if dry:
         for ext in ("", "-wal", "-shm"):

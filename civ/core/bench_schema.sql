@@ -6,7 +6,10 @@ CREATE TABLE IF NOT EXISTS bench_tasks (
   title         TEXT NOT NULL,
   description   TEXT NOT NULL,
   domain        TEXT NOT NULL,
-  difficulty    TEXT NOT NULL CHECK (difficulty IN ('easy','medium','hard')),
+  -- R20: 'trivial' was missing, so a task set carrying a baseline-competence
+  -- task could not be REGISTERED at all. The schema must be able to express
+  -- the task sets that exist, not constrain them to v1's three labels.
+  difficulty    TEXT NOT NULL CHECK (difficulty IN ('trivial','easy','medium','hard')),
   fixture       TEXT NOT NULL DEFAULT '{}',
   fixture_sha   TEXT NOT NULL,
   expected      TEXT NOT NULL DEFAULT '{}', -- machine-checkable properties

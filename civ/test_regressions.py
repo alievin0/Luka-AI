@@ -585,5 +585,88 @@ class R19_LedgerPricedModelsWrong(unittest.TestCase):
         self.assertEqual((rin, rout), (0.0, 0.0))
 
 
+class R20_PreflightPassedACampaignThatCouldNotStart(unittest.TestCase):
+    """Found on the FIRST Campaign #3 attempt, 2026-09-17, on the owner's machine.
+
+    All six pre-flight checks reported green — hashes matched, metrics matched,
+    the provider was live — and the campaign then died on its first database
+    write:
+
+        sqlite3.IntegrityError: CHECK constraint failed:
+        difficulty IN ('easy','medium','hard')
+
+    V2-T01 declares difficulty 'trivial'. The schema, written for v1's three
+    labels, could not express a baseline-competence task. Nothing was spent:
+    register_tasks runs before open_campaign and before any run_condition call.
+
+    The constraint was the symptom. The defect is that verifying hashes,
+    metrics and a provider is not the same as verifying the thing can RUN, so
+    the pre-flight now performs a real registration into a throwaway database."""
+
+    def test_every_task_set_registers_into_a_real_database(self):
+        import tempfile
+        from core import benchmark as BM
+        from core import bench_tasks as T1
+        from core import bench_tasks_v2 as T2
+        prev = BM.ACTIVE
+        try:
+            for name, expected in (("v1", len(T1.TASKS)), ("v2", len(T2.TASKS_V2))):
+                BM.use_task_set(name)
+                with tempfile.TemporaryDirectory() as d:
+                    con = store.connect(os.path.join(d, "t.db"))
+                    store.found(con, mode="simulation")
+                    self.assertEqual(BM.register_tasks(con), expected,
+                                     "%s does not register cleanly" % name)
+        finally:
+            BM.ACTIVE = prev
+
+    def test_the_schema_can_express_every_declared_difficulty(self):
+        from core import bench_tasks as T1
+        from core import bench_tasks_v2 as T2
+        allowed = set(re.findall(
+            r"difficulty IN \(([^)]*)\)",
+            open(os.path.join(HERE, "core", "bench_schema.sql"), encoding="utf-8").read())[0]
+            .replace("'", "").split(","))
+        allowed = {a.strip() for a in allowed}
+        declared = {t["difficulty"] for t in T1.TASKS} | {t["difficulty"] for t in T2.TASKS_V2}
+        self.assertTrue(declared <= allowed,
+                        "schema cannot express: %s" % sorted(declared - allowed))
+
+    def test_the_preflight_now_catches_an_unregisterable_task_set(self):
+        import campaign3_preflight as PF
+        from core import bench_tasks_v2 as T2
+        t = T2.TASKS_V2[0]
+        original = t["difficulty"]
+        try:
+            t["difficulty"] = "impossible-label"
+            ok, fails = PF.preflight(verbose=False, require_provider=False)
+            self.assertFalse(ok, "an unregisterable task set must fail the pre-flight")
+            self.assertTrue(any("registered" in f or "registration" in f for f in fails),
+                            fails)
+        finally:
+            t["difficulty"] = original
+
+    def test_a_fresh_start_archives_the_old_world_rather_than_deleting_it(self):
+        """LAW 12 cannot protect rows in a file that has been unlinked, and the
+        owner's directive is to preserve raw evidence."""
+        with open(os.path.join(HERE, "bench_run.py"), encoding="utf-8") as fh:
+            src = fh.read()
+        self.assertIn("os.rename(DB + ext", src)
+        self.assertNotIn("os.remove(DB + ext)", src)
+
+    def test_difficulty_is_not_inside_the_seal_so_the_fix_touched_no_task(self):
+        """The repair widened the SCHEMA, not the sealed task set. If difficulty
+        were hashed, this fix would have been a task modification."""
+        import campaign3_preflight as PF
+        import json as _j
+        with open(os.path.join(HERE, "bench_history",
+                               "campaign3-sealed-manifest.json"), encoding="utf-8") as fh:
+            sealed = _j.load(fh)
+        from core import bench_tasks_v2 as T2
+        for t in T2.TASKS_V2:
+            self.assertEqual(PF.task_sha(t), sealed["tasks"][t["id"]],
+                             "%s moved — the repair was not seal-neutral" % t["id"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

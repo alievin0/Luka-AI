@@ -186,6 +186,33 @@ def preflight(verbose=True, require_provider=True):
         if prov.source != "model":
             fails.append("provider %r does not execute a real model" % prov.name)
 
+    # ── 6b. R20: the task set must actually REGISTER ──────────────────
+    # The first Campaign #3 attempt passed all six checks and then died on the
+    # first database write: V2-T01 declares difficulty 'trivial' and the
+    # bench_tasks CHECK allowed only easy/medium/hard. Every check above was
+    # green while the campaign could not start. Verifying hashes, metrics and
+    # a provider is not the same as verifying the thing can run, so the
+    # pre-flight now performs a real registration into a throwaway database.
+    say("\n6a. TASK REGISTRATION (dry, in a temporary database)")
+    try:
+        import tempfile
+        from core import store
+        prev = B.ACTIVE
+        with tempfile.TemporaryDirectory() as tmp:
+            con = store.connect(os.path.join(tmp, "preflight.db"))
+            store.found(con, mode="simulation")
+            B.use_task_set("v2")
+            n = B.register_tasks(con)
+            B.ACTIVE = prev
+        if n != len(V2.TASKS_V2):
+            fails.append("registration wrote %d of %d tasks" % (n, len(V2.TASKS_V2)))
+            say("   FAIL           : wrote %d of %d" % (n, len(V2.TASKS_V2)))
+        else:
+            say("   OK             : all %d tasks register cleanly" % n)
+    except Exception as e:                                  # noqa: BLE001
+        fails.append("the task set cannot be registered: %r" % (e,))
+        say("   FAIL           : %r" % (e,))
+
     # ── 6. the planned configuration, printed before any spend ────────
     disc = [t for t in V2.TASKS_V2 if t.get("purpose") != "baseline_competence"]
     runs = len(V2.TASKS_V2) * 5 * 2

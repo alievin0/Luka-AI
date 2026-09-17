@@ -436,6 +436,7 @@ class EveryComparisonIsSymmetric(unittest.TestCase):
         self.assertEqual(out["attempts"], 5)
 
 
+import inspect                                   # noqa: E402
 import campaign3_preflight as PF                # noqa: E402
 
 
@@ -443,8 +444,19 @@ class Campaign3Preflight(unittest.TestCase):
     """The seal has to actually catch tampering, or it is decoration."""
 
     def test_checks_1_to_4_and_6_pass_on_the_sealed_tree(self):
-        ok, fails = PF.preflight(verbose=False, require_provider=False)
-        self.assertTrue(ok, "pre-flight failures: %s" % fails)
+        """Ignores the tree-clean check only. That one legitimately fails while
+        the suite runs against uncommitted work in progress; every other check
+        must be green regardless of git state."""
+        _, fails = PF.preflight(verbose=False, require_provider=False)
+        substantive = [f for f in fails if "uncommitted changes" not in f]
+        self.assertEqual(substantive, [], "pre-flight failures: %s" % substantive)
+
+    def test_a_dirty_tree_blocks_the_campaign(self):
+        """Unverifiable drift under civ/ must stop a campaign, and does: this
+        check caught its own artifacts on the pre-flight's first ever run."""
+        src = inspect.getsource(PF.preflight)
+        self.assertIn("uncommitted changes under civ/", src)
+        self.assertIn("fails.append", src.split("uncommitted changes under civ/")[0][-200:])
 
     def test_it_fails_without_a_real_provider(self):
         """A campaign cannot start against a provider that executes no model."""
