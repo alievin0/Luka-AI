@@ -7,6 +7,8 @@ import { validate } from "./schema.ts";
 import type { AbilityRegistry } from "./registry.ts";
 import { createInMemoryBackend, createMemory, sharedBackend, type MemoryBackend } from "./memory.ts";
 import { SafetyGovernor } from "../safety/governor.ts";
+import { Deadman } from "../hal/deadman.ts";
+import type { LinkProfile } from "../hal/profile.ts";
 import { SimRobotAdapter } from "../sim/adapter.ts";
 import { SimWorld } from "../sim/world.ts";
 import type {
@@ -36,6 +38,12 @@ export type RuntimeOptions = {
   tickSeconds?: number;
   /** Abort a run that exceeds this much simulated time. */
   maxSimMs?: number;
+  /**
+   * What commands cross. Given a link that can drop, the runtime puts a deadman
+   * between abilities and the motors, so a command that is not renewed stops the
+   * robot instead of standing forever.
+   */
+  link?: LinkProfile;
 };
 
 export type RunHandle<O = unknown> = {
@@ -52,7 +60,19 @@ export type RunHandle<O = unknown> = {
 
 export class RobotRuntime {
   readonly registry: AbilityRegistry;
+  /**
+   * What abilities drive. When the link can fail this is a guarded interface,
+   * not the raw adapter, and it is the only path to the motors.
+   */
   readonly robot: RobotIO;
+  /** The raw adapter, for the parts of the runtime that must not be guarded. */
+  readonly rawRobot: RobotIO;
+  /**
+   * Present when commands expire. A deadman that is not on the command path is
+   * not a safety mechanism, so this is constructed here rather than left for a
+   * caller to remember.
+   */
+  readonly deadman?: Deadman;
   readonly governor: SafetyGovernor;
   readonly world?: SimWorld;
 
@@ -74,8 +94,33 @@ export class RobotRuntime {
 
   constructor(options: RuntimeOptions) {
     this.registry = options.registry;
-    this.robot = options.robot;
+    this.rawRobot = options.robot;
     this.governor = options.governor;
+
+    // A link that cannot drop does not need commands to expire, and making an
+    // in-process simulator behave as though it might introduces a failure the
+    // real system does not have. Anything else gets the guard.
+    const link = options.link;
+    if (link && link.kind !== "loopback") {
+      this.deadman = new Deadman(options.robot, {
+        // Twice the control period, so an ordinary scheduling hiccup does not
+        // trip it but a dead sender does.
+        commandTimeoutMs: Math.max(link.controlPeriodMs * 2, 100),
+        robotSideWatchdog: link.robotSideWatchdogMs !== null,
+        now: () => this.now(),
+        onEvent: (event) => {
+          if (event.kind === "latched") {
+            this.emit({ kind: "warn", message: `deadman: ${event.reason}` });
+          } else if (event.kind === "refused") {
+            this.emit({ kind: "warn", message: `deadman: ${event.reason}` });
+          }
+        },
+      });
+      this.robot = this.deadman.guard();
+    } else {
+      this.robot = options.robot;
+    }
+
     this.world = options.world;
     this.memoryBackend = options.memoryBackend ?? sharedBackend;
     this.realtimeFactor = options.realtimeFactor ?? 0;
@@ -343,6 +388,9 @@ export class RobotRuntime {
     if (!this.world) return;
     const before = this.world.timeMs;
     this.world.step(this.tickSeconds);
+    // Checked every control tick: an expiry that nothing looks at is just a
+    // stale timestamp.
+    this.deadman?.tick();
     // The control period is the floor on how fast the robot can react to
     // anything. Telling the governor keeps its separation model honest instead
     // of trusting a constant somebody typed once.
@@ -362,6 +410,13 @@ export class RobotRuntime {
       sleep: (ms) => runtime.sleep(ms, signal),
       signal,
       random: this.rng,
+      deadman: this.deadman
+        ? {
+            isLatched: () => this.deadman!.state().latched,
+            expiries: () => this.deadman!.state().expiries,
+            rearm: () => this.deadman!.rearm(),
+          }
+        : undefined,
       escalate: (reason) => runtime.escalate(reason),
       twin: this.world ? (options) => runtime.fork(options) : undefined,
       call: async <I, O>(abilityId: string, input: I): Promise<AbilityResult<O>> => {

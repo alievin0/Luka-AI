@@ -140,6 +140,16 @@ export type AbilityMemory = {
 };
 
 /** Everything an ability is allowed to touch. */
+/** The part of the command guard an ability is allowed to touch. */
+export type DeadmanApi = {
+  /** Whether motion is currently refused because a command went stale. */
+  isLatched(): boolean;
+  /** How many commands have gone stale. */
+  expiries(): number;
+  /** Clear the latch. Refused while the wheels are still turning. */
+  rearm(): { ok: boolean; reason?: string };
+};
+
 export type AbilityContext = {
   robot: RobotIO;
   safety: SafetyApi;
@@ -156,6 +166,14 @@ export type AbilityContext = {
   call<I, O>(abilityId: string, input: I): Promise<AbilityResult<O>>;
   /** Deterministic per-run RNG, so a run can be replayed exactly. */
   random(): number;
+  /**
+   * The guard that makes velocity commands expire, when there is one.
+   *
+   * Present only when the link can drop — an in-process simulator has nothing
+   * to guard against. An ability that needs to check the guard should check
+   * this one rather than building its own, because a copy tests a copy.
+   */
+  deadman?: DeadmanApi;
   /**
    * Stop whatever the robot is doing in the foreground. Daemons use this when
    * they discover something the mission cannot be allowed to continue through —

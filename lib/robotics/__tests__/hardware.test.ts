@@ -335,3 +335,79 @@ test("a link whose tail is longer than the control period cannot close a loop", 
   assert.equal(linkSupportsControl(laggy, 8).ok, true);
   assert.equal(linkSupportsControl(SIMULATED_ROVER, 400).ok, false);
 });
+
+test("the guard is on the command path, not beside it", async () => {
+  // A deadman that exists but is not between the abilities and the motors is
+  // not a safety mechanism. The profile's link decides: an in-process
+  // simulator cannot lose a command, anything else can.
+  const loopback = createSimRig({ scenario: "empty-hall", profile: SIMULATED_ROVER });
+  assert.equal(
+    loopback.runtime.deadman,
+    undefined,
+    "a loopback link does not need commands to expire, and pretending it does invents a failure",
+  );
+
+  const wireless: RobotProfile = {
+    ...SIMULATED_ROVER,
+    id: "sim-over-wireless",
+    link: {
+      kind: "wireless",
+      controlPeriodMs: 20,
+      maxRoundTripP99Ms: 18,
+      robotSideWatchdogMs: 100,
+    },
+  };
+  const rig = createSimRig({ scenario: "empty-hall", profile: wireless });
+  assert.ok(rig.runtime.deadman, "a wireless link got no guard");
+  assert.notEqual(
+    rig.runtime.robot,
+    rig.runtime.rawRobot,
+    "abilities were handed the raw adapter, so the guard can be bypassed",
+  );
+});
+
+test("an ability that drives every tick is untroubled by the guard", async () => {
+  // The guard should be invisible to correctly written abilities and should
+  // catch the ones that issue a command and then wait. This is the first half.
+  const wireless: RobotProfile = {
+    ...SIMULATED_ROVER,
+    id: "sim-over-wireless",
+    link: {
+      kind: "wireless",
+      controlPeriodMs: 20,
+      maxRoundTripP99Ms: 18,
+      robotSideWatchdogMs: 100,
+    },
+  };
+
+  const rig = createSimRig({ scenario: "cluttered-office", profile: wireless });
+  const trip = await rig.runtime.run("navigate.to", { x: 9, y: 6, timeoutMs: 60_000 });
+
+  assert.equal(trip.ok, true, `the guard blocked a normal trip: ${trip.summary}`);
+  assert.equal(
+    rig.runtime.deadman?.state().expiries,
+    0,
+    "navigation relied on a command standing while nothing renewed it",
+  );
+});
+
+test("a command issued once and then waited on is caught", async () => {
+  // And the second half: the guard catches exactly the pattern that is unsafe
+  // over a link, which is commanding a speed and then sleeping.
+  const rig = createSimRig({ scenario: "empty-hall", profile: SIMULATED_ROVER });
+  let clock = 0;
+  const deadman = new Deadman(rig.runtime.rawRobot, {
+    commandTimeoutMs: 100,
+    now: () => clock,
+  });
+  const guarded = deadman.guard();
+
+  guarded.drive(0.3, 0);
+  for (clock = 0; clock <= 400; clock += 20) deadman.tick();
+
+  assert.equal(deadman.state().latched, true);
+  // The reason has to name the order that went stale, not the zero the guard
+  // wrote over it — an incident report saying "0.00 m/s went unrenewed" is
+  // worse than useless.
+  assert.match(deadman.state().reason, /0\.30 m\/s/);
+});

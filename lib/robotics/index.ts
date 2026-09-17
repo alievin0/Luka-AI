@@ -105,6 +105,10 @@ export function createSimRig(options: SimRigOptions = {}): SimRig {
       seed,
       memoryBackend,
       realtimeFactor: options.realtimeFactor ?? 0,
+      // The profile decides whether commands expire. A simulator's link is
+      // in-process and cannot drop; anything else gets a deadman between the
+      // abilities and the motors.
+      link: profile?.link,
     });
     if (profile) createMemory(spawn.id, memoryBackend).set("profile", profile);
     fleet.set(spawn.id, { robot, runtime, governor });

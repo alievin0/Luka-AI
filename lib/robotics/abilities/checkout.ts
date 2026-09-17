@@ -17,7 +17,6 @@ import {
   validateProfile,
   type RobotProfile,
 } from "../hal/profile.ts";
-import { Deadman } from "../hal/deadman.ts";
 import type { Ability, AbilityResult } from "../core/types.ts";
 
 export type CheckoutInput = {
@@ -284,8 +283,15 @@ export const hardwareCheckout: Ability<CheckoutInput, CheckoutReport> = {
         ar: "رح يتحرّك شوي بس لأتأكد إنو الفرامل بتمسك…",
       });
 
-      ctx.robot.drive(0.12, 0);
-      await ctx.sleep(700);
+      // Renew the command rather than issuing it once and sleeping. Commanding
+      // a speed and then waiting relies on the order standing while nothing
+      // repeats it, which is the thing the deadman exists to stop — and on a
+      // guarded robot that turns this into a test of the guard rather than of
+      // the brakes.
+      for (let elapsed = 0; elapsed < 700; elapsed += 50) {
+        ctx.robot.drive(0.12, 0);
+        await ctx.sleep(50);
+      }
       const moving = Math.abs(ctx.robot.velocity().linear);
 
       ctx.robot.stop();
@@ -317,49 +323,65 @@ export const hardwareCheckout: Ability<CheckoutInput, CheckoutReport> = {
       //    is told to move, then abandoned, and what happens next is recorded.
       if (!ctx.safety.isStopped()) {
         const timeoutMs = profile?.link?.robotSideWatchdogMs ?? 300;
-        const deadman = new Deadman(ctx.robot, {
-          commandTimeoutMs: timeoutMs,
-          stopBurstMs: 200,
-          now: () => ctx.now(),
-        });
-        const guarded = deadman.guard();
 
-        guarded.drive(0.12, 0);
-        await ctx.sleep(300);
-        const beforeAbandon = Math.abs(ctx.robot.velocity().linear);
+        if (ctx.deadman) {
+          // There is a real guard on the command path, so test that one. A
+          // stand-in built here would test itself and tell you nothing about
+          // what is actually protecting the robot.
+          const before = ctx.deadman.expiries();
+          ctx.robot.drive(0.12, 0);
+          await ctx.sleep(300);
+          const beforeAbandon = Math.abs(ctx.robot.velocity().linear);
 
-        // Now stop renewing it, as a dead sender would.
-        const deadline = ctx.now() + timeoutMs + 600;
-        while (ctx.now() < deadline) {
-          deadman.tick();
-          await ctx.sleep(20);
-        }
-        const afterAbandon = Math.abs(ctx.robot.velocity().linear);
-        const state = deadman.state();
+          // Stop renewing it, as a dead sender would.
+          await ctx.sleep(timeoutMs + 600);
+          const afterAbandon = Math.abs(ctx.robot.velocity().linear);
 
-        if (!state.latched) {
-          add(
-            "deadman",
-            "fail",
-            `A velocity command was left unrenewed for ${timeoutMs + 600} ms and nothing latched. ` +
-              "A command that outlives its sender is how a robot drives into someone after the " +
-              "process that was steering it has already died.",
-          );
-        } else if (afterAbandon > 0.02) {
-          add(
-            "deadman",
-            "fail",
-            `The stale command latched but the robot is still moving at ${afterAbandon.toFixed(2)} m/s.`,
-          );
+          if (ctx.deadman.expiries() === before) {
+            add(
+              "deadman",
+              "fail",
+              `A velocity command was left unrenewed for ${timeoutMs + 600} ms and the guard did ` +
+                "not notice. A command that outlives its sender is how a robot drives into someone " +
+                "after the process that was steering it has already died.",
+            );
+          } else if (!ctx.deadman.isLatched()) {
+            add(
+              "deadman",
+              "fail",
+              "The stale command was noticed but nothing latched, so the next command would resume " +
+                "motion with nobody having decided that it should.",
+            );
+          } else if (afterAbandon > 0.02) {
+            add(
+              "deadman",
+              "fail",
+              `The stale command latched but the robot is still moving at ${afterAbandon.toFixed(2)} m/s.`,
+            );
+          } else {
+            add(
+              "deadman",
+              "pass",
+              `An abandoned ${beforeAbandon.toFixed(2)} m/s command expired and the base latched ` +
+                "stopped. It will not resume without a deliberate re-arm.",
+            );
+          }
+
+          // Leave the robot usable: the latch was this check's doing, and the
+          // wheels have stopped.
+          const rearmed = ctx.deadman.rearm();
+          if (!rearmed.ok) {
+            add("deadman", "warn", `Could not re-arm after the test: ${rearmed.reason}`);
+          }
         } else {
           add(
             "deadman",
-            "pass",
-            `An abandoned ${beforeAbandon.toFixed(2)} m/s command expired after ${timeoutMs} ms and ` +
-              "the base latched stopped. It will not resume without a deliberate re-arm.",
+            "warn",
+            "Nothing makes velocity commands expire on this robot. That is correct for an " +
+              "in-process simulator, where the sender cannot die separately from the robot. On " +
+              "anything reached over a link, it means the last command stands forever.",
           );
         }
-        deadman.rearm();
       }
     }
 

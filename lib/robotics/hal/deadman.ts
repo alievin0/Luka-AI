@@ -145,13 +145,17 @@ export class Deadman {
 
     // Nothing has commanded the base recently. If it was asked to move, that
     // request is now old enough that whoever made it may be gone.
-    const moving = this.lastCommand.linear !== 0 || this.lastCommand.angular !== 0;
+    // Keep the command before it is cleared. Reporting it afterwards describes
+    // the zero the guard just wrote, not the order that went stale, and an
+    // incident report that says "0.00 m/s went unrenewed" tells nobody anything.
+    const stale = { ...this.lastCommand };
+    const moving = stale.linear !== 0 || stale.angular !== 0;
     this.expiries += 1;
     this.onEvent?.({
       kind: "expired",
       ageMs: age,
-      linear: this.lastCommand.linear,
-      angular: this.lastCommand.angular,
+      linear: stale.linear,
+      angular: stale.angular,
     });
 
     this.io.drive(0, 0);
@@ -166,7 +170,7 @@ export class Deadman {
       // back.
       this.latched = true;
       this.latchReason =
-        `a velocity command (${this.lastCommandLabel(this.lastCommand)}) went ${age.toFixed(0)} ms ` +
+        `a velocity command (${this.lastCommandLabel(stale)}) went ${age.toFixed(0)} ms ` +
         `without renewal, past the ${this.commandTimeoutMs} ms limit. ` +
         "The base is stopped and stays stopped until something re-arms it deliberately.";
       this.onEvent?.({ kind: "latched", reason: this.latchReason });
