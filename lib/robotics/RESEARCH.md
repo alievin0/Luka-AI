@@ -283,6 +283,95 @@ CC-BY 4.0. الادّعاء إنك بتحتاج حساب صحيح للواجهة
 
 ---
 
+## ٩. المحاكي كان بيكذب لصالح الروبوت — the simulator was lying in the robot's favour
+
+**الطريقة:** سؤال واحد على كل قناة بتلمس فيها النواة العالم — **«من وين الروبوت
+بيعرف هاد؟»**. تمن قنوات، وتمن مرات نفس السؤال. أربع مرات الجواب كان «ما بيعرفه
+— المحاكي بيعطيه ياه».
+
+> **The method:** one question asked of every channel through which this kernel
+> touches the world — *how does the robot know that?* Eight channels. Four times
+> the answer was "it doesn't; the simulator hands it over."
+
+### الجدول — what each channel was, and is
+
+| القناة | كانت | صارت | الكلفة المقيسة |
+| --- | --- | --- | --- |
+| الموقع | الحقيقة + ضجيج متوسطه صفر، ٤ سم على أي مسافة | حساب ميت بخطأ مقياس منهجي | ١–٢٫٥٪ من المسافة؛ `power.lifeline` ساق ١٨ م ووقف **حدّ** القاعدة |
+| سرعة الأشخاص | مضبوطة، بلا ضجيج، بلا تأخير | مفاضَلة من كشوفات مشوّشة، ٠٫٢٧٨ م/ث | نتيجة الممر انهارت: «20/20» كانت وهمًا |
+| شحنة البطارية | الحالة الكولومية ± ٠٫٢٪ | مُستنتَجة، انحياز لكل بطارية + هبوط حمل، ± ٢–٨٪ | صمدت |
+| **الميلان** | **زاوية الجسم الحقيقية + ضجيج** | **تقدير مندمج — الـIMU ما بيقيس ميلانًا أصلًا** | **ربع مظروف التوازن** |
+| الليزر | كان واقعيًا أصلًا | — | (ضجيج، تسرّب أشعة، قطاعات عمياء، إشباع) |
+| المحرّكات | أمر ٠٫٠٠١ م/ث = حركة ٠٫٠٠١ م/ث | احتكاك ساكن | أوامر تحت ٠٫٠٣ م/ث **ما بتحرّك شي** |
+| الراديو | سجلّ مشترك مثالي | ضياع لكل مستقبِل | **وظيفة من كل ٦ عند ١٠٪ ضياع كانت تضيع بصمت** |
+| الذراع | قصّ صامت + طرف بخطأ صفر | بيصرّح بالوصول + انحياز طرف | هدف على ١٫٦ م ترك الكفّ **٠٫٨٥ م قصير** بلا ما حدا يحكي |
+
+### ليش هالنمط بيتكرر — why it kept happening
+
+**ولا وحدة منهن كانت باگ.** كل وحدة كانت **قرار معقول** وقت كتابتها: «الموقع
+الحقيقي زائد شوية ضجيج» بتبيّن نمذجة معقولة للحساس. المشكلة إنّ الخطأ الحقيقي
+**مو من نفس الشكل**: انحراف الحساب الميت **بيتراكم**، وخطأ مقياس البطارية
+**منهجي**، والميلان **مو مقيسًا أصلًا**.
+
+> None of these was a bug. Each was a reasonable decision when written — "the
+> true value plus a little noise" looks like sensor modelling. The trouble is
+> that real error is not that shape: dead reckoning **accumulates**, a fuel
+> gauge's error is **systematic**, and tilt is **not measured at all**.
+
+**وتلات مرات من التمن، انكشف العيب لأنه واحدة تانية انصلّحت:**
+
+- خطأ `nearestObstacle` بالـNaN انكشف لما بنيت قطاعات عمياء بالليزر.
+- معدّل الميلان غير المقيَّد (روبوت **ممدّد عالأرض** بيضل يراكم ١٤ راد/ث²) انكشف لما
+  مرشّح IMU بلّش يتكامله وبلّغ **٩٠٥ درجة**.
+- ازدواجية حساب الاستهلاك (ناقصة الذراع، ٢٢ واط) انكشفت لما رحت أنمذج المقياس.
+
+> Three of the eight surfaced only because another was fixed first. Building a
+> faithful sensor on top of an unfaithful physics is how you find out the
+> physics was unfaithful.
+
+### الي وثّقته وما فحصته — the failure modes I wrote down and never tested
+
+مرتين كتبت عيبًا **بسجلّ البرهان** لأني بعرف إنه صحيح، **مو لأني شفته** — والمحاكي
+ما كان يقدر ينتجه:
+
+- `explore.frontier`: «انحراف الأوديومتري بيتراكم بالخريطة».
+- `swarm.auction`: «الراديو المحاكى ما بيضيّع ولا بيكرّر ولا بيعيد ترتيب».
+
+**سجلّ برهان صادق عن عيب غير مفحوص هو لسا ادّعاء.** الاثنين انفحصوا هلق، والتاني
+كشف الأسوأ بالمجموعة.
+
+> Twice I wrote a failure mode into a proof record from knowing it was true
+> rather than from having seen it, because the simulator could not produce it.
+> An honest record of an untested defect is still a claim.
+
+### وملاحظة عن القياس نفسه — and a note about measuring
+
+**تلات مرات بهالشغل طلع القياس هو العاطل مو النظام:** معدّل تباعد «غلطان ٢٥٪»
+(كان `cosh` مو أسّيًا)، ومسباران بيحسبوا انتصارات المزايد نفسه كيتيمة. وكمان
+مقارنات عند n=20 ما كانت تنفرق عن الضجيج — **والمشروع فيه وحدة إحصاء بتقول هاد
+بالحرف وأنا ما كنت أستعملها.**
+
+> Three times the measurement rather than the system was at fault, and several
+> n=20 comparisons were indistinguishable from noise while this repository ships
+> a statistics module that says so. Check the probe before believing the
+> finding.
+
+### الي بقي — what is left
+
+كل رقم بهالجدول **لسا رقم محاكاة**. الأسئلة الجاية مش قابلة للجواب من هون:
+
+| السؤال | المكان |
+| --- | --- |
+| هل نصف الثانية هي ثابت مرشّح الـIMU تبعك؟ | `TILT_FUSION_TAU` |
+| هل ٠٫٠٣ م/ث هي عتبة احتكاك محرّكاتك؟ | `Kinematics.minMovingSpeed` |
+| هل شبكتك بتضيّع ١٠٪ من الإطارات؟ | `SimWorldConfig.radioLoss` |
+| هل ٠٫٢٧٨ م/ث هو خطأ تراكرك؟ | `TRACK_WINDOW` |
+| هل بطاريتك بتنحرف ٤٪؟ | `SimRobot.gaugeBias` |
+
+**كل واحد منهن سطر بـ`RobotProfile` وشريط قياس.**
+
+---
+
 ## ٨. شو بيقدر يتطوّر هون فعلًا — ARC-2 and the limits of this simulator
 
 **السؤال:** قبل ما نبني أي قدرة لـ ARC-2 (تحوّل عجلة↔ساق، تكيّف مع التضاريس،
