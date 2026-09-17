@@ -472,6 +472,13 @@ export const DEMOS: Record<DemoName, Demo> = {
         conditions: { ability: "balance.recover" },
       };
 
+      // Show the catch, then the failure, so the numbers have pictures attached.
+      for (const push of [1.6, 2.4]) {
+        const shown = rigFor("empty-hall", options);
+        shown.world.applyTiltImpulse("luka-1", push);
+        await shown.runtime.run("balance.recover", {});
+      }
+
       const result = await sweep(
         protocol,
         { name: "push", levels: [0.8, 1.2, 1.6, 2.0, 2.4, 2.8, 3.2], unit: "rad/s" },
@@ -482,11 +489,6 @@ export const DEMOS: Record<DemoName, Demo> = {
           return { success: outcome.ok };
         },
       );
-
-      // Show one recovery live so the numbers have a picture attached.
-      const rig = rigFor("empty-hall", options);
-      rig.world.applyTiltImpulse("luka-1", 1.6);
-      await rig.runtime.run("balance.recover", {});
 
       const details = result.points.map(
         (p) =>
@@ -538,8 +540,17 @@ export const DEMOS: Record<DemoName, Demo> = {
           conditions: { shield: "on", telegraph: false },
         };
 
-        const suite = await runSuite(protocol, async (seed) => {
-          const rig = rigFor(scenario, { ...options, seed, onEvent: undefined, onRig: undefined });
+        const suite = await runSuite(protocol, async (seed, index) => {
+          // Show the first crossing in each world, then measure the rest in the
+          // background. A statistic nobody watched being produced is hard to
+          // believe; twenty of them rendered one after another is unwatchable.
+          const live = index === 0;
+          const rig = rigFor(scenario, {
+            ...options,
+            seed,
+            onEvent: live ? options.onEvent : undefined,
+            onRig: live ? options.onRig : undefined,
+          });
           const shield = rig.runtime.startDaemon("reflex.shield", {});
           const trip = await rig.runtime.run<{ x: number; y: number; timeoutMs: number }, unknown>(
             "navigate.to",
