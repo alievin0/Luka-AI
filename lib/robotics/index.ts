@@ -69,6 +69,10 @@ export type SimRigOptions = {
   memoryBackend?: MemoryBackend;
   /** Bring up every robot in the scenario, not just the first. */
   wholeFleet?: boolean;
+  /** Fraction of lidar beams that return nothing, 0..1. A real failure mode. */
+  beamDropout?: number;
+  /** A contiguous arc of the scan that returns nothing, radians from heading. */
+  blindSector?: { centre: number; width: number };
 };
 
 /** Stand up a complete simulated robot: world, safety, abilities, runtime. */
@@ -96,6 +100,8 @@ export function createSimRig(options: SimRigOptions = {}): SimRig {
     });
     const robot = new SimRobotAdapter(world, spawn.id, governor, {
       capabilities: options.capabilities ?? FULL_HARDWARE,
+      beamDropout: options.beamDropout,
+      blindSector: options.blindSector,
     });
     const runtime = new RobotRuntime({
       registry,

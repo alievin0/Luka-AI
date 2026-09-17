@@ -348,7 +348,23 @@ export class SafetyGovernor implements SafetyApi {
     // because a person is an obstacle, which is also why it cannot be fooled by
     // a classifier having a bad day.
     const scan = robot.lidar();
-    const obstacle = nearestObstacle(scan);
+
+    // What can be seen, and how far the seeing can be trusted.
+    //
+    // An unanswered beam contributes nothing to `nearestObstacle`: every
+    // comparison against NaN is false, so it falls through each guard in turn
+    // and leaves the nearest obstacle at maximum range. Nobody decided that an
+    // unanswered beam means a clear path — it is what NaN arithmetic does when
+    // nothing asks. Measured: a wall 1.2 m dead ahead, with the beams that see
+    // it returning nothing, reported 12.00 m of clear road while 78% of the
+    // scan was answering perfectly well.
+    //
+    // So the range at which the picture stops being trustworthy is treated
+    // exactly like an obstacle at that range, because an obstacle there cannot
+    // be ruled out. Scattered dropout is unaffected: a single missing beam
+    // cannot conceal anything closer than 20 m.
+    const coverage = scanCoverage(scan);
+    const obstacle = Math.min(nearestObstacle(scan), coverage.hiddenNearest);
     const obstacleLimit = this.obstacleSpeedLimit(obstacle);
 
     // Before trusting any of that: is the sensor reporting at all?
@@ -637,6 +653,193 @@ export function scanQuality(scan: LidarScan): number {
     answered += 1;
   }
   return answered / ranges.length;
+}
+
+/**
+ * How much of the scan's *direction* is answered, as opposed to how many of its
+ * beams are.
+ *
+ * `scanQuality` counts beams, and counting cannot tell apart the two ways a
+ * lidar half-fails. Measured on the same navigation task, at an identical 70%
+ * of beams answering:
+ *
+ *   30% scattered dropout      20/20 arrived, 0 collisions, 7.2 s
+ *   30% in one arc, ahead      20/20 arrived, 0 collisions, 9.8 s
+ *   30% in one arc, off-centre  0/20 arrived, 2814 collisions
+ *
+ * Same number, three different robots. Scattered loss is harmless because the
+ * neighbouring beams look at the same space; a contiguous arc is a direction
+ * the robot cannot see at all, and it reads as clear.
+ *
+ * ── When a gap can hide something ──────────────────────────────────────────
+ *
+ * An obstacle of half-width w at range d subtends 2·asin(w/d) ≈ 2w/d. It is
+ * entirely inside a blind arc of width α once 2w/d ≤ α, that is from
+ *
+ *     d ≥ 2w/α
+ *
+ * outward. Far things hide in narrow gaps; near things need wide ones. At one
+ * missing beam out of 181 across 270° (α ≈ 0.0145 rad) a 0.15 m obstacle first
+ * hides at 20.7 m, past the sensor's range — which is why scattered dropout
+ * costs nothing, derived rather than observed.
+ *
+ * The other half is whether the gap points anywhere the robot is going. The
+ * swept corridor of half-width W spans |θ| ≤ asin(W/d) at range d, narrowing
+ * with distance, so a gap whose nearest edge is at θ₁ overlaps the corridor
+ * only within
+ *
+ *     d ≤ W/sin θ₁
+ *
+ * A gap straight ahead (θ₁ = 0) overlaps it at every range; one out at 80°
+ * overlaps it only within 0.28 m, which is inside the robot.
+ */
+export type ScanCoverage = {
+  /** Fraction of beams carrying data, 0..1. What `scanQuality` reports. */
+  answered: number;
+  /** Widest contiguous unanswered arc in the forward half, radians. */
+  largestGap: number;
+  /** Where that arc points, radians from the heading. */
+  gapCentre: number;
+  /**
+   * The closest range at which an obstacle could be hiding where the robot is
+   * driving, metres, or Infinity when no gap can conceal one.
+   *
+   * This is the number to govern on. It is not "how far can I see" — it is
+   * "how close could the thing I cannot see be", which is the question a
+   * stopping distance has to answer.
+   */
+  hiddenNearest: number;
+};
+
+/**
+ * Whether an obstacle can hide in the gap and still be in the robot's way.
+ *
+ * Two conditions, and getting the first one wrong is what made the initial
+ * version of this paralyse the robot. An obstacle is only missed if it is
+ * *entirely* inside the blind arc — one that pokes out of either edge is seen,
+ * and then its position is known well enough to avoid. So:
+ *
+ *   (a) it fits:      2·asin(w/d) ≤ α,  i.e.  d ≥ w / sin(α/2)
+ *   (b) it is in the way: e + asin(w/d) < asin(W/d)
+ *
+ * where α is the gap's width, e how far its nearer edge sits from the heading,
+ * w the obstacle's half-width and W the swept corridor's.
+ *
+ * (a) is a floor rather than a ceiling, and that is the part that is easy to
+ * miss: something very close is too *wide* in angle to hide, so it sticks out
+ * of the gap and gets seen. Concealment starts at w/sin(α/2) and ends where
+ * (b) fails, so the hiding places form a band rather than everything past a
+ * threshold.
+ *
+ * When the gap spans the heading itself, e is zero, (b) holds at every range,
+ * and the band runs to the horizon — a robot that cannot see straight ahead
+ * cannot drive straight ahead, and no speed makes that safe.
+ */
+function concealmentRange(
+  gapWidth: number,
+  nearEdge: number,
+  sweptHalfWidth: number,
+  obstacleHalfWidth: number,
+  maxRange: number,
+): number {
+  if (gapWidth <= 0) return Number.POSITIVE_INFINITY;
+  const w = obstacleHalfWidth;
+  const W = sweptHalfWidth;
+
+  // (a) Closer than this the obstacle is too wide in angle to fit in the gap.
+  //
+  // And closer than the two bodies' radii combined it is not hiding anywhere —
+  // it is already touching the robot. Leaving that floor out made the measure
+  // report concealment at 0.23 m on a robot of radius 0.28, which is a point
+  // inside its own footprint; the governor read that as an obstacle inside its
+  // stopping clearance and refused to move at all. A robot that will not move
+  // is not a degraded robot, it is a stopped one.
+  const fits = Math.max(
+    gapWidth >= Math.PI ? 0 : w / Math.sin(gapWidth / 2),
+    sweptHalfWidth + w,
+  );
+  if (fits > maxRange) return Number.POSITIVE_INFINITY;
+
+  // (b) The furthest range at which something inside the gap is still inside
+  // the corridor. Monotone in d, so a bisection settles it.
+  const inTheWay = (d: number): boolean => {
+    const corridor = Math.asin(Math.min(1, W / d));
+    const obstacle = Math.asin(Math.min(1, w / d));
+    return nearEdge + obstacle < corridor;
+  };
+  if (!inTheWay(Math.max(fits, 1e-3))) return Number.POSITIVE_INFINITY;
+  if (inTheWay(maxRange)) return fits;
+
+  let low = Math.max(fits, 1e-3);
+  let high = maxRange;
+  for (let i = 0; i < 24; i += 1) {
+    const mid = (low + high) / 2;
+    if (inTheWay(mid)) low = mid;
+    else high = mid;
+  }
+  return low >= fits ? fits : Number.POSITIVE_INFINITY;
+}
+
+/**
+ * Describe what the scan can and cannot see, by direction.
+ *
+ * `minObstacle` is the half-width of the smallest thing worth not hitting — a
+ * chair leg, an ankle. Making it smaller makes the measure stricter, because
+ * smaller things hide in narrower gaps.
+ */
+export function scanCoverage(
+  scan: LidarScan,
+  sweptHalfWidth = 0.28,
+  minObstacle = 0.15,
+): ScanCoverage {
+  const { ranges, fov, maxRange } = scan;
+  if (ranges.length === 0) {
+    return { answered: 0, largestGap: Math.PI, gapCentre: 0, hiddenNearest: 0 };
+  }
+  const step = fov / Math.max(ranges.length - 1, 1);
+  const start = -fov / 2;
+  const answers = (range: number) => !Number.isNaN(range) && range > 0;
+
+  let largestGap = 0;
+  let gapCentre = 0;
+  let hiddenNearest = Number.POSITIVE_INFINITY;
+  let runStart: number | null = null;
+
+  const closeRun = (endIndex: number) => {
+    if (runStart === null) return;
+    const first = start + runStart * step;
+    const last = start + (endIndex - 1) * step;
+    // A run of n beams blocks an arc n steps wide, not n-1: each beam stands
+    // for the slice around it.
+    const width = last - first + step;
+    if (width > largestGap) {
+      largestGap = width;
+      gapCentre = (first + last) / 2;
+    }
+    const spansHeading = first <= 0 && last >= 0;
+    const nearEdge = spansHeading ? 0 : Math.min(Math.abs(first), Math.abs(last));
+    const nearest = concealmentRange(width, nearEdge, sweptHalfWidth, minObstacle, maxRange);
+    if (nearest < hiddenNearest) hiddenNearest = nearest;
+    runStart = null;
+  };
+
+  let answered = 0;
+  for (let i = 0; i < ranges.length; i += 1) {
+    if (answers(ranges[i])) answered += 1;
+    const angle = start + i * step;
+    // Only the forward half can conceal something the robot is driving into. A
+    // blind arc behind it is a real hole in its picture of the room and not a
+    // reason to slow down — a limit worth stating rather than hiding, because
+    // it means this measure says nothing to a robot reversing.
+    if (Math.abs(angle) <= Math.PI / 2 && !answers(ranges[i])) {
+      if (runStart === null) runStart = i;
+    } else {
+      closeRun(i);
+    }
+  }
+  closeRun(ranges.length);
+
+  return { answered: answered / ranges.length, largestGap, gapCentre, hiddenNearest };
 }
 
 export function nearestObstacle(scan: LidarScan, halfWidth = 0.28): number {

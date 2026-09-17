@@ -39,6 +39,29 @@ export type SimAdapterOptions = {
   /** How far the camera can recognise objects, metres. */
   visionRange?: number;
   visionFov?: number;
+  /**
+   * Fraction of lidar beams that return nothing, 0..1.
+   *
+   * A real failure mode rather than a test hook: a dirty window, a failing
+   * photodiode array, a surface that absorbs at the sensor's wavelength. The
+   * beams that do answer are as accurate as ever, which is what makes this
+   * different from noise and what makes a partial scan worth using.
+   *
+   * Which beams drop is fixed per scan by the world's seeded RNG, so a run
+   * replays exactly.
+   */
+  beamDropout?: number;
+  /**
+   * A contiguous arc of the scan that returns nothing, as {centre, width} in
+   * radians relative to the robot's heading.
+   *
+   * The other way a lidar half-fails, and the dangerous one. A smear on one
+   * part of the window, a failed segment of the receiver, the robot's own arm
+   * swung into the plane: the beams that answer are perfect, and there is a
+   * whole direction the robot cannot see. It loses the same fraction of beams
+   * as dropout does and it is not remotely the same failure.
+   */
+  blindSector?: { centre: number; width: number };
 };
 
 export class SimRobotAdapter implements RobotIO {
@@ -54,7 +77,8 @@ export class SimRobotAdapter implements RobotIO {
 
   private readonly world: SimWorld;
   private readonly governor: SafetyGovernor;
-  private readonly options: Required<SimAdapterOptions>;
+  private readonly options: Required<Omit<SimAdapterOptions, "blindSector">> &
+    Pick<SimAdapterOptions, "blindSector">;
   private readonly radioCursor = new Map<string, number>();
 
   constructor(
@@ -73,6 +97,8 @@ export class SimRobotAdapter implements RobotIO {
       lidarMaxRange: options.lidarMaxRange ?? 12,
       visionRange: options.visionRange ?? 6,
       visionFov: options.visionFov ?? Math.PI * 0.9,
+      beamDropout: options.beamDropout ?? 0,
+      blindSector: options.blindSector,
     };
     this.capabilities = this.options.capabilities;
   }
@@ -102,12 +128,29 @@ export class SimRobotAdapter implements RobotIO {
   }
 
   lidar(): LidarScan {
-    const { lidarBeams, lidarFov, lidarMaxRange } = this.options;
+    const {
+      lidarBeams,
+      lidarFov,
+      lidarMaxRange,
+      beamDropout: dropout,
+      blindSector: blind,
+    } = this.options;
     const { pose } = this.self;
     const ranges: number[] = new Array(lidarBeams);
     const step = lidarFov / Math.max(lidarBeams - 1, 1);
     for (let i = 0; i < lidarBeams; i += 1) {
       const angle = pose.theta - lidarFov / 2 + i * step;
+      if (blind !== undefined && Math.abs(wrapAngle(angle - pose.theta - blind.centre)) <= blind.width / 2) {
+        ranges[i] = Number.NaN;
+        continue;
+      }
+      if (dropout > 0 && this.world.random() < dropout) {
+        // Not a range of zero, and not the maximum range either. The beam did
+        // not come back, and the only honest value for that is one that cannot
+        // be mistaken for a measurement.
+        ranges[i] = Number.NaN;
+        continue;
+      }
       const hit = this.world.raycast(pose, angle, lidarMaxRange);
       ranges[i] = clamp(this.world.noisy(hit, 0.015), 0.02, lidarMaxRange);
     }
