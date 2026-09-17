@@ -195,3 +195,62 @@ test("binary frames are reported rather than silently dropped", async () => {
   assert.equal(problems.length, 1, "the problem was reported either never or every time");
   assert.match(problems[0], /binary frames/);
 });
+
+test("silent odometry does not read as stopped at the origin", async () => {
+  // Both halves of this were the same mistake in the channel everything else
+  // is built on. A stale pose returned the origin, which is a perfectly
+  // plausible place to be — so an ability would navigate confidently from
+  // somewhere the robot is not. And a stale velocity returned zero, which the
+  // safety model reads as a stationary robot and sizes its stopping distance
+  // accordingly, while the robot is still rolling.
+  const { bridge, fake } = await connected({ maxStalenessMs: 1 });
+
+  fake.deliver("/odom", {
+    pose: { pose: { position: { x: 3, y: 4 }, orientation: { z: 0, w: 1 } } },
+    twist: { twist: { linear: { x: 0.9 }, angular: { z: 0.2 } } },
+  });
+
+  const fresh = bridge.pose();
+  assert.equal(fresh.x, 3);
+  assert.equal(fresh.y, 4);
+  assert.equal(bridge.velocity().linear, 0.9);
+
+  const until = Date.now() + 12;
+  while (Date.now() < until) {
+    /* let it go stale */
+  }
+
+  // No safe guess exists for a position, so the reading is unusable and
+  // anything derived from it fails instead of succeeding somewhere wrong.
+  const stale = bridge.pose();
+  assert.ok(Number.isNaN(stale.x), `stale pose reported x=${stale.x}`);
+  assert.ok(Number.isNaN(stale.y), `stale pose reported y=${stale.y}`);
+  assert.ok(Number.isNaN(Math.hypot(stale.x - 10, stale.y - 10)));
+
+  // A safe assumption does exist for speed: whatever it was last doing.
+  const coasting = bridge.velocity();
+  assert.equal(coasting.linear, 0.9, "a silent odometry read as a stopped robot");
+  assert.equal(coasting.angular, 0.2);
+});
+
+test("yaw comes out of the quaternion the way ROS means it", async () => {
+  const { bridge, fake } = await connected();
+
+  for (const degrees of [0, 90, -90, 180]) {
+    const yaw = (degrees * Math.PI) / 180;
+    fake.deliver("/odom", {
+      pose: {
+        pose: {
+          position: { x: 0, y: 0 },
+          // A planar rotation about z: (0, 0, sin(yaw/2), cos(yaw/2)).
+          orientation: { z: Math.sin(yaw / 2), w: Math.cos(yaw / 2) },
+        },
+      },
+      twist: { twist: { linear: { x: 0 }, angular: { z: 0 } } },
+    });
+
+    const read = bridge.pose().theta;
+    const error = Math.abs(Math.atan2(Math.sin(read - yaw), Math.cos(read - yaw)));
+    assert.ok(error < 1e-9, `${degrees}° came back as ${((read * 180) / Math.PI).toFixed(1)}°`);
+  }
+});

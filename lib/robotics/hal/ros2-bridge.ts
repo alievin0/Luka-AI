@@ -128,6 +128,8 @@ export class Ros2Bridge implements RobotIO {
    * counted and exposed rather than discarded.
    */
   private undecodableFrames = 0;
+  /** Last velocity actually reported, held so silence does not read as stopped. */
+  private lastVelocity = { linear: 0, angular: 0 };
   private readonly onProblem?: (message: string) => void;
 
   constructor(options: Ros2BridgeOptions) {
@@ -281,7 +283,14 @@ export class Ros2Bridge implements RobotIO {
     const msg = this.read<{
       pose: { pose: { position: { x: number; y: number }; orientation: { z: number; w: number } } };
     }>(this.topics.odom);
-    if (!msg) return { x: 0, y: 0, theta: 0 };
+    if (!msg) {
+      // The origin is a plausible pose, which is exactly what makes returning
+      // it dangerous: an ability would navigate confidently from a position the
+      // robot is not at. There is no safe guess for "where am I", so this is
+      // unusable on purpose — anything computed from it comes out NaN and fails
+      // rather than succeeding at the wrong thing.
+      return { x: Number.NaN, y: Number.NaN, theta: Number.NaN };
+    }
     const { position, orientation } = msg.pose.pose;
     // Planar robot: yaw straight out of the quaternion's z/w terms.
     return {
@@ -295,9 +304,20 @@ export class Ros2Bridge implements RobotIO {
     const msg = this.read<{ twist: { twist: { linear: { x: number }; angular: { z: number } } } }>(
       this.topics.odom,
     );
-    return msg
-      ? { linear: msg.twist.twist.linear.x, angular: msg.twist.twist.angular.z }
-      : { linear: 0, angular: 0 };
+    if (msg) {
+      this.lastVelocity = {
+        linear: msg.twist.twist.linear.x,
+        angular: msg.twist.twist.angular.z,
+      };
+      return this.lastVelocity;
+    }
+
+    // Odometry has gone quiet. Reporting zero would say the robot is stopped,
+    // and the safety model sizes its stopping distance from this number — so a
+    // robot that is still rolling would be given the separation margin of one
+    // standing still. The last known speed is the safer assumption: a robot
+    // that was moving probably still is.
+    return this.lastVelocity;
   }
 
   lidar(): LidarScan {
