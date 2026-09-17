@@ -3,6 +3,9 @@
 // robot — that is the whole point of the RobotIO seam.
 
 import { clamp, distance, headingTo, type Pose2, type Vec2, wrapAngle } from "../core/math.ts";
+
+/** How far a docking beacon reaches, metres. Real infrared docks manage a few. */
+const DOCK_BEACON_RANGE = 3;
 import type { SafetyGovernor } from "../safety/governor.ts";
 import type {
   ArmState,
@@ -109,12 +112,80 @@ export class SimRobotAdapter implements RobotIO {
 
   // --- sensing -------------------------------------------------------------
 
-  pose(): Pose2 {
-    const { pose } = this.self;
+  /**
+   * A true world point, as the robot would report it.
+   *
+   * A camera measures where something is *relative to the robot* — a bearing
+   * and a range — and that measurement carries no odometry error at all. World
+   * coordinates only appear when the robot composes that relative measurement
+   * with its own believed pose, and that is where the drift enters.
+   *
+   * Handing out true world positions while `pose()` drifts counts the error
+   * twice: the relative geometry the robot computes from the two would be
+   * wrong by the drift, when in reality it is the one thing that is right.
+   * Measured, that made a robot unable to grasp an object it was standing
+   * beside. So the sensor is modelled where it actually is: relative geometry
+   * exact, absolute position carrying the robot's own error.
+   */
+  private asBelieved(point: Vec2): Vec2 {
+    const truth = this.self.pose;
+    const believed = this.self.odom;
+    const dx = point.x - truth.x;
+    const dy = point.y - truth.y;
+    // Into the robot's frame using the true heading, because that is the
+    // geometry the sensor actually sees...
+    const cos = Math.cos(-truth.theta);
+    const sin = Math.sin(-truth.theta);
+    const forward = dx * cos - dy * sin;
+    const left = dx * sin + dy * cos;
+    // ...and back out using the believed heading, which is what the robot will
+    // use to put it on a map.
     return {
-      x: this.world.noisy(pose.x, 0.01),
-      y: this.world.noisy(pose.y, 0.01),
-      theta: wrapAngle(this.world.noisy(pose.theta, 0.004)),
+      x: believed.x + forward * Math.cos(believed.theta) - left * Math.sin(believed.theta),
+      y: believed.y + forward * Math.sin(believed.theta) + left * Math.cos(believed.theta),
+    };
+  }
+
+  /**
+   * The dock, as a beacon sees it — or null when it is out of range.
+   *
+   * Dead reckoning does not get a robot onto a charging contact. Over the
+   * nineteen metres this kernel's power lifeline typically has to cover, the
+   * accumulated error is most of a metre and the dock needs a third of one, so
+   * a robot that navigates home purely on odometry arrives somewhere near the
+   * dock and stops. Measured: it missed every time.
+   *
+   * Every real docking system solves this the same way, with a measurement
+   * that does not go through odometry at all — an infrared beacon, a fiducial
+   * marker, a magnetic guide. Modelled here as what those give you: a direct
+   * relative fix, accurate, and only available close in.
+   */
+  dockBeacon(): { at: Vec2; distance: number } | null {
+    if (!this.capabilities.includes("camera")) return null;
+    const dock = this.world.dock;
+    const range = distance(this.self.pose, dock);
+    if (range > DOCK_BEACON_RANGE) return null;
+    return { at: this.asBelieved(dock), distance: this.world.noisy(range, 0.01) };
+  }
+
+  /**
+   * Where the robot believes it is.
+   *
+   * This is dead reckoning, not the truth: the integral of the wheel speeds,
+   * with the systematic scale errors a real platform has. It drifts, it drifts
+   * further the longer the robot drives, and driving a loop back to the start
+   * does not bring it home. Anything that plans in world coordinates is
+   * planning against this.
+   *
+   * `truePose` is next door and is for scoring and rendering only. Using it in
+   * a controller is the simulator lying to the robot.
+   */
+  pose(): Pose2 {
+    const { odom } = this.self;
+    return {
+      x: this.world.noisy(odom.x, 0.01),
+      y: this.world.noisy(odom.y, 0.01),
+      theta: wrapAngle(this.world.noisy(odom.theta, 0.004)),
     };
   }
 
@@ -210,8 +281,8 @@ export class SimRobotAdapter implements RobotIO {
         id: object.id,
         label: object.label,
         at: {
-          x: this.world.noisy(object.at.x, 0.02 + dist * 0.01),
-          y: this.world.noisy(object.at.y, 0.02 + dist * 0.01),
+          x: this.world.noisy(this.asBelieved(object.at).x, 0.02 + dist * 0.01),
+          y: this.world.noisy(this.asBelieved(object.at).y, 0.02 + dist * 0.01),
         },
         confidence,
         distance: dist,
@@ -243,7 +314,10 @@ export class SimRobotAdapter implements RobotIO {
             : { x: 0, y: 0 };
         return {
           id: human.id,
-          at: { x: this.world.noisy(human.at.x, 0.03), y: this.world.noisy(human.at.y, 0.03) },
+          at: {
+            x: this.world.noisy(this.asBelieved(human.at).x, 0.03),
+            y: this.world.noisy(this.asBelieved(human.at).y, 0.03),
+          },
           velocity,
           distance: Math.max(this.world.noisy(dist, 0.03), 0),
           attentive: human.attentive,

@@ -100,6 +100,28 @@ export type SimRobot = {
   holding: string | null;
   slip: number;
   /**
+   * Where the robot believes it is, by integrating its own wheel speeds.
+   *
+   * Kept apart from `pose`, which is the truth. Until this existed the
+   * simulated robot always knew exactly where it was — `pose()` returned the
+   * true position plus zero-mean noise, so the error stayed around four
+   * centimetres however far it drove and never accumulated. Dead-reckoning
+   * drift is the dominant error of a wheeled robot and the reason SLAM exists,
+   * and a simulator without it flatters every capability that plans in world
+   * coordinates.
+   */
+  odom: Pose2;
+  /**
+   * Per-robot systematic odometry errors, fixed at construction.
+   *
+   * Real drift is mostly not random. A wheel radius that is 2% off, or a
+   * wheelbase measured a centimetre wide, produces an error that grows with
+   * distance and always in the same direction — which is why driving a loop
+   * and coming back does not cancel it out. The random part matters much less.
+   */
+  odomScale: number;
+  odomTurnScale: number;
+  /**
    * How much of the wheel speed the floor actually converts into travel, 0..1.
    *
    * A property of the ground, not of the robot. At 1 the wheels carry the body;
@@ -308,6 +330,10 @@ export class SimWorld {
       holding: null,
       slip: 0,
       groundTraction: 1,
+      odom: { x: at.x, y: at.y, theta },
+      // A couple of per cent, which is what a carefully measured wheel gets you.
+      odomScale: 1 + this.random() * 0.04 - 0.02,
+      odomTurnScale: 1 + this.random() * 0.06 - 0.03,
       externalPull: 0,
       armTip: { x: 0.35, y: 0 },
       armHeight: 0.4,
@@ -468,6 +494,20 @@ export class SimWorld {
       robot.pose.y = clamp(nextY, 0.2, this.height - 0.2);
     }
     robot.pose.theta = wrapAngle(robot.pose.theta + robot.angular * traction * dt);
+
+    // --- what the robot thinks happened ------------------------------------
+    //
+    // Integrated from the wheel speeds rather than from where the robot
+    // actually went, because a wheel encoder counts turns of a wheel. That is
+    // the whole point: on a floor that will not carry the robot, `traction` is
+    // zero and the body does not move, while this keeps adding up distance at
+    // the commanded speed. The gap between `odom` and `pose` is then the real
+    // consequence of a slip rather than a number computed on the side.
+    const believedLinear = robot.linear * robot.odomScale;
+    const believedAngular = robot.angular * robot.odomTurnScale;
+    robot.odom.x += Math.cos(robot.odom.theta) * believedLinear * dt;
+    robot.odom.y += Math.sin(robot.odom.theta) * believedLinear * dt;
+    robot.odom.theta = wrapAngle(robot.odom.theta + believedAngular * dt);
 
     // Inverted-pendulum tilt dynamics. Inside the support polygon the wheelbase
     // and suspension hold the body up (stiff, critically damped, so hard

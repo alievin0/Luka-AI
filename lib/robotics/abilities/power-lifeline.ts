@@ -38,6 +38,8 @@ export type LifelineReport = {
   remainingWh: number;
   chargeAtTrigger: number;
   returnedHome: boolean;
+  /** Final approaches flown on the dock beacon rather than on odometry. */
+  beaconApproaches: number;
   samples: number;
 };
 
@@ -177,6 +179,7 @@ export const powerLifeline: Ability<LifelineInput, LifelineReport> = {
       remainingWh: capacityWh * battery0.charge,
       chargeAtTrigger: battery0.charge,
       returnedHome: false,
+      beaconApproaches: 0,
       samples: 0,
     };
 
@@ -237,11 +240,36 @@ export const powerLifeline: Ability<LifelineInput, LifelineReport> = {
         ctx.escalate(`power lifeline: ${report.reason}`);
 
         if (autoReturn) {
+          // Drive to where the dock is remembered to be, then look for it.
+          //
+          // The remembered coordinate is in the robot's own drifting frame, and
+          // over the distances this capability exists for — eighteen metres and
+          // up — the accumulated dead-reckoning error is most of a metre while
+          // a charging contact needs a third of one. Measured, navigating home
+          // on odometry alone arrived near the dock and stopped there every
+          // time, with the arithmetic about the margin entirely correct.
+          //
+          // So the last few metres use a measurement that does not pass through
+          // odometry: the beacon every real docking system has. If this robot
+          // has none, the approach is what it always was and the failure is
+          // reported rather than hidden.
           const trip = await ctx.call<{ x: number; y: number; tolerance: number }, unknown>(
             "navigate.to",
             { x: dock.x, y: dock.y, tolerance: 0.3 },
           );
           report.returnedHome = trip.ok;
+
+          const beacons = ctx.robot as { dockBeacon?: () => { at: Vec2; distance: number } | null };
+          for (let attempt = 0; attempt < 3 && !ctx.signal.aborted; attempt += 1) {
+            const beacon = beacons.dockBeacon?.() ?? null;
+            if (!beacon || beacon.distance < 0.25) break;
+            report.beaconApproaches += 1;
+            const closer = await ctx.call<{ x: number; y: number; tolerance: number }, unknown>(
+              "navigate.to",
+              { x: beacon.at.x, y: beacon.at.y, tolerance: 0.2 },
+            );
+            report.returnedHome = closer.ok;
+          }
         }
 
         return {
