@@ -180,3 +180,90 @@ test("the dock beacon is a measurement, not a memory", () => {
     `driving to the reported dock position would cover ${impliedRange.toFixed(2)} m, not 1.50`,
   );
 });
+
+// ── The fuel gauge ─────────────────────────────────────────────────────────
+
+test("the fuel gauge is not a fuel meter", () => {
+  // State of charge is inferred, not measured. The usual inference is a voltage
+  // curve that is nearly flat through the middle of a lithium discharge, so a
+  // small voltage error is a large charge error, and it carries a systematic
+  // offset per pack and per cell age.
+  //
+  // This reported the true coulomb state to within 0.2% before, which is a
+  // better gauge than exists. `power.lifeline` decides when to abandon a
+  // mission from this number, so how wrong it can be is the whole question.
+  const rig = createSimRig({ scenario: "empty-hall", seed: 5 });
+  const robot = rig.world.robot(rig.robot.id);
+  const gauge = rig.robot as unknown as { trueCharge(): number };
+
+  const errors: number[] = [];
+  for (let tick = 0; tick < 400; tick += 1) {
+    robot.commandedLinear = tick % 100 < 70 ? 0.7 : 0;
+    rig.world.step(0.1);
+    errors.push(rig.robot.battery().charge - gauge.trueCharge());
+  }
+
+  const worst = Math.max(...errors.map(Math.abs));
+  assert.ok(worst > 0.005, `the gauge is accurate to ${(worst * 100).toFixed(2)}%, which no gauge is`);
+  assert.ok(worst < 0.15, `the gauge is off by ${(worst * 100).toFixed(0)}%, which is not a gauge either`);
+});
+
+test("a driving robot reads lower than the same robot standing still", () => {
+  // Terminal voltage sags under load, so the indicated charge drops when the
+  // motors pull and recovers when they stop — with the same energy in the pack
+  // either way. It is why a robot that pauses to think about returning finds it
+  // has more charge than it did while moving, and it is the artifact most
+  // likely to make a power policy dither.
+  const rig = createSimRig({ scenario: "empty-hall", seed: 5 });
+  const robot = rig.world.robot(rig.robot.id);
+
+  // Driving first and resting second, so the comparison is unambiguous: by the
+  // time the robot stops it has *less* energy left, and if the gauge still
+  // reads higher then the difference can only be the load coming off.
+  //
+  // Averaged, because the sag here is under two per cent and a single reading
+  // carries one per cent of noise. A test that samples once passes or fails on
+  // the noise, which is a test of the seed.
+  const mean = (samples: number[]) => samples.reduce((a, b) => a + b, 0) / samples.length;
+
+  robot.commandedLinear = 1.0;
+  const driving: number[] = [];
+  for (let i = 0; i < 40; i += 1) {
+    rig.world.step(0.05);
+    if (i >= 20) driving.push(rig.robot.battery().charge);
+  }
+
+  robot.commandedLinear = 0;
+  const resting: number[] = [];
+  for (let i = 0; i < 40; i += 1) {
+    rig.world.step(0.05);
+    if (i >= 20) resting.push(rig.robot.battery().charge);
+  }
+
+  assert.ok(
+    mean(resting) > mean(driving),
+    `at rest the gauge read ${(mean(resting) * 100).toFixed(2)}% and while driving ` +
+      `${(mean(driving) * 100).toFixed(2)}%, with less energy left at rest — so there is no ` +
+      "load sag and the gauge is better than a real one",
+  );
+});
+
+test("the reported draw is the draw, including the arm", () => {
+  // The adapter used to recompute the wattage with its own copy of the
+  // constants and leave the arm out, so a robot moving its manipulator reported
+  // a figure missing 22 W against an idle of 12 — and `hardware.checkout`
+  // printed it to a person. Two implementations of one calculation agree until
+  // they do not, which is why there is now one.
+  const rig = createSimRig({ scenario: "kitchen-fetch", seed: 1 });
+  const robot = rig.world.robot(rig.robot.id);
+
+  const idle = rig.robot.battery().drawWatts;
+  robot.armTarget = { x: robot.pose.x + 0.4, y: robot.pose.y };
+  const reaching = rig.robot.battery().drawWatts;
+
+  assert.ok(
+    reaching > idle + 10,
+    `moving the arm changed the reported draw from ${idle.toFixed(1)} W to ${reaching.toFixed(1)} W, ` +
+      "which does not account for a manipulator",
+  );
+});

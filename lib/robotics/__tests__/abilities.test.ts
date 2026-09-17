@@ -530,7 +530,7 @@ test("closest approach finds where two courses actually converge", () => {
 test("hri.yield-path turns the corridor's worst case around", async () => {
   // The number this ability exists for. Paired on seed so the same crossings
   // run both ways, which is what makes the comparison mean anything.
-  const runs = 8;
+  const runs = 20;
   const without: number[] = [];
   const withYield: number[] = [];
 
@@ -560,8 +560,12 @@ test("hri.yield-path turns the corridor's worst case around", async () => {
     contactsWithout > 1,
     `this test needs a corridor that actually hurts, and got ${contactsWithout.toFixed(2)} contacts`,
   );
+  // Twenty seeds, not eight. At eight this read 4.38 contacts becoming 3.50 and
+  // failed, while the same comparison over sixty seeds was 3.53 becoming 1.65
+  // at p = 0.0000 — the capability was fine and the test was noise. A gate that
+  // cannot tell a working capability from a broken one is worse than no gate.
   assert.ok(
-    contactsWith < contactsWithout * 0.75,
+    contactsWith < contactsWithout * 0.7,
     `yielding did not help: ${contactsWithout.toFixed(2)} contacts per crossing became ` +
       `${contactsWith.toFixed(2)}`,
   );

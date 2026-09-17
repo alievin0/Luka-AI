@@ -323,18 +323,41 @@ export class SimRobotAdapter implements RobotIO {
     };
   }
 
+  /**
+   * What the fuel gauge says, which is not what is in the pack.
+   *
+   * State of charge is inferred rather than measured. The usual inference is a
+   * voltage curve that is nearly flat through the middle of a lithium
+   * discharge, so a small voltage error is a large charge error, and it carries
+   * a systematic offset per pack and per cell age. On top of that the terminal
+   * voltage sags under load, so a driving robot reads lower than the same robot
+   * standing still with the same energy left — which is why a robot that stops
+   * to think about returning finds it has more charge than it did while moving.
+   *
+   * Reported to 0.2% of the true coulomb state before this, which is a better
+   * gauge than exists. `power.lifeline` decides when to abandon a mission from
+   * this number, so how wrong it can be is the whole question.
+   */
   battery(): BatteryState {
     const robot = this.self;
-    const watts =
-      12 + Math.abs(robot.linear) * 34 + Math.abs(robot.angular) * 9 + robot.gripperForce * 0.15;
+    const watts = this.world.drawWatts(robot);
+    // Sag: proportional to draw, and it reads low rather than high, which is
+    // the safe direction and also the one that makes a robot dither.
+    const sag = (watts / 120) * 0.05;
+    const indicated = robot.charge + robot.gaugeBias - sag;
     return {
-      charge: clamp(this.world.noisy(robot.charge, 0.002), 0, 1),
+      charge: clamp(this.world.noisy(indicated, 0.01), 0, 1),
       drawWatts: this.world.noisy(watts, 0.4),
       capacityWh: robot.capacityWh,
       // The simulator's units are its own, so they are known by construction.
       // On hardware this is true only once somebody has read the topic.
       confident: true,
     };
+  }
+
+  /** The true coulomb state, for scoring. Never for a decision. */
+  trueCharge(): number {
+    return this.self.charge;
   }
 
   detectObjects(): DetectedObject[] {

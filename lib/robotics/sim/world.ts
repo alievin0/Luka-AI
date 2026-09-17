@@ -121,6 +121,8 @@ export type SimRobot = {
    */
   odomScale: number;
   odomTurnScale: number;
+  /** Systematic error in this pack's reported state of charge, fraction. */
+  gaugeBias: number;
   /**
    * How much of the wheel speed the floor actually converts into travel, 0..1.
    *
@@ -332,6 +334,11 @@ export class SimWorld {
       groundTraction: 1,
       odom: { x: at.x, y: at.y, theta },
       // A couple of per cent, which is what a carefully measured wheel gets you.
+      // A fuel gauge is not a fuel meter. State of charge is inferred, mostly
+      // from a voltage curve that is nearly flat through the middle of the
+      // discharge, and the inference carries a systematic offset per pack and
+      // per cell age. A few per cent is a good gauge.
+      gaugeBias: this.random() * 0.08 - 0.04,
       odomScale: 1 + this.random() * 0.04 - 0.02,
       odomTurnScale: 1 + this.random() * 0.06 - 0.03,
       externalPull: 0,
@@ -664,13 +671,27 @@ export class SimWorld {
     if (nowHeld.heldBy === robot.id) nowHeld.at = tip;
   }
 
-  private stepBattery(robot: SimRobot, dt: number): void {
-    const watts =
+  /**
+   * What the robot is drawing right now, watts.
+   *
+   * One function, because the adapter used to compute this a second time with
+   * its own copy of the constants and left the arm out of it — so a robot
+   * moving its manipulator reported a draw missing 22 W against an idle of 12,
+   * and `hardware.checkout` printed that figure to a person. Two
+   * implementations of one calculation agree until they do not.
+   */
+  drawWatts(robot: SimRobot): number {
+    return (
       IDLE_WATTS +
       Math.abs(robot.linear) * DRIVE_WATTS_PER_MPS +
       Math.abs(robot.angular) * TURN_WATTS_PER_RADPS +
       (robot.armTarget ? ARM_WATTS : 0) +
-      robot.gripperForce * 0.15;
+      robot.gripperForce * 0.15
+    );
+  }
+
+  private stepBattery(robot: SimRobot, dt: number): void {
+    const watts = this.drawWatts(robot);
     const wh = (watts * dt) / 3600;
     robot.energyUsedWh += wh;
     robot.charge = clamp(robot.charge - wh / robot.capacityWh, 0, 1);
