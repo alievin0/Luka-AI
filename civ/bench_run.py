@@ -267,6 +267,18 @@ def main(argv=None):
 
     active = B.use_task_set(getattr(a, "task_set", "v1"))
     dry = getattr(a, "dry_run", False)
+
+    # Campaign #3 runs a SEALED task set. The six pre-execution checks are not
+    # optional and are not a separate script the operator might forget: a v2
+    # campaign that would spend real budget refuses to start unless they pass.
+    if getattr(a, "task_set", "v1") == "v2" and not dry:
+        from campaign3_preflight import preflight
+        ok, problems = preflight(verbose=True, require_provider=True)
+        if not ok:
+            print()
+            print("Campaign #3 NOT started. %d pre-flight problem(s) above. "
+                  "Nothing was spent." % len(problems))
+            return 3
     prov = P.MockProvider() if dry else P.from_env()
     if not dry and not prov.available():
         prov = P.ClaudeProvider()

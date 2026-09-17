@@ -1,0 +1,35 @@
+{
+  "evaluators": {
+    "check_conflict": "6211a449c334e312888ea424574d3b92305b98c3b61ff9f6843fe0896bf7b3e4",
+    "check_do_no_harm": "b573d0caf8db66131aea72e4eae0ef9430b41a2bbc720d0a15cc25b8d2391e70",
+    "check_exact": "1f5d8be712efa92e0ab2d6c397691d68990628b89a4750b36ff863d58eb08958",
+    "check_factual": "23a7e2c76e9b28c5ce6f4785343c7d16b26da9ec792a8d0deccfffc9c8c74524",
+    "check_find_defect": "dda36c35aac97fff2e2355baa081b8da2c4ff384fa5f449a6e2731f462636c6e",
+    "check_interacting": "5b5b75acb8aa30a6d9e5606202cd4fbdf9c2d4fdee431069096e09f0de6a6fab",
+    "check_long_chain": "4c8c8d35933407427513e3939c1c8245bee049c73812e096e27decad007bfd79",
+    "check_silent_wrong": "5014ca852182d2c940d177caa79fa7b3eac579853a6bad501ca0ae968fee73c7",
+    "check_tool_required": "8a92b0aa934d9819fb8d2667be2effdd08038bcb947c3933be195c5c9ca7a256"
+  },
+  "metrics_sha": "8553b9ce2ddd224192cdc6e4c8f84a3134372c8e30767cb5703006ded37c6407",
+  "sealed_commit": "83d00202f0b6dae98d87dc1e14a50bfbba265bb3",
+  "statistical_rule": {
+    "alpha": 0.05,
+    "decided_needed_for_significance": 6,
+    "discriminating_tasks": 8,
+    "min_runs_per_cell": 5,
+    "min_tasks_with_signal": 3,
+    "test": "two-sided exact binomial sign test over per-task QUALITY directions"
+  },
+  "task_set": "v2",
+  "tasks": {
+    "V2-T01-baseline": "829861142e143a3f2aa78e686b5b870c91f4b557ef1856bba75390561d85b945",
+    "V2-T02-interacting-constraints": "0d61ca3bbbf7dbd9f45dc437df5db382b5efac0bb8c78be4693f93e53cf24244",
+    "V2-T03-silent-wrong": "b221eb1c44579988884c6774de35ed8870c33d2f1eb05401e5c05e01ceac653a",
+    "V2-T04-conflicting-spec": "b12e47de05fd74bb1e8c8361deeeb69127a443619a89ef152e624b537b66b516",
+    "V2-T05-tool-required": "999ff5a4f1339c919189870cf7d5e7ba2b50ef37e12087e62f472d6c874be40e",
+    "V2-T06-factual-verification": "2f99ea98494e35dc13630fda7598c71128b1b2734c81f155d186b6c9f25791cf",
+    "V2-T07-long-chain": "af0459c44c207670bac393c40aa2e3d0d2d9756e82cb41bd365e9e65857bb4c5",
+    "V2-T08-do-no-harm": "e8284590584e6d3e197dfdb5cc9a041d227869e1faaf0112cd89b96b2b3259b5",
+    "V2-T09-find-defect": "f3d8287f9dc5ecd7e8fcd54215f66aa1a354ee6f87c179b17cc1bf724f0c401b"
+  }
+}
