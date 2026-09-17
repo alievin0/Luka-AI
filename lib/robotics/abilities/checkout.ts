@@ -11,7 +11,13 @@
 // chosen so that nothing moves until the things that would stop it have been
 // shown to work.
 
-import { validateProfile, type RobotProfile } from "../hal/profile.ts";
+import {
+  auditProfile,
+  linkSupportsControl,
+  validateProfile,
+  type RobotProfile,
+} from "../hal/profile.ts";
+import { Deadman } from "../hal/deadman.ts";
 import type { Ability, AbilityResult } from "../core/types.ts";
 
 export type CheckoutInput = {
@@ -125,6 +131,19 @@ export const hardwareCheckout: Ability<CheckoutInput, CheckoutReport> = {
       } else {
         add("capabilities", "pass", `${actual.size} capabilities, all backed by the interface.`);
       }
+
+      // The profile can be internally consistent and still describe a machine
+      // that should not be switched on at these speeds. That is a separate
+      // question and it gets a separate answer.
+      const findings = auditProfile(profile);
+      const blocking = findings.filter((f) => f.level === "block");
+      if (blocking.length > 0) {
+        add("posture", "fail", blocking.map((f) => f.message).join(" "));
+      } else if (findings.length > 0) {
+        add("posture", "warn", findings.map((f) => f.message).join(" "));
+      } else {
+        add("posture", "pass", "Nothing about this configuration is known to be risky.");
+      }
     }
 
     // 2. Are the senses alive, and are they *changing*? A frozen driver is the
@@ -210,6 +229,29 @@ export const hardwareCheckout: Ability<CheckoutInput, CheckoutReport> = {
         : `Sense-to-act within budget at ${(measured * 1000).toFixed(0)} ms.`,
     );
 
+    // A related but different question: can a loop be closed across the link at
+    // all? Note this is deliberately *not* fed the reaction time measured above.
+    // Sense-to-act covers the whole pipeline — sensing, deciding, acting — and
+    // the link is one term in it. Substituting one for the other would compare
+    // a robot's thinking time against its network budget and call the result a
+    // network verdict.
+    //
+    // The kernel has no transport-level round-trip measurement yet, so what is
+    // checked here is the profile's own claim about its link, and the detail
+    // says so rather than implying something was measured.
+    if (profile?.link) {
+      const verdict = linkSupportsControl(profile);
+      add(
+        "link",
+        verdict.ok ? "pass" : "fail",
+        verdict.ok
+          ? `${profile.link.kind} link: a declared ${profile.link.maxRoundTripP99Ms} ms p99 fits inside ` +
+              `the ${profile.link.controlPeriodMs} ms control period. Declared, not measured — this kernel ` +
+              "does not yet time the transport itself."
+          : (verdict.reason ?? ""),
+      );
+    }
+
     // 4. The emergency stop, before anything is allowed to move. If this does
     //    not work, nothing below it should be attempted.
     const wasStopped = ctx.safety.isStopped();
@@ -268,6 +310,56 @@ export const hardwareCheckout: Ability<CheckoutInput, CheckoutReport> = {
         );
       } else {
         add("brakes", "pass", "Came to rest within 700 ms of the stop command.");
+      }
+
+      // 6. The failure that actually hurts people: a command that outlives
+      //    whatever sent it. This is measured rather than asserted — the robot
+      //    is told to move, then abandoned, and what happens next is recorded.
+      if (!ctx.safety.isStopped()) {
+        const timeoutMs = profile?.link?.robotSideWatchdogMs ?? 300;
+        const deadman = new Deadman(ctx.robot, {
+          commandTimeoutMs: timeoutMs,
+          stopBurstMs: 200,
+          now: () => ctx.now(),
+        });
+        const guarded = deadman.guard();
+
+        guarded.drive(0.12, 0);
+        await ctx.sleep(300);
+        const beforeAbandon = Math.abs(ctx.robot.velocity().linear);
+
+        // Now stop renewing it, as a dead sender would.
+        const deadline = ctx.now() + timeoutMs + 600;
+        while (ctx.now() < deadline) {
+          deadman.tick();
+          await ctx.sleep(20);
+        }
+        const afterAbandon = Math.abs(ctx.robot.velocity().linear);
+        const state = deadman.state();
+
+        if (!state.latched) {
+          add(
+            "deadman",
+            "fail",
+            `A velocity command was left unrenewed for ${timeoutMs + 600} ms and nothing latched. ` +
+              "A command that outlives its sender is how a robot drives into someone after the " +
+              "process that was steering it has already died.",
+          );
+        } else if (afterAbandon > 0.02) {
+          add(
+            "deadman",
+            "fail",
+            `The stale command latched but the robot is still moving at ${afterAbandon.toFixed(2)} m/s.`,
+          );
+        } else {
+          add(
+            "deadman",
+            "pass",
+            `An abandoned ${beforeAbandon.toFixed(2)} m/s command expired after ${timeoutMs} ms and ` +
+              "the base latched stopped. It will not resume without a deliberate re-arm.",
+          );
+        }
+        deadman.rearm();
       }
     }
 

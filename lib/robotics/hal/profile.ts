@@ -15,6 +15,48 @@ import type { Ros2Topics } from "./ros2-bridge.ts";
 
 export type Bilingual = { en: string; ar: string };
 
+export type LinkProfile = {
+  /**
+   * `loopback` is the simulator, where the link cannot fail. `wired` is a
+   * cable. `wireless` is anything that shares a medium with other traffic,
+   * which includes every WiFi deployment.
+   */
+  kind: "loopback" | "wired" | "wireless";
+  /** The control period the kernel intends to run at, ms. */
+  controlPeriodMs: number;
+  /**
+   * The round-trip time the link is expected to hold at the 99th percentile,
+   * ms. Not the average — the average is comfortable and the tail is what
+   * drives into someone. When the measured p99 exceeds the control period,
+   * closing a loop across this link is not something the link can do.
+   */
+  maxRoundTripP99Ms: number;
+  /**
+   * The robot's own command timeout, ms, or null when it has none. This is the
+   * only watchdog that survives the sender dying, so a wireless robot without
+   * one is a robot that keeps its last order forever.
+   */
+  robotSideWatchdogMs: number | null;
+};
+
+export type Kinematics = {
+  /** Drive wheel radius, metres. */
+  wheelRadius: number;
+  /** Distance between the drive wheels, metres. */
+  trackWidth: number;
+  /**
+   * Where these numbers came from.
+   *
+   * `platform-parameters` — read off the robot at run time, which is the best
+   * case and is what several platforms offer if you ask.
+   * `measured` — somebody put a tape on it.
+   * `datasheet` — the nominal figure, which is right until a tyre wears or a
+   * wheel is swapped for a similar one.
+   * `assumed` — a guess. Abilities that need metric accuracy refuse on this.
+   */
+  source: "platform-parameters" | "measured" | "datasheet" | "assumed";
+};
+
 export type RobotProfile = {
   id: string;
   name: Bilingual;
@@ -46,6 +88,34 @@ export type RobotProfile = {
   /** Topic names, where they differ from the ROS defaults. */
   topics?: Partial<Ros2Topics>;
   frames?: { base: string; odom: string; lidar: string };
+  /**
+   * How commands reach the motors. The kernel treats a wireless link as a
+   * component that fails, because it is the one that does.
+   */
+  link?: LinkProfile;
+  /**
+   * The numbers that turn wheel rotations into metres. Getting these slightly
+   * wrong does not look like a bug — it looks like drift, and drift looks like
+   * a sensor problem. `source` is here because a wheelbase somebody measured
+   * with a tape and a wheelbase somebody assumed are different kinds of fact.
+   */
+  kinematics?: Kinematics;
+  /**
+   * Height of the lidar plane above the floor, metres. Everything below it is
+   * invisible: a foot, a cat, a child lying down, the lip of a step.
+   */
+  lidarHeight?: number;
+  /**
+   * How much floor the robot can clear, metres. On some popular platforms this
+   * is a few millimetres, which makes a door threshold or a cable a wall.
+   */
+  groundClearance?: number;
+  /**
+   * Whether the battery channel reports 0–1 or 0–100. The ROS message is
+   * specified as a fraction and drivers publish both, so a robot can believe
+   * it has 85% charge when it has 0.85% of it. Measure this once.
+   */
+  batteryScale?: "fraction" | "percent" | "unknown";
   /** Gripper force ceiling in newtons, when there is a gripper. */
   maxContactForce?: number;
   /**
@@ -122,10 +192,69 @@ export const SIMULATED_ROVER: RobotProfile = {
   ],
   reactionTimeMs: 120,
   maxContactForce: 28,
+  link: {
+    kind: "loopback",
+    controlPeriodMs: 20,
+    maxRoundTripP99Ms: 1,
+    // The simulator is in the same process, so the "robot side" and the
+    // "sender side" are the same side. Nothing can drop between them.
+    robotSideWatchdogMs: 20,
+  },
+  kinematics: { wheelRadius: 0.05, trackWidth: 0.35, source: "platform-parameters" },
+  lidarHeight: 0.2,
+  groundClearance: 0.05,
+  batteryScale: "fraction",
   notes: [
     "Two dimensions, a planar arm and no arm dynamics. Determinism here is a reproducibility property, not a fidelity claim.",
   ],
   verified: "simulator",
+};
+
+/**
+ * What to run when the platform is unknown.
+ *
+ * There is no permissive default. A profile that is missing does not fall back
+ * to something reasonable-sounding, because "reasonable" was calibrated against
+ * a robot that is not this one. It falls back to here: slow enough that a
+ * mistake is a bump, with the separation model assuming the worst about
+ * everything it has not been told.
+ *
+ * The right way out of this profile is to measure the robot, not to raise the
+ * numbers until it feels responsive.
+ */
+export const CRAWL_PROFILE: RobotProfile = {
+  id: "crawl",
+  name: { en: "Unknown platform (crawl)", ar: "منصّة مجهولة (زحف)" },
+  base: "differential",
+  // Assume a big robot: a footprint guess that is too small is the one that
+  // clips door frames and people.
+  footprintRadius: 0.4,
+  comHeight: 0.4,
+  footHalf: 0.2,
+  maxLinear: 0.05,
+  maxAngular: 0.3,
+  maxAccel: 0.2,
+  maxDecel: 0.2,
+  capabilities: ["drive"],
+  // Assume a slow link until something measures a fast one.
+  reactionTimeMs: 500,
+  link: {
+    kind: "wireless",
+    controlPeriodMs: 100,
+    maxRoundTripP99Ms: 100,
+    robotSideWatchdogMs: null,
+  },
+  kinematics: { wheelRadius: 0.05, trackWidth: 0.3, source: "assumed" },
+  batteryScale: "unknown",
+  absent: [
+    "Nothing is known about this platform. Every capability beyond driving is treated as missing.",
+    "Kinematics are assumed, so anything needing metric accuracy — mapping, navigation, precise motion — refuses.",
+  ],
+  notes: [
+    "This profile exists so an unidentified robot moves at a speed where being wrong is survivable.",
+    "Replace it by measuring the machine. Do not raise these numbers to make a demo feel better.",
+  ],
+  verified: "unverified",
 };
 
 /**
@@ -157,6 +286,16 @@ export const GENERIC_ROVER_TEMPLATE: RobotProfile = {
     battery: "/battery_state",
   },
   frames: { base: "base_link", odom: "odom", lidar: "laser" },
+  link: {
+    kind: "wireless",
+    controlPeriodMs: 50,
+    maxRoundTripP99Ms: 50,
+    robotSideWatchdogMs: null,
+  },
+  kinematics: { wheelRadius: 0.05, trackWidth: 0.3, source: "assumed" },
+  lidarHeight: 0.15,
+  groundClearance: 0.02,
+  batteryScale: "unknown",
   absent: [
     "No arm or gripper: every manipulation ability will refuse.",
     "No person tracking: the separation model has nothing to separate from until you add it.",
@@ -165,6 +304,7 @@ export const GENERIC_ROVER_TEMPLATE: RobotProfile = {
     "Measure the footprint including anything bolted on — that is what hits the door frame.",
     "Start with maxLinear well below what the platform can do. You can raise it after the first hour.",
     "Over WiFi, 250 ms is an optimistic reaction time. The governor measures the real one and widens its margins to match.",
+    "Set robotSideWatchdogMs once you know the base's own command timeout. Until then the only watchdog is on the far side of the link, which is the side that fails.",
   ],
   verified: "unverified",
 };
@@ -172,7 +312,67 @@ export const GENERIC_ROVER_TEMPLATE: RobotProfile = {
 export const PROFILES: Record<string, RobotProfile> = {
   [SIMULATED_ROVER.id]: SIMULATED_ROVER,
   [GENERIC_ROVER_TEMPLATE.id]: GENERIC_ROVER_TEMPLATE,
+  [CRAWL_PROFILE.id]: CRAWL_PROFILE,
 };
+
+/**
+ * Whether this platform can be trusted with a metric task — mapping,
+ * navigating to a coordinate, driving a measured distance.
+ *
+ * All three need wheel rotations to mean metres. A guessed wheelbase does not
+ * fail loudly; it produces a map that is subtly the wrong scale and a robot
+ * that is confidently somewhere else.
+ */
+export function metricallyTrustworthy(
+  profile: RobotProfile,
+): { ok: boolean; reason?: string } {
+  const kinematics = profile.kinematics;
+  if (!kinematics) {
+    return {
+      ok: false,
+      reason:
+        `${profile.name.en} has no kinematics in its profile, so wheel rotations cannot be ` +
+        "converted to metres. Measure the wheel radius and track width, or read them off the platform.",
+    };
+  }
+  if (kinematics.source === "assumed") {
+    return {
+      ok: false,
+      reason:
+        `${profile.name.en} has assumed kinematics (wheel radius ${kinematics.wheelRadius} m, ` +
+        `track ${kinematics.trackWidth} m). Assumed numbers produce a map at the wrong scale rather ` +
+        "than an error. Measure them, or read them from the platform's own parameters.",
+    };
+  }
+  return { ok: true };
+}
+
+/**
+ * Whether a control loop at this period can be closed across this link.
+ *
+ * The comparison is against the tail, not the average. A link whose median is
+ * 8 ms and whose p99 is 180 ms will feel fine and will occasionally hand the
+ * robot a command about a world that is nearly a fifth of a second old.
+ */
+export function linkSupportsControl(
+  profile: RobotProfile,
+  measuredP99Ms?: number,
+): { ok: boolean; reason?: string } {
+  const link = profile.link;
+  if (!link) return { ok: true };
+
+  const p99 = measuredP99Ms ?? link.maxRoundTripP99Ms;
+  if (p99 > link.controlPeriodMs) {
+    return {
+      ok: false,
+      reason:
+        `the link's p99 round trip is ${p99.toFixed(0)} ms and the control period is ` +
+        `${link.controlPeriodMs} ms. One command in a hundred arrives describing a world that has ` +
+        "already moved on. Close the fast loop on the robot and send setpoints across this link instead.",
+    };
+  }
+  return { ok: true };
+}
 
 /** Catch a profile that would make the safety model describe a fiction. */
 export function validateProfile(profile: RobotProfile): string[] {
@@ -215,5 +415,147 @@ export function validateProfile(profile: RobotProfile): string[] {
     );
   }
 
+  if (profile.lidarHeight !== undefined && profile.lidarHeight <= 0) {
+    problems.push("lidarHeight must be positive — it is a height above the floor, not an offset.");
+  }
+
+  const link = profile.link;
+  if (link && link.controlPeriodMs <= 0) {
+    problems.push("controlPeriodMs must be positive.");
+  }
+  if (link && link.robotSideWatchdogMs !== null && link.robotSideWatchdogMs <= 0) {
+    problems.push("robotSideWatchdogMs must be positive, or null when there is no watchdog.");
+  }
+
   return problems;
 }
+
+export type Finding = {
+  /**
+   * `block` — do not drive at the profile's speeds until this is resolved.
+   * `warn` — a real limitation somebody should know about before it surprises
+   * them, not a reason to refuse.
+   */
+  level: "block" | "warn";
+  code: string;
+  message: string;
+};
+
+/**
+ * What is risky about running this robot as configured.
+ *
+ * Separate from `validateProfile` on purpose. That one asks whether the profile
+ * describes a coherent machine; this one asks whether the coherent machine it
+ * describes is safe to switch on. A profile can pass the first and fail the
+ * second — the generic template does, which is the honest result for a profile
+ * nobody has filled in yet.
+ *
+ * Findings are returned rather than thrown so the caller decides. `hardware.checkout`
+ * treats `block` as a refusal.
+ */
+export function auditProfile(profile: RobotProfile): Finding[] {
+  const findings: Finding[] = [];
+  const link = profile.link;
+
+  if (link) {
+    if (link.maxRoundTripP99Ms > link.controlPeriodMs) {
+      findings.push({
+        level: "block",
+        code: "link-too-slow",
+        message:
+          `The link's expected p99 (${link.maxRoundTripP99Ms} ms) is longer than the control ` +
+          `period (${link.controlPeriodMs} ms). A loop cannot be closed across it. Either slow ` +
+          "the loop or run the fast part on the robot and send setpoints across the link.",
+      });
+    }
+
+    if (link.kind === "wireless" && link.robotSideWatchdogMs === null) {
+      // The kernel's own deadman runs in this process. If this process is what
+      // died, it is not running, and it is not going to stop anything.
+      const reach = profile.maxLinear;
+      findings.push({
+        level: profile.maxLinear > CRAWL_LINEAR ? "block" : "warn",
+        code: "no-robot-watchdog",
+        message:
+          "Wireless link with no watchdog on the robot. If this process dies, the last velocity " +
+          `command stays in force and the robot keeps driving at up to ${reach.toFixed(2)} m/s ` +
+          "until something physical stops it. The kernel's deadman cannot cover this case, because " +
+          "it is running in the process that died. Configure the base's own command timeout, or " +
+          `keep maxLinear at crawl (${CRAWL_LINEAR} m/s).`,
+      });
+    }
+
+    if (link.robotSideWatchdogMs !== null) {
+      const travel = (link.robotSideWatchdogMs / 1000) * profile.maxLinear;
+      if (travel > 0.2) {
+        findings.push({
+          level: "warn",
+          code: "slow-robot-watchdog",
+          message:
+            `The robot's own watchdog takes ${link.robotSideWatchdogMs} ms to fire, so a dead ` +
+            `command carries it ${travel.toFixed(2)} m before firmware intervenes.`,
+        });
+      }
+    }
+  } else {
+    findings.push({
+      level: "warn",
+      code: "link-unknown",
+      message:
+        "No link is described, so the kernel cannot tell whether commands cross something that " +
+        "fails. If this robot is driven over a network, describe the link.",
+    });
+  }
+
+  const metric = metricallyTrustworthy(profile);
+  if (!metric.ok) {
+    findings.push({ level: "warn", code: "kinematics-assumed", message: metric.reason ?? "" });
+  }
+
+  if (profile.batteryScale === undefined && profile.capabilities.includes("battery")) {
+    findings.push({
+      level: "warn",
+      code: "battery-scale-unknown",
+      message:
+        "A battery is declared but batteryScale is unset. The ROS message specifies a 0–1 " +
+        "fraction and drivers publish both that and 0–100, so the robot may read 0.85% as 85% " +
+        "and drive itself flat. Read the topic once and record which it is.",
+    });
+  }
+
+  if (profile.lidarHeight !== undefined) {
+    findings.push({
+      level: "warn",
+      code: "lidar-blind-below",
+      message:
+        `The lidar plane is ${(profile.lidarHeight * 100).toFixed(0)} cm above the floor. It cannot ` +
+        "see anything below that: a foot, an animal, a person lying down, or the lip of a step. " +
+        "Nothing in this kernel makes that untrue.",
+    });
+  }
+
+  if (profile.groundClearance !== undefined && profile.groundClearance < 0.02) {
+    findings.push({
+      level: "warn",
+      code: "low-clearance",
+      message:
+        `Ground clearance is ${(profile.groundClearance * 1000).toFixed(0)} mm. A door threshold, ` +
+        "a cable or a rug edge is a wall to this robot, and the lidar will not report it as one.",
+    });
+  }
+
+  if (profile.verified === "unverified") {
+    findings.push({
+      level: "warn",
+      code: "unverified",
+      message:
+        `${profile.name.en} has not been checked against a real machine. Every number in it is a ` +
+        "hypothesis, including the ones the safety model depends on.",
+    });
+  }
+
+  return findings;
+}
+
+/** The speed below which being wrong about the robot is a bump, not an injury. */
+export const CRAWL_LINEAR = 0.05;
