@@ -10,9 +10,10 @@ import { useEffect, useRef, useState } from "react";
  * watch the same engine WhatsApp will call answer, escalate, and book.
  */
 
-type Service = { id: string; name: string; durationMin: number; price?: number; currency?: string };
-type TenantSummary = { id: string; name: string; kind: string; isExample: boolean; services: Service[] };
-type Issue = { tenantId: string; field: string; problem: string };
+type Service = { id: string; code: string; name: string; durationMin: number; price?: number; currency?: string };
+type BusinessSummary = { id: string; slug: string; name: string; kind: string; isDemo: boolean };
+type BusinessProfile = BusinessSummary & { services: Service[]; currency: string };
+type Storage = { ok: boolean; kind: string; persistent: boolean; message: string };
 type Booking = {
   id: string; serviceName: string; date: string; time: string;
   customerName?: string; status: string;
@@ -28,9 +29,10 @@ const OPENERS = [
 ];
 
 export default function DeskConsole() {
-  const [tenants, setTenants] = useState<TenantSummary[]>([]);
-  const [issues, setIssues] = useState<Issue[]>([]);
-  const [tenantId, setTenantId] = useState("");
+  const [businesses, setBusinesses] = useState<BusinessSummary[]>([]);
+  const [profile, setProfile] = useState<BusinessProfile | null>(null);
+  const [storage, setStorage] = useState<Storage | null>(null);
+  const [businessId, setBusinessId] = useState("");
   const [turns, setTurns] = useState<Turn[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -39,18 +41,31 @@ export default function DeskConsole() {
   const [bookings, setBookings] = useState<Booking[]>([]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
-  const tenant = tenants.find((t) => t.id === tenantId);
+  const summary = businesses.find((b) => b.id === businessId);
 
   useEffect(() => {
     fetch("/api/desk")
       .then((r) => r.json())
       .then((d) => {
-        setTenants(d.tenants ?? []);
-        setIssues(d.issues ?? []);
-        if (d.tenants?.length) setTenantId(d.tenants[0].id);
+        setBusinesses(d.businesses ?? []);
+        setStorage(d.storage ?? null);
+        if (d.businesses?.length) setBusinessId(d.businesses[0].id);
       })
-      .catch(() => setError("ما قدرت أجيب قائمة المحلات."));
+      .catch(() => setError("ما قدرت أجيب قائمة الأنشطة."));
   }, []);
+
+  // The profile, bookings and open escalations always come from storage, so
+  // the console shows the same state the customer-facing pipeline wrote.
+  useEffect(() => {
+    if (!businessId) return;
+    fetch(`/api/desk?business=${encodeURIComponent(businessId)}`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.business) setProfile(d.business);
+        if (Array.isArray(d.bookings)) setBookings(d.bookings);
+      })
+      .catch(() => setError("ما قدرت أجيب بيانات النشاط."));
+  }, [businessId]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -64,10 +79,9 @@ export default function DeskConsole() {
 
   async function send(text: string) {
     const message = text.trim();
-    if (!message || busy || !tenantId) return;
+    if (!message || busy || !businessId) return;
 
-    const history = turns;
-    setTurns([...history, { role: "user", content: message }]);
+    setTurns((prev) => [...prev, { role: "user", content: message }]);
     setInput("");
     setBusy(true);
     setError(null);
@@ -76,14 +90,14 @@ export default function DeskConsole() {
       const res = await fetch("/api/desk", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tenantId, message, history, contact: "console" }),
+        body: JSON.stringify({ businessId, message, contact: "console" }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || `فشل الطلب (${res.status})`);
 
       setTurns((prev) => [...prev, { role: "assistant", content: data.reply }]);
       if (data.escalation) setEscalations((prev) => [data.escalation, ...prev]);
-      if (Array.isArray(data.allBookings)) setBookings(data.allBookings);
+      if (Array.isArray(data.bookings)) setBookings(data.bookings);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -107,12 +121,12 @@ export default function DeskConsole() {
 
           <select
             id="tenant-select"
-            value={tenantId}
-            onChange={(e) => { setTenantId(e.target.value); reset(); }}
+            value={businessId}
+            onChange={(e) => { setBusinessId(e.target.value); reset(); }}
             className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-brand-400"
           >
-            {tenants.map((t) => (
-              <option key={t.id} value={t.id}>{t.name}</option>
+            {businesses.map((b) => (
+              <option key={b.id} value={b.id}>{b.name}</option>
             ))}
           </select>
           <button
@@ -125,17 +139,20 @@ export default function DeskConsole() {
         </div>
       </header>
 
-      {tenant?.isExample && (
+      {summary?.isDemo && (
         <div className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-center text-xs text-amber-800">
-          ⚠️ هاد محل <b>تجريبي</b> للاختبار فقط — مش زبون حقيقي. ضيف زبائنك الحقيقيين عبر <code>DESK_TENANTS</code>.
+          ⚠️ هاد نشاط <b>تجريبي</b> للاختبار فقط — مش زبون حقيقي.
         </div>
       )}
 
-      {issues.length > 0 && (
-        <div className="border-b border-red-200 bg-red-50 px-4 py-2 text-xs text-red-800">
-          <b>مشاكل بالإعدادات ({issues.length}):</b>{" "}
-          {issues.slice(0, 3).map((i) => `${i.tenantId}.${i.field}: ${i.problem}`).join(" · ")}
-          {issues.length > 3 ? ` … و${issues.length - 3} غيرها` : ""}
+      {storage && !storage.persistent && (
+        <div className="border-b border-red-200 bg-red-50 px-4 py-2 text-center text-xs text-red-800">
+          🗄️ <b>التخزين مؤقت بالذاكرة</b> — {storage.message}
+        </div>
+      )}
+      {storage && storage.persistent && !storage.ok && (
+        <div className="border-b border-red-200 bg-red-50 px-4 py-2 text-center text-xs text-red-800">
+          ⚠️ {storage.message}
         </div>
       )}
 
@@ -261,11 +278,11 @@ export default function DeskConsole() {
             )}
           </section>
 
-          {tenant && (
+          {profile && (
             <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              <h2 className="mb-2 text-sm font-bold">🧾 خدمات {tenant.name}</h2>
+              <h2 className="mb-2 text-sm font-bold">🧾 خدمات {profile.name}</h2>
               <ul className="space-y-1.5">
-                {tenant.services.map((s) => (
+                {profile.services.map((s) => (
                   <li key={s.id} className="flex items-baseline justify-between gap-2 text-xs">
                     <span className="text-slate-700">{s.name}</span>
                     <span className="font-mono text-slate-500" dir="ltr">

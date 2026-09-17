@@ -11,7 +11,7 @@
  * produces the same verdict.
  */
 
-import type { Tenant } from "./tenants";
+import type { BusinessProfile } from "./db/types";
 
 export type EscalationReason =
   | "medical"
@@ -22,6 +22,7 @@ export type EscalationReason =
   | "payment"
   | "human_requested"
   | "emergency"
+  | "threat"
   | "tenant_topic";
 
 export type Verdict = {
@@ -60,6 +61,14 @@ const RULES: Rule[] = [
     reason: "emergency",
     reply: "هاي حالة مستعجلة — عم بحوّلك لحدا من الفريق هلأ. إذا في خطر، اتصل بالإسعاف فوراً.",
     triggers: ["اسعاف", "طوارئ", "حاله طارئه", "نزيف", "اغما", "مستعجل كتير", "emergency", "ambulance"],
+  },
+  {
+    reason: "threat",
+    reply: "بحوّلك لحدا من الإدارة هلأ.",
+    triggers: [
+      "بدي اكسر", "رح اجي اضربك", "بحرقلكم", "تهديد", "بدمرلكم",
+      "رح ندمركم", "threat", "i will sue you and", "i will destroy",
+    ],
   },
   {
     reason: "medical",
@@ -119,7 +128,7 @@ const RULES: Rule[] = [
  * emergency outranks everything, and a plain request for a human outranks
  * nothing else so it never masks a complaint.
  */
-export function screen(message: string, tenant?: Tenant | null): Verdict {
+export function screen(message: string, business?: BusinessProfile | null): Verdict {
   const text = normalizeArabic(message);
   if (!text) return { escalate: false };
 
@@ -132,7 +141,7 @@ export function screen(message: string, tenant?: Tenant | null): Verdict {
   }
 
   // Subjects this particular owner asked to always handle themselves.
-  for (const topic of tenant?.escalation?.topics ?? []) {
+  for (const topic of escalationTopics(business)) {
     const needle = normalizeArabic(topic);
     if (needle && text.includes(needle)) {
       return {
@@ -147,6 +156,12 @@ export function screen(message: string, tenant?: Tenant | null): Verdict {
   return { escalate: false };
 }
 
+/** Subjects this owner asked to always handle personally. */
+function escalationTopics(business?: BusinessProfile | null): string[] {
+  const raw = (business?.policies as { escalateTopics?: unknown } | undefined)?.escalateTopics;
+  return Array.isArray(raw) ? raw.filter((t): t is string => typeof t === "string") : [];
+}
+
 export const ESCALATION_LABEL: Record<EscalationReason, string> = {
   medical: "سؤال طبي",
   legal: "موضوع قانوني",
@@ -156,5 +171,6 @@ export const ESCALATION_LABEL: Record<EscalationReason, string> = {
   payment: "بيانات دفع",
   human_requested: "طلب موظف بشري",
   emergency: "حالة طارئة",
+  threat: "تهديد",
   tenant_topic: "موضوع خاص بالمحل",
 };

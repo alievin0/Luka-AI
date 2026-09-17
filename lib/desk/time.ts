@@ -123,3 +123,34 @@ export function zonedNow(timezone: string, at: Date = new Date()): ZonedNow {
     weekday: weekdayOf(date),
   };
 }
+
+/**
+ * Turn a business-local date and time into the absolute instant it names.
+ *
+ * The booking table stores both: the local fields the business reads, and the
+ * instants the overlap constraint compares. Getting this wrong would let two
+ * bookings an hour apart look simultaneous across a DST boundary, so the
+ * conversion is done against the real zone rather than a fixed offset.
+ */
+export function zonedToUtc(date: string, time: string, timezone: string): Date | null {
+  if (!isValidDate(date)) return null;
+  const minutes = parseHHMM(time);
+  if (minutes === null) return null;
+
+  // The wall clock we want, read as if it were UTC.
+  const wanted = Date.parse(`${date}T${formatHHMM(minutes)}:00Z`);
+  if (!Number.isFinite(wanted)) return null;
+
+  // What a given instant actually reads as in that zone, again as if UTC.
+  const readsAs = (instant: number): number => {
+    const p = zonedNow(timezone, new Date(instant));
+    return Date.parse(`${p.date}T${p.time}:00Z`);
+  };
+
+  // One correction lands on the right offset; a second settles DST edges,
+  // where the first guess can fall on the other side of the transition.
+  let guess = wanted + (wanted - readsAs(wanted));
+  const drift = wanted - readsAs(guess);
+  if (drift !== 0) guess += drift;
+  return new Date(guess);
+}

@@ -1,19 +1,20 @@
 /**
- * Appointments: what is actually free, and what was actually booked.
+ * Availability and booking — the system of record.
  *
- * Every check here is a hard gate. The receptionist never decides whether a
- * slot is available — it asks this module, and a slot that is closed, taken,
- * in the past, or inside the lead time is refused no matter how the customer
- * phrased the request. A confirmed appointment the business cannot honour is
- * worse than no appointment at all.
+ * The receptionist never decides whether a slot is free. It asks here, and
+ * every answer is checked against the business profile and the stored
+ * bookings. A slot is refused when it is in the past, outside opening hours,
+ * inside the lead time, beyond the booking horizon, too short for the service,
+ * blocked by a holiday, or already taken — however the request was phrased.
  *
- * Storage is in memory, per server instance: it is the seam a real database
- * plugs into, and `listBookings` / `importBookings` exist so that swap does
- * not require touching the availability logic.
+ * The final guard is the database, not this file: `createBooking` can still
+ * come back with a conflict when someone took the slot between the
+ * availability read and the write, and that answer is passed through honestly
+ * rather than papered over.
  */
 
-import type { Tenant, Service } from "./tenants";
-import { findService } from "./tenants";
+import type { BusinessProfile, Service, Booking, BlockedTime } from "./db/types";
+import { getRepo } from "./db";
 import {
   parseHHMM,
   formatHHMM,
@@ -21,89 +22,70 @@ import {
   isValidDate,
   weekdayOf,
   zonedNow,
+  zonedToUtc,
+  addDays,
   WEEKDAY_AR,
 } from "./time";
 
-export type Booking = {
-  id: string;
-  tenantId: string;
-  serviceId: string;
-  serviceName: string;
-  /** Tenant-local date, "YYYY-MM-DD". */
-  date: string;
-  /** Tenant-local start time, "HH:MM". */
-  time: string;
-  durationMin: number;
-  customerName?: string;
-  customerContact?: string;
-  note?: string;
-  createdAt: string;
-  status: "confirmed" | "cancelled";
-};
+export type { Booking } from "./db/types";
 
-const store = new Map<string, Booking[]>();
-let counter = 0;
-
-function bucket(tenantId: string): Booking[] {
-  let list = store.get(tenantId);
-  if (!list) {
-    list = [];
-    store.set(tenantId, list);
-  }
-  return list;
-}
-
-function nextId(tenantId: string): string {
-  counter += 1;
-  return `${tenantId}-${Date.now().toString(36)}-${counter}`;
+export function findService(business: BusinessProfile, ref: string): Service | null {
+  const needle = (ref ?? "").trim().toLowerCase();
+  if (!needle) return null;
+  const byCode = business.services.find((s) => s.code.toLowerCase() === needle);
+  if (byCode) return byCode;
+  const byId = business.services.find((s) => s.id.toLowerCase() === needle);
+  if (byId) return byId;
+  const exact = business.services.find((s) => s.name.toLowerCase() === needle);
+  if (exact) return exact;
+  return business.services.find((s) => s.name.toLowerCase().includes(needle)) ?? null;
 }
 
 function overlaps(aStart: number, aLen: number, bStart: number, bLen: number): boolean {
   return aStart < bStart + bLen && bStart < aStart + aLen;
 }
 
-export type SlotQuery = {
-  tenant: Tenant;
+export type AvailabilityQuery = {
+  business: BusinessProfile;
   date: string;
   service: Service;
-  /** Injectable for tests; defaults to the real clock. */
+  staffId?: string;
   now?: Date;
 };
 
 export type Availability =
-  | { ok: true; slots: string[]; date: string }
-  | { ok: false; reason: "closed" | "past" | "beyond_horizon" | "bad_date"; message: string };
+  | { ok: true; date: string; slots: string[] }
+  | {
+      ok: false;
+      reason: "closed" | "past" | "beyond_horizon" | "bad_date" | "too_long";
+      message: string;
+    };
 
-/** Every start time a service can actually begin on a given day. */
-export function availability(q: SlotQuery): Availability {
-  const { tenant, date, service } = q;
+export async function availability(q: AvailabilityQuery): Promise<Availability> {
+  const { business, date, service } = q;
 
   if (!isValidDate(date)) {
     return { ok: false, reason: "bad_date", message: "التاريخ مش مفهوم. استعمل صيغة YYYY-MM-DD." };
   }
 
-  const now = zonedNow(tenant.timezone, q.now);
-
+  const now = zonedNow(business.timezone, q.now);
   if (date < now.date) {
     return { ok: false, reason: "past", message: "هاد التاريخ راح خلص." };
   }
 
-  const horizonMs = tenant.horizonDays * 86400000;
-  const daysAhead = Math.round(
-    (new Date(`${date}T12:00:00Z`).getTime() - new Date(`${now.date}T12:00:00Z`).getTime()) / 86400000,
-  );
-  if (daysAhead * 86400000 > horizonMs) {
+  const horizonEnd = addDays(now.date, business.horizonDays);
+  if (date > horizonEnd) {
     return {
       ok: false,
       reason: "beyond_horizon",
-      message: `بنستقبل حجوزات لغاية ${tenant.horizonDays} يوم قدّام بس.`,
+      message: `بنستقبل حجوزات لغاية ${business.horizonDays} يوم قدّام بس.`,
     };
   }
 
   const weekday = weekdayOf(date);
-  const hours = tenant.hours?.[weekday];
+  const hours = business.hours?.[weekday];
   if (!hours) {
-    return { ok: false, reason: "closed", message: `${tenant.name} مسكّرة يوم ${WEEKDAY_AR[weekday]}.` };
+    return { ok: false, reason: "closed", message: `${business.name} مسكّرة يوم ${WEEKDAY_AR[weekday]}.` };
   }
 
   const open = parseHHMM(hours.open);
@@ -112,40 +94,78 @@ export function availability(q: SlotQuery): Availability {
     return { ok: false, reason: "closed", message: "أوقات الدوام مش مضبوطة لهاد اليوم." };
   }
 
-  // A slot must finish before closing, not merely start before it.
+  // A slot has to FINISH before closing, not merely start before it.
   const lastStart = close - service.durationMin;
   if (lastStart < open) {
     return {
       ok: false,
-      reason: "closed",
+      reason: "too_long",
       message: `مدة «${service.name}» أطول من دوام يوم ${WEEKDAY_AR[weekday]}.`,
     };
   }
 
-  const earliest = date === now.date ? now.minutes + tenant.leadTimeMin : open;
-  const taken = bucket(tenant.id).filter((b) => b.status === "confirmed" && b.date === date);
+  const repo = getRepo();
+  const [taken, blocked] = await Promise.all([
+    repo.listBookings(business.id, { date }),
+    repo.listBlockedTimes(business.id, date),
+  ]);
 
-  const slots: string[] = [];
-  for (let start = open; start <= lastStart; start += tenant.slotStepMin) {
-    if (start < earliest) continue;
-    const clash = taken.some((b) => {
-      const bStart = parseHHMM(b.time);
-      return bStart !== null && overlaps(start, service.durationMin, bStart, b.durationMin);
-    });
-    if (!clash) slots.push(formatHHMM(start));
+  // A whole-day block closes the day outright.
+  const wholeDay = blocked.find(
+    (b) => !b.start && !b.end && (!b.staffId || b.staffId === q.staffId),
+  );
+  if (wholeDay) {
+    return {
+      ok: false,
+      reason: "closed",
+      message: wholeDay.reason
+        ? `مسكّرين يوم ${date} — ${wholeDay.reason}.`
+        : `مسكّرين يوم ${date}.`,
+    };
   }
 
-  return { ok: true, slots, date };
+  const relevant = (b: Booking | BlockedTime): boolean => {
+    const staffId = (b as Booking).staffId ?? (b as BlockedTime).staffId;
+    // With no staff selected, everything on the books occupies the business.
+    if (!q.staffId) return true;
+    return !staffId || staffId === q.staffId;
+  };
+
+  const earliest = date === now.date ? now.minutes + business.leadTimeMin : open;
+
+  const slots: string[] = [];
+  for (let start = open; start <= lastStart; start += business.slotStepMin) {
+    if (start < earliest) continue;
+
+    const clashesBooking = taken.filter(relevant).some((b) => {
+      const s = parseHHMM(b.time);
+      return s !== null && overlaps(start, service.durationMin, s, b.durationMin);
+    });
+    if (clashesBooking) continue;
+
+    const clashesBlock = blocked.filter(relevant).some((b) => {
+      if (!b.start || !b.end) return false;
+      const s = parseHHMM(b.start);
+      const e = parseHHMM(b.end);
+      return s !== null && e !== null && overlaps(start, service.durationMin, s, e - s);
+    });
+    if (clashesBlock) continue;
+
+    slots.push(formatHHMM(start));
+  }
+
+  return { ok: true, date, slots };
 }
 
 export type BookRequest = {
-  tenant: Tenant;
+  business: BusinessProfile;
   serviceRef: string;
   date: string;
   time: string;
-  customerName?: string;
-  customerContact?: string;
+  staffId?: string;
+  customerId?: string;
   note?: string;
+  source?: string;
   now?: Date;
 };
 
@@ -153,16 +173,21 @@ export type BookResult =
   | { ok: true; booking: Booking; message: string }
   | { ok: false; reason: string; message: string; alternatives?: string[] };
 
-/** Create an appointment, or explain precisely why it cannot exist. */
-export function book(req: BookRequest): BookResult {
-  const { tenant } = req;
+/**
+ * Create an appointment, or explain exactly why it cannot exist.
+ *
+ * Nothing here ever reports success it did not get from storage: the caller
+ * may only tell a customer "booked" after `ok: true`.
+ */
+export async function book(req: BookRequest): Promise<BookResult> {
+  const { business } = req;
 
-  const service = findService(tenant, req.serviceRef);
+  const service = findService(business, req.serviceRef);
   if (!service) {
     return {
       ok: false,
       reason: "unknown_service",
-      message: `ما عندي خدمة بهذا الاسم. المتوفر: ${tenant.services.map((s) => s.name).join("، ")}.`,
+      message: `ما عندي خدمة بهذا الاسم. المتوفر: ${business.services.map((s) => s.name).join("، ")}.`,
     };
   }
 
@@ -171,10 +196,18 @@ export function book(req: BookRequest): BookResult {
     return { ok: false, reason: "bad_time", message: "الوقت مش مفهوم. استعمل صيغة HH:MM." };
   }
 
-  const avail = availability({ tenant, date: req.date, service, now: req.now });
-  if (!avail.ok) {
-    return { ok: false, reason: avail.reason, message: avail.message };
+  if (req.staffId && !business.staff.some((s) => s.id === req.staffId && s.active)) {
+    return { ok: false, reason: "unknown_staff", message: "هاد الموظف مش متاح." };
   }
+
+  const avail = await availability({
+    business,
+    date: req.date,
+    service,
+    staffId: req.staffId,
+    now: req.now,
+  });
+  if (!avail.ok) return { ok: false, reason: avail.reason, message: avail.message };
 
   const wanted = formatHHMM(start);
   if (!avail.slots.includes(wanted)) {
@@ -182,57 +215,65 @@ export function book(req: BookRequest): BookResult {
       ok: false,
       reason: "unavailable",
       message: avail.slots.length
-        ? `${formatArabicTime(start)} مش متاح. المتاح: ${avail.slots.slice(0, 6).map((s) => formatArabicTime(parseHHMM(s) ?? 0)).join("، ")}.`
+        ? `${formatArabicTime(start)} مش متاح. المتاح: ${avail.slots
+            .slice(0, 6)
+            .map((s) => formatArabicTime(parseHHMM(s) ?? 0))
+            .join("، ")}.`
         : "ما في مواعيد فاضية بهذا اليوم.",
       alternatives: avail.slots.slice(0, 6),
     };
   }
 
-  const booking: Booking = {
-    id: nextId(tenant.id),
-    tenantId: tenant.id,
+  const startsAt = zonedToUtc(req.date, wanted, business.timezone);
+  if (!startsAt) {
+    return { ok: false, reason: "bad_time", message: "ما قدرت أحدد وقت الموعد بالضبط." };
+  }
+  const endsAt = new Date(startsAt.getTime() + service.durationMin * 60000);
+
+  const result = await getRepo().createBooking({
+    businessId: business.id,
     serviceId: service.id,
     serviceName: service.name,
+    durationMin: service.durationMin,
+    staffId: req.staffId,
+    customerId: req.customerId,
     date: req.date,
     time: wanted,
-    durationMin: service.durationMin,
-    customerName: req.customerName?.trim() || undefined,
-    customerContact: req.customerContact?.trim() || undefined,
-    note: req.note?.trim() || undefined,
-    createdAt: new Date().toISOString(),
-    status: "confirmed",
-  };
-  bucket(tenant.id).push(booking);
+    startsAt: startsAt.toISOString(),
+    endsAt: endsAt.toISOString(),
+    note: req.note,
+    source: req.source,
+  });
+
+  if (!result.ok) {
+    // A conflict here means the slot went between the read and the write.
+    // Offer what is left rather than reporting a generic failure.
+    const again = await availability({
+      business, date: req.date, service, staffId: req.staffId, now: req.now,
+    });
+    return {
+      ok: false,
+      reason: result.reason,
+      message: result.message,
+      alternatives: again.ok ? again.slots.slice(0, 6) : undefined,
+    };
+  }
 
   const weekday = WEEKDAY_AR[weekdayOf(req.date)];
   return {
     ok: true,
-    booking,
+    booking: result.booking,
     message: `تم الحجز: ${service.name} يوم ${weekday} ${req.date} الساعة ${formatArabicTime(start)}.`,
   };
 }
 
-export function cancel(tenantId: string, bookingId: string): { ok: boolean; message: string } {
-  const found = bucket(tenantId).find((b) => b.id === bookingId);
-  if (!found) return { ok: false, message: "ما لقيت هاد الحجز." };
-  if (found.status === "cancelled") return { ok: false, message: "هاد الحجز ملغي أصلاً." };
-  found.status = "cancelled";
-  return { ok: true, message: `تم إلغاء حجز ${found.serviceName} يوم ${found.date}.` };
+export async function cancel(businessId: string, bookingId: string) {
+  return getRepo().cancelBooking(businessId, bookingId);
 }
 
-export function listBookings(tenantId: string, opts: { includeCancelled?: boolean } = {}): Booking[] {
-  const all = bucket(tenantId);
-  const list = opts.includeCancelled ? all : all.filter((b) => b.status === "confirmed");
-  return [...list].sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
-}
-
-/** Seam for a real datastore: replace the in-memory contents for a tenant. */
-export function importBookings(tenantId: string, bookings: Booking[]): void {
-  store.set(tenantId, [...bookings]);
-}
-
-/** Used by tests to start from a known state. */
-export function clearBookings(tenantId?: string): void {
-  if (tenantId) store.delete(tenantId);
-  else store.clear();
+export async function listBookings(
+  businessId: string,
+  opts: { date?: string; from?: string; to?: string; includeCancelled?: boolean } = {},
+) {
+  return getRepo().listBookings(businessId, opts);
 }
