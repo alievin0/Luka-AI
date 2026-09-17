@@ -35,3 +35,8 @@ world/world.db
 world/world.db-*
 world/__pycache__/
 world/sim/__pycache__/
+civ/civ.db
+civ/civ.db-*
+civ/artifacts/*
+!civ/artifacts/.gitkeep
+civ/**/__pycache__/
