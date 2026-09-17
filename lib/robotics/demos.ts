@@ -526,10 +526,23 @@ export const DEMOS: Record<DemoName, Demo> = {
       const metrics: Record<string, number> = {};
       let cooperativeContacts = 0;
       let distractedContacts = 0;
+      let distractedRate = 0;
+      let yieldingRate = 0;
+      let yieldingContacts = 0;
 
-      for (const scenario of ["busy-corridor", "distracted-corridor"] as const) {
+      // The third condition is the point. The first two establish that the
+      // robot handles people who look where they are going and fails
+      // completely against people who do not; the third asks whether that
+      // failure is a property of the world or of the strategy.
+      const conditions = [
+        { scenario: "busy-corridor" as const, yielding: false, label: "cooperative" },
+        { scenario: "distracted-corridor" as const, yielding: false, label: "distracted" },
+        { scenario: "distracted-corridor" as const, yielding: true, label: "distracted-yielding" },
+      ];
+
+      for (const { scenario, yielding, label } of conditions) {
         const protocol: Protocol = {
-          name: `corridor crossing · ${scenario}`,
+          name: `corridor crossing · ${label}`,
           scenario,
           seeds,
           timeLimitMs: 120_000,
@@ -538,7 +551,7 @@ export const DEMOS: Record<DemoName, Demo> = {
             version: "1.0.0",
             description: "reached the goal and never touched a person",
           },
-          conditions: { shield: "on", telegraph: false },
+          conditions: { shield: "on", telegraph: false, yielding },
         };
 
         const suite = await runSuite(protocol, async (seed, index) => {
@@ -553,6 +566,7 @@ export const DEMOS: Record<DemoName, Demo> = {
             onRig: live ? options.onRig : undefined,
           });
           const shield = rig.runtime.startDaemon("reflex.shield", {});
+          if (yielding) rig.runtime.startDaemon("hri.yield-path", {});
           const trip = await rig.runtime.run<{ x: number; y: number; timeoutMs: number }, unknown>(
             "navigate.to",
             { x: 14, y: 3, timeoutMs: 120_000 },
@@ -581,30 +595,43 @@ export const DEMOS: Record<DemoName, Demo> = {
           };
         });
 
-        if (scenario === "busy-corridor") {
+        if (label === "cooperative") {
           cooperativeContacts = suite.metrics.humanContacts?.mean ?? 0;
-        } else {
+        } else if (label === "distracted") {
           distractedContacts = suite.metrics.humanContacts?.mean ?? 0;
+          distractedRate = suite.successRate;
+        } else {
+          yieldingRate = suite.successRate;
+          yieldingContacts = suite.metrics.humanContacts?.mean ?? 0;
         }
 
-        metrics[`${scenario}.successRate`] = suite.successRate;
-        metrics[`${scenario}.ciLow`] = suite.interval.low;
-        metrics[`${scenario}.ciHigh`] = suite.interval.high;
-        metrics[`${scenario}.contactsPerRun`] = suite.metrics.humanContacts?.mean ?? 0;
+        metrics[`${label}.successRate`] = suite.successRate;
+        metrics[`${label}.ciLow`] = suite.interval.low;
+        metrics[`${label}.ciHigh`] = suite.interval.high;
+        metrics[`${label}.contactsPerRun`] = suite.metrics.humanContacts?.mean ?? 0;
 
         details.push(report(suite));
       }
 
+      details.push(
+        `Reversing lost the race by construction: backing away at a third of a metre per second ` +
+          `from someone walking at a metre and a half is the one escape direction that lies along ` +
+          `their approach. Stepping perpendicular opens the gap at the robot's own speed instead ` +
+          `of the difference between two speeds.`,
+      );
+
       return {
-        // Cooperative people must be clean. Distracted people are allowed to
-        // fail — the point of running both is to show which of the two the
-        // safety story actually depends on.
-        ok: cooperativeContacts === 0,
+        // Cooperative people must be clean, and yielding has to beat not
+        // yielding. Distracted people are still allowed to get through — the
+        // point of running all three is to separate what the world does from
+        // what the strategy does.
+        ok: cooperativeContacts === 0 && yieldingRate > distractedRate,
         summary:
           `With people who look where they are going, the robot touched nobody across 20 crossings. ` +
-          `With people who never look up, it averaged ${distractedContacts.toFixed(1)} contacts per crossing — ` +
-          `it cannot get out of the way of someone walking straight into it in a corridor, and no amount of ` +
-          `speed limiting changes that.`,
+          `With people who never look up it got through ${(distractedRate * 100).toFixed(0)}% of the time ` +
+          `at ${distractedContacts.toFixed(1)} contacts per crossing — and predicting their path instead ` +
+          `of reversing away from it took that to ${(yieldingRate * 100).toFixed(0)}% at ` +
+          `${yieldingContacts.toFixed(1)}. The remaining failures are real: when it still fails, it fails hard.`,
         details,
         metrics,
       };

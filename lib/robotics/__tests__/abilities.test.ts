@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { createSimRig } from "../index.ts";
+import { closestApproach } from "../abilities/yield-path.ts";
 import { distance } from "../core/math.ts";
 
 // --- navigation ------------------------------------------------------------
@@ -490,4 +491,67 @@ test("bad input is rejected before anything moves", async () => {
   const result = await rig.runtime.run("navigate.to", { x: "over there" });
   assert.equal(result.ok, false);
   assert.equal(result.failure, "precondition");
+});
+
+// --- yielding the path -----------------------------------------------------
+
+test("closest approach finds where two courses actually converge", () => {
+  // Pure geometry, checked against cases with known answers, because the whole
+  // ability rests on this being right.
+  const person = (at: { x: number; y: number }, velocity: { x: number; y: number }) => ({
+    id: "p",
+    at,
+    velocity,
+    distance: Math.hypot(at.x, at.y),
+    attentive: false,
+  });
+
+  // Walking straight at a stationary robot from 5 m at 1 m/s: closest approach
+  // is zero, five seconds out.
+  const head = closestApproach({ x: 0, y: 0 }, { x: 0, y: 0 }, person({ x: 5, y: 0 }, { x: -1, y: 0 }));
+  assert.ok(Math.abs(head.time - 5) < 1e-9, `t=${head.time}`);
+  assert.ok(head.distance < 1e-9, `d=${head.distance}`);
+
+  // Passing by with a 2 m offset: they get no closer than 2 m, whatever the
+  // current separation says.
+  const past = closestApproach({ x: 0, y: 0 }, { x: 0, y: 0 }, person({ x: 5, y: 2 }, { x: -1, y: 0 }));
+  assert.ok(Math.abs(past.distance - 2) < 1e-9, `d=${past.distance}`);
+
+  // Already walking away: the closest approach is behind us, which is not a
+  // problem to solve.
+  const leaving = closestApproach({ x: 0, y: 0 }, { x: 0, y: 0 }, person({ x: 2, y: 0 }, { x: 1, y: 0 }));
+  assert.ok(leaving.time < 0, `t=${leaving.time}`);
+
+  // Nobody moving: the answer is the current gap, and it stays the answer.
+  const still = closestApproach({ x: 0, y: 0 }, { x: 0, y: 0 }, person({ x: 3, y: 4 }, { x: 0, y: 0 }));
+  assert.equal(still.distance, 5);
+});
+
+test("hri.yield-path turns the corridor's worst case around", async () => {
+  // The number this ability exists for. Paired on seed so the same crossings
+  // run both ways, which is what makes the comparison mean anything.
+  const runs = 8;
+  const without: boolean[] = [];
+  const withYield: boolean[] = [];
+
+  for (let seed = 1; seed <= runs; seed += 1) {
+    for (const yielding of [false, true]) {
+      const rig = createSimRig({ scenario: "distracted-corridor", seed });
+      rig.runtime.startDaemon("reflex.shield", {});
+      if (yielding) rig.runtime.startDaemon("hri.yield-path", {});
+      const trip = await rig.runtime.run("navigate.to", { x: 14, y: 3, timeoutMs: 60_000 });
+      await rig.runtime.stopDaemons();
+      const clean = trip.ok && rig.world.robot("luka-1").collisions === 0;
+      (yielding ? withYield : without).push(clean);
+    }
+  }
+
+  const before = without.filter(Boolean).length;
+  const after = withYield.filter(Boolean).length;
+
+  assert.ok(after > before, `yielding did not help: ${before} -> ${after} of ${runs}`);
+  // And it must not break runs that were already clean. Reversing traded one
+  // failure for another; stepping aside should not.
+  const broken = without.filter((clean, i) => clean && !withYield[i]).length;
+  assert.equal(broken, 0, `${broken} run(s) that were clean became collisions`);
 });

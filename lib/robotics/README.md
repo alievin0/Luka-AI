@@ -24,8 +24,10 @@ npm run robo -- run navigate.to '{"x":12,"y":8}'
   عتاد منفصل. الطبقة اللي هالمكتبة فيها مو هي.
 - **حلقة تحكّم ٥٠ هرتز بـ TypeScript فوق WebSocket مو طبقة زمن حقيقي.** على عتاد
   حقيقي لازم يكون تحتها مراقب على عتاد أو خيط بأولوية حقيقية.
-- **أمان الروبوت عم يعتمد على تعاون الإنسان.** شوف عرض `measured-crossing`:
-  ٢٠/٢٠ عبور نظيف مع ناس بينتبهوا، ٠/٢٠ مع ناس ما بيرفعوا راسهم.
+- **أمان الروبوت عم يعتمد على تعاون الإنسان — بس مو كلياً.** عرض
+  `measured-crossing`: ٢٠/٢٠ مع ناس بينتبهوا، **٠/٢٠** مع ناس ما بيرفعوا راسهم.
+  مع `hri.yield-path` بيصير **٦٥٪** [٤٣–٨٢٪] — تحسّن حقيقي ومقيس، بس **لما لسا
+  بيفشل، بيفشل بقوة**: التلامسات بالجولة نزلت من ١٢٫٧ لـ١١٫٩ بس.
 - **مستوى الليدار فوق الأرض بعشرات السنتيمترات.** ما بيشوف قدم، ولا قطة، ولا شخص
   مستلقي، ولا حافّة درجة. ولا شي بهالمكتبة بيغيّر هالحقيقة.
 - **`reflex.looming` انعكاس فزع، مو تفادي اصطدام.** ما بيشتعل للاقتراب البطيء
@@ -38,8 +40,10 @@ npm run robo -- run navigate.to '{"x":12,"y":8}'
 > The simulator is 2-D and determinism is a reproducibility property, not a
 > fidelity claim. The safety governor and the stoppability monitor are design
 > aids, not certified safety functions. A 50 Hz loop in TypeScript over a
-> WebSocket is not a real-time layer. The robot's safety record depends on
-> people cooperating — `measured-crossing` measures exactly how much. The lidar
+> WebSocket is not a real-time layer. The robot's safety record depends heavily
+> on people cooperating — 20/20 with people who look where they are going, 0/20
+> with people who never look up, and 65% once it predicts their path instead of
+> reversing away from it. The runs it still loses, it loses badly. The lidar
 > plane cannot see a foot, an animal or a person lying down. `reflex.looming` is
 > a startle, not collision avoidance, and it has false positives while
 > manoeuvring. And the deadman runs inside this process, so the one case it
@@ -95,7 +99,8 @@ The abilities and the `/robots` page need no API key. Only the conversation does
 | 13 | `navigate.to` · التنقل | بيوصل لنقطة ويتفادى كل شي بيظهر بالطريق | الأساس اللي بتبني عليه الباقي |
 | 14 | `safety.stoppable` · مراقب التوقف | بيجاوب باستمرار: لو وقف هلق، بيوصل لوضع ثابت بدون ما يوقع أو يصطدم؟ | حدّ السرعة بيجاوب «قديش بسرعة»، مو «هل التوقف لسا ممكن» — والاتنين بينفصلوا بالضبط وين بيهمّوا |
 | 15 | `hardware.checkout` · فحص ما قبل التشغيل | بيفحص الحسّاسات والفرامل وزر الطوارئ قبل أول حركة، وبيرفض يعطي الإذن إذا وحدة فشلت | الحسّاس المتجمّد أخطر من المعطّل: بيرجّع نفس المشهد للأبد، وهاد بينقرأ كعالم ساكن تماماً |
-| 16 | `reflex.looming` · انعكاس الاقتراب | ٣٦٧ خلية عصبية من كونكتوم الذبابة بتشتعل لما شي يكبر قدّام الليدار، وبتسحب الروبوت من الطريق | الشي اللي جاي عليك بيكبر بمعدّل بيرمّز الوقت الباقي — بدون ما تعرف سرعة حدا |
+| 16 | `hri.yield-path` · إخلاء الطريق | بيتوقّع وين رح يكون أقرب تلاقي، وبيتحرّك عالجنب برّا الطريق وهو لسا في وقت | الرجوع للورا أبطأ هروب ممكن — هو الاتجاه الوحيد اللي **على نفس خط اقترابهم** |
+| 17 | `reflex.looming` · انعكاس الاقتراب | ٣٦٧ خلية عصبية من كونكتوم الذبابة بتشتعل لما شي يكبر قدّام الليدار، وبتسحب الروبوت من الطريق | الشي اللي جاي عليك بيكبر بمعدّل بيرمّز الوقت الباقي — بدون ما تعرف سرعة حدا |
 
 كل قدرة بتشتغل هيك:
 

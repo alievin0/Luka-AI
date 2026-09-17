@@ -13,6 +13,7 @@ import { navigateTo } from "./navigate-to.ts";
 import { powerLifeline } from "./power-lifeline.ts";
 import { loomingReflex } from "./looming.ts";
 import { reflexShield } from "./reflex-shield.ts";
+import { yieldPath } from "./yield-path.ts";
 import { rehearsePlan } from "./rehearse.ts";
 import { safetyStoppable } from "./stoppable.ts";
 import { spatialMemory } from "./spatial-memory.ts";
@@ -32,6 +33,7 @@ export const ALL_ABILITIES: Array<Ability<never, never>> = [
   powerLifeline,
   loomingReflex,
   reflexShield,
+  yieldPath,
   rehearsePlan,
   safetyStoppable,
   spatialMemory,
@@ -56,6 +58,7 @@ export {
   powerLifeline,
   loomingReflex,
   reflexShield,
+  yieldPath,
   rehearsePlan,
   safetyStoppable,
   spatialMemory,
