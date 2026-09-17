@@ -334,3 +334,68 @@ engineered around — it is the whole point. A fake model answers nothing about
 how real models behave in a team. The genuinely free option is a local model:
 real execution, zero API cost, and a weaker model whose own ceiling may simply
 move the ties from 1.00 to 0.00 without deciding anything.
+
+
+---
+
+## Campaign #2 — an accidental replication, and what it proves
+
+Run by the owner, 2026-09-17, `claude-sonnet-5`, 70 runs, **$0.61**.
+
+**It ran commit `b994599` — the code from BEFORE R16-R19.** The owner's benchmark
+clone was never updated after those fixes were pushed, so campaign #2 executed
+the same inverted T06 checker and the same leaking T05 fixture as campaign #1.
+The evidence is in the run itself: T06 scored 0.0/0.0 with `completeness` 1.0 in
+both conditions again, and T05's single agent again scored 1.0 having made **zero
+tool calls**.
+
+So campaign #2 is **not a second measurement**. It is a replication of the first
+one on an identical, identically-broken harness. That was not the intent — and
+it is the most useful thing that could have come out of running it anyway.
+
+### Every task direction replicated, 7 of 7
+
+| Task | Campaign #1 (s / m) | Campaign #2 (s / m) | Direction |
+|---|---|---|---|
+| T01 exact output | 1.00 / 1.00 | 1.00 / 1.00 | TIE both times |
+| T02 five constraints | 0.76 / 1.00 | 0.80 / **0.88** | MULTI both times |
+| T03 edge cases | 1.00 / 1.00 | 1.00 / 1.00 | TIE both times |
+| T04 contradictory spec | 0.80 / 1.00 | 0.80 / 1.00 | **MULTI both times** |
+| T05 tool required | 1.00 / 1.00 | 1.00 / 1.00 | TIE both times |
+| T06 factual | 0.00 / 0.00 | 0.00 / 0.00 | broken both times |
+| T07 long chain | 1.00 / 1.00 | 1.00 / 1.00 | TIE both times |
+
+Same conclusion, same counts: `INSUFFICIENT_EVIDENCE`, 2 decided of 3 needed,
+p = 0.5. Cost ratio 3.0× (2.8× in #1). **The ceiling is not noise** — it
+reproduced exactly across 140 independent runs.
+
+### The one finding that survives both campaigns
+
+**T04 is the organization's only reproducible advantage.** Single 0.80, multi
+1.00, twice, on the hard task where a specification contradicts itself. The
+Critic role catches what a solo agent implements past. That is a real
+capability and it is now replicated.
+
+**T02 is not solid.** Multi led both times, but its own score *fell* from 1.00
+to 0.88 while the single agent held at ~0.78. A lead that shrinks by two thirds
+between identical runs is noise around a small effect, not a demonstrated one.
+
+So across 140 runs the honest tally is: **one reproducible multi-agent win, one
+unstable one, four ceiling ties, and one broken task.** That is not enough to
+scale on, and it is not nothing either.
+
+### Why campaign #3 should NOT be run yet
+
+Running the fixed code now would buy very little:
+
+- **T06 fixed still ties.** Both conditions had `correct=True` under the old
+  checker (completeness 1.00); with R16 in place both score 1.00. A tie either
+  way — it stops being a *wrong* tie, not a decided task.
+- **T01, T03, T07 remain at the 1.00/1.00 ceiling.** R16-R19 touched none of them.
+- **Only T05 might newly discriminate** now that R17 forces a real tool call.
+
+Best case: 3 decided tasks, and only if T05 happens to split. That is one coin
+flip away from a third `INSUFFICIENT_EVIDENCE` at the same price. **The task set
+has to be recalibrated out of its ceiling before another campaign is worth
+paying for.** Two campaigns have now said the same thing; a third asking the
+same badly-calibrated questions will say it again.
