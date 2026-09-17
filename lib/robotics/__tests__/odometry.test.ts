@@ -353,3 +353,38 @@ test("gyro bias does not trip the contradiction detector", () => {
     );
   }
 });
+
+test("the robot's claim to have caught the fall matches whether it did", () => {
+  // The last arrow of the pipeline, for the one case where it can be checked
+  // from this side of the keyboard: action, then verification.
+  //
+  // `balance.recover` decides it has settled by reading `imu.tilt` — the same
+  // fused estimate that is now up to 0.9 degrees out during exactly the hard
+  // acceleration a recovery involves. So its verdict is measured with the
+  // instrument that can be wrong, and nothing independent checks it. Here the
+  // simulator knows the truth, so the agreement can be measured rather than
+  // assumed.
+  //
+  // It agrees. A claimed catch on a robot lying on the floor is what this test
+  // exists to catch, and there are none.
+  return (async () => {
+    for (const impulse of [1.2, 1.6, 2.4]) {
+      for (let seed = 1; seed <= 6; seed += 1) {
+        const rig = createSimRig({ scenario: "empty-hall", seed });
+        const robot = rig.world.robot(rig.robot.id);
+        const running = rig.runtime.run("balance.recover", { timeoutMs: 6000 });
+        rig.world.applyTiltImpulse(rig.robot.id, impulse);
+        const result = await running;
+        await rig.runtime.stopDaemons("test over");
+
+        const upright = Math.abs(robot.tilt) < 0.3;
+        assert.equal(
+          result.ok,
+          upright,
+          `at ${impulse} rad/s seed ${seed} the robot reported ${result.ok ? "a catch" : "a fall"} ` +
+            `and its true tilt is ${((robot.tilt * 180) / Math.PI).toFixed(1)}°`,
+        );
+      }
+    }
+  })();
+});

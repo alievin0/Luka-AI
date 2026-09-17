@@ -508,7 +508,11 @@ export const DEMOS: Record<DemoName, Demo> = {
         summary:
           result.breakingPoint === null
             ? `Recovered from every push up to ${result.points[result.points.length - 1].level} rad/s — the sweep did not go far enough to find the limit.`
-            : `Recovery holds up to ${result.breakingPoint} rad/s, where it drops below half. Ten seeds per level, intervals included — at n=10 nothing under about 50 points apart is distinguishable.`,
+            : `Recovery breaks down at ${result.breakingPoint} rad/s, where it drops below half — the ` +
+              `level below that is the last one it holds. Ten seeds per level, intervals included — at ` +
+              `n=10 nothing under about 50 points apart is distinguishable. This used to break down at ` +
+              `2.0, and moved when the IMU stopped reporting the true tilt and started reporting a ` +
+              `fused estimate: about a quarter of the envelope was the sensor being perfect.`,
         details,
         metrics,
       };
