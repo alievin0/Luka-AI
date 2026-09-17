@@ -185,6 +185,15 @@ def preflight(verbose=True, require_provider=True):
             % (rin, rout, "" if known else "  (UNPRICED — cost will read as 0)"))
         if prov.source != "model":
             fails.append("provider %r does not execute a real model" % prov.name)
+        # R21: a key that is SET is not a key that WORKS. One minimal call.
+        elif hasattr(prov, "probe"):
+            ok_probe, why, res = prov.probe()
+            if ok_probe:
+                say("   live probe     : OK (%d in / %d out tokens, $%.6f)"
+                    % (res.tokens_in, res.tokens_out, res.usd))
+            else:
+                fails.append("the provider does not answer: %s" % why)
+                say("   live probe     : FAILED — %s" % why)
 
     # ── 6b. R20: the task set must actually REGISTER ──────────────────
     # The first Campaign #3 attempt passed all six checks and then died on the

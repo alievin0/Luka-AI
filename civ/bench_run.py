@@ -339,16 +339,45 @@ def main(argv=None):
                "input_sha": sha(B.task_input(t, vslice.REPO_ROOT)), "budget": t["max_usd"]}
         B.assert_fairness(con, cid, t, ctx, ctx)     # the trigger refuses inequality
 
+    # R21. A dead provider used to burn all 90 runs in silence: every line read
+    # "FAILED  correctness=0.0  $0.00000" with no reason, and the campaign ran to
+    # the end before anyone could see why. A systematic infrastructure failure is
+    # not a result and must not be ground out to completion. This is NOT stopping
+    # early because a condition looks like it is winning — no run has produced a
+    # score at all.
+    consecutive_failures, ABORT_AFTER = 0, 6
     for order, (t, rep, cond) in enumerate(plan):
         bench_crew(con, t)
         gw = vslice.build_gateway(con)
         brid, path = run_condition(con, gw, prov, t, cond, cid, rep, order)
         ran = verify(con, gw, path)
         m = B.evaluate(con, brid, t, ran, evaluator=EVALUATOR)
-        row = con.execute("SELECT status, usd FROM bench_runs WHERE id=?", (brid,)).fetchone()
-        print("  %-24s %-6s r%-2d %-9s correctness=%-5s $%.5f"
-              % (t["id"], cond, rep, row["status"], m.get("correctness"), row["usd"] or 0))
+        row = con.execute("SELECT status, usd, failure_class, failure_note "
+                          "FROM bench_runs WHERE id=?",
+                          (brid,)).fetchone()
+        why = ""
+        if row["status"] != "COMPLETE":
+            why = "  <- %s: %s" % (row["failure_class"] or "?",
+                                   (row["failure_note"] or "no note")[:100])
+        print("  %-24s %-6s r%-2d %-9s correctness=%-5s $%.5f%s"
+              % (t["id"], cond, rep, row["status"], m.get("correctness"),
+                 row["usd"] or 0, why))
         sys.stdout.flush()
+
+        consecutive_failures = 0 if row["status"] == "COMPLETE" else consecutive_failures + 1
+        if consecutive_failures >= ABORT_AFTER:
+            print(BAR)
+            print("ABORTED — %d consecutive runs failed before producing any score."
+                  % consecutive_failures)
+            print("This is an INFRASTRUCTURE FAILURE, not a benchmark result.")
+            print("The %d runs attempted are preserved in %s; nothing is discarded."
+                  % (order + 1, os.path.basename(db)))
+            print("Last failure: %s — %s"
+                  % (row["failure_class"] or "?", row["failure_note"] or "(none)"))
+            print("The campaign is left OPEN and unscored. Fix the cause and start a")
+            print("new campaign — do not analyse a run that never produced a score.")
+            print(BAR)
+            return 4
 
     print(BAR)
     result = B.analyse(con, cid)

@@ -86,7 +86,7 @@ def register_tasks(con):
 def open_campaign(con, name, provider, model, repeats):
     config = {"repeats": repeats, "min_runs_per_cell": MIN_RUNS_PER_CELL,
               "min_tasks_with_signal": MIN_TASKS_WITH_SIGNAL, "alpha": SIGN_TEST_ALPHA,
-              "tasks": [t["id"] for t in BT.TASKS]}
+              "tasks": [t["id"] for t in active_tasks()]}
     cid = con.execute(
         "INSERT INTO bench_campaigns(name,git_commit,provider,model,config_sha,repeats,"
         "started_at) VALUES(?,?,?,?,?,?,?)",
@@ -106,7 +106,8 @@ def task_input(task, repo_root=None):
     """
     body = task["description"]
     if task.get("fixture_via_tool"):
-        path = BT.fixture_path(task, repo_root) if repo_root else "<fixture path>"
+        src = ACTIVE if hasattr(ACTIVE, "fixture_path") else BT
+        path = src.fixture_path(task, repo_root) if repo_root else "<fixture path>"
         body += ("\n\nThe data is NOT reproduced here. Read it with your authorized "
                  "read tool at this exact path:\n" + path)
     elif task["fixture"]:
@@ -184,8 +185,12 @@ def _binom_two_sided(k, n, p=0.5):
 
 
 def analyse(con, campaign_id):
-    """Per-dimension comparison. No single winner score is produced."""
-    tasks = {t["id"]: t for t in BT.TASKS}
+    """Per-dimension comparison. No single winner score is produced.
+
+    R22. This read BT.TASKS — always v1 — so a v2 campaign was analysed against
+    task ids that none of its runs used. Every cell came back empty, and the
+    result was a conclusion computed over nothing."""
+    tasks = {t["id"]: t for t in active_tasks()}
     per_task, warnings = [], []
     wins_multi = wins_single = ties = 0
 

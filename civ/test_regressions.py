@@ -8,6 +8,7 @@ R1–R3  defects found while building civ/ (the tests caught them before shippin
 R4–R9  findings from civ/01-AUDIT.md — the world/ defects civ/ must never repeat
 R10    the world/ defects found by running it, still covered by world/test_world.py
 """
+import inspect
 import os
 import re
 import sqlite3
@@ -666,6 +667,91 @@ class R20_PreflightPassedACampaignThatCouldNotStart(unittest.TestCase):
         for t in T2.TASKS_V2:
             self.assertEqual(PF.task_sha(t), sealed["tasks"][t["id"]],
                              "%s moved — the repair was not seal-neutral" % t["id"])
+
+
+class R21_AKeyThatIsSetIsNotAKeyThatWorks(unittest.TestCase):
+    """Found on Campaign #3's SECOND execution attempt, 2026-09-17.
+
+    The pre-flight reported `provider: claude / available: True` and the campaign
+    then failed ALL 90 runs at $0.00000. ClaudeProvider.available() only ever
+    checked `bool(self.key)` — a revoked, expired or malformed key passes it.
+    Verifying a credential is PRESENT is not verifying the provider ANSWERS,
+    which is the same mistake as R20 wearing different clothes."""
+
+    def test_available_is_honest_about_what_it_checks(self):
+        p = P.ClaudeProvider(key="sk-ant-obviously-not-real")
+        self.assertTrue(p.available(), "available() reports presence, by design")
+        self.assertIn("does not mean", (p.available.__doc__ or ""),
+                      "its docstring must say presence is not health")
+
+    def test_a_probe_exists_and_reports_a_dead_key(self):
+        p = P.ClaudeProvider(key="")
+        ok, why, res = p.probe()
+        self.assertFalse(ok)
+        self.assertIn("ANTHROPIC_API_KEY", why)
+
+    def test_the_preflight_probes_rather_than_trusting_available(self):
+        import campaign3_preflight as PF
+        src = inspect.getsource(PF.preflight)
+        self.assertIn("prov.probe()", src)
+        self.assertIn("live probe", src)
+
+    def test_the_campaign_aborts_instead_of_burning_ninety_runs(self):
+        """A systematic failure is not a result and must not be ground out to
+        completion. This is NOT stopping early on a winner — no run has scored."""
+        with open(os.path.join(HERE, "bench_run.py"), encoding="utf-8") as fh:
+            src = fh.read()
+        self.assertIn("consecutive_failures", src)
+        self.assertIn("INFRASTRUCTURE FAILURE, not a benchmark result", src)
+        self.assertIn("left OPEN and unscored", src)
+        self.assertIn("nothing is discarded", src)
+
+    def test_a_failed_run_prints_its_reason(self):
+        """90 lines of 'FAILED correctness=0.0 $0.00000' told the operator
+        nothing at all."""
+        with open(os.path.join(HERE, "bench_run.py"), encoding="utf-8") as fh:
+            src = fh.read()
+        self.assertIn("failure_class", src)
+        self.assertIn("failure_note", src)
+
+
+class R22_TheAnalysisReadTheWrongTaskSet(unittest.TestCase):
+    """Found on Campaign #3's second attempt, alongside R21.
+
+    The runs were written under V2-* ids; `analyse()` read `BT.TASKS`, always v1.
+    Every cell came back with attempts=0, and the report still printed a
+    CONCLUSION — computed over nothing, against seven tasks the campaign never
+    ran. A conclusion derived from an empty table is worse than a crash."""
+
+    def test_analyse_follows_the_selected_task_set(self):
+        from core import benchmark as BM
+        prev = BM.ACTIVE
+        try:
+            BM.use_task_set("v2")
+            ids = {t["id"] for t in BM.active_tasks()}
+            self.assertTrue(all(i.startswith("V2-") for i in ids), sorted(ids)[:3])
+            BM.use_task_set("v1")
+            ids = {t["id"] for t in BM.active_tasks()}
+            self.assertFalse(any(i.startswith("V2-") for i in ids))
+        finally:
+            BM.ACTIVE = prev
+
+    def test_no_module_hardcodes_the_v1_task_list(self):
+        with open(os.path.join(HERE, "core", "benchmark.py"), encoding="utf-8") as fh:
+            src = fh.read()
+        code = "\n".join(l for l in src.splitlines()
+                         if not l.strip().startswith("#") and "R22" not in l)
+        self.assertNotIn("BT.TASKS", code,
+                         "benchmark.py must resolve tasks through active_tasks()")
+
+    def test_a_v2_campaign_is_analysed_against_v2_ids(self):
+        import subprocess
+        out = subprocess.run(
+            [sys.executable, "bench_run.py", "--task-set", "v2", "--dry-run"],
+            cwd=HERE, capture_output=True, text=True, timeout=600).stdout
+        self.assertIn("V2-T09-find-defect", out)
+        self.assertNotIn("T01-exact-output", out,
+                         "v1 task ids must not appear in a v2 campaign's analysis")
 
 
 if __name__ == "__main__":

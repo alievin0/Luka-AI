@@ -45,3 +45,6 @@ civ/**/__pycache__/
 /bench_fixtures/
 civ/bench_report.json
 civ/*.db
+
+# archived benchmark worlds (R20: --fresh archives instead of deleting)
+civ/*.db.archived-*

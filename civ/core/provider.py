@@ -140,10 +140,33 @@ class ClaudeProvider(Provider):
         self.key = key or os.environ.get("ANTHROPIC_API_KEY")
 
     def available(self):
+        """A key is PRESENT. This does not mean it WORKS — see probe()."""
         return bool(self.key)
 
     def why_unavailable(self):
         return "ANTHROPIC_API_KEY is not set"
+
+    def probe(self):
+        """R21. One minimal real call, to learn whether the key actually works.
+
+        available() only ever checked that a string was set. A revoked, expired
+        or malformed key passes it, and Campaign #3's first execution attempt
+        duly failed all 90 runs while the pre-flight had reported the provider
+        healthy. Costs a fraction of a cent and is the difference between
+        'a key is present' and 'the provider answers'."""
+        if not self.key:
+            return False, self.why_unavailable(), None
+        res = self.complete("Reply with the single character: 1", "1", max_tokens=4)
+        if res.status == "OK":
+            return True, "", res
+        detail = res.error or res.status
+        if "401" in str(detail) or "authentication" in str(detail).lower():
+            detail += "  <- the key is present but REJECTED (revoked, expired or wrong)"
+        elif "429" in str(detail):
+            detail += "  <- rate limited"
+        elif "credit" in str(detail).lower() or "billing" in str(detail).lower():
+            detail += "  <- billing/credit problem on the account"
+        return False, detail, res
 
     def complete(self, system, prompt, model=None, max_tokens=800):
         model = model or self.model
