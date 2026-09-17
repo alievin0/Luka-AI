@@ -16,6 +16,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { createSimRig } from "../index.ts";
+import { CRAWL_PROFILE, SIMULATED_ROVER, auditProfile } from "../hal/profile.ts";
 
 /** Drive a straight-and-turn route and report where things ended up. */
 function route(seed: number, ticks = 700) {
@@ -387,4 +388,89 @@ test("the robot's claim to have caught the fall matches whether it did", () => {
       }
     }
   })();
+});
+
+// ── The actuator side ──────────────────────────────────────────────────────
+//
+// Everything above is about sensing. This is its mirror, and it had never been
+// looked at: a command is not a motion either.
+
+test("a command below the drive's stiction produces no motion at all", () => {
+  // A geared drive does nothing until the torque clears static friction. The
+  // simulator used to turn a commanded 0.001 m/s into exactly 0.001 m/s.
+  const travelled = (command: number) => {
+    const rig = createSimRig({ scenario: "empty-hall", seed: 1 });
+    const robot = rig.world.robot(rig.robot.id);
+    const start = { x: robot.pose.x, y: robot.pose.y };
+    for (let i = 0; i < 100; i += 1) {
+      robot.commandedLinear = command;
+      rig.world.step(0.05);
+    }
+    return Math.hypot(robot.pose.x - start.x, robot.pose.y - start.y);
+  };
+
+  assert.ok(travelled(0.02) < 0.01, "a 0.02 m/s command moved the robot, so there is no stiction");
+  assert.ok(travelled(0.05) > 0.2, "a 0.05 m/s command did not move the robot, which is not stiction");
+});
+
+test("every speed the safety governor falls back to is one the robot can reach", () => {
+  // The interaction worth having found. Each degraded mode answers its problem
+  // by crawling — blind at 0.05 m/s, contradicted at 0.2 — and a crawl below
+  // the platform's stiction is a stop that goes on reporting itself as motion.
+  //
+  // Measured, today's limits clear it. They clear it by luck rather than by
+  // design, which is what this test converts into design: lower `blindSpeed`
+  // to 0.02 for extra caution and this fails, instead of the robot quietly
+  // parking while the verdict says it is crawling.
+  const rig = createSimRig({ scenario: "empty-hall", seed: 1 });
+  const limits = rig.governor.limits;
+  const floor = SIMULATED_ROVER.kinematics?.minMovingSpeed;
+  assert.ok(floor !== undefined, "the simulated platform should know its own speed floor");
+
+  for (const [name, speed] of [
+    ["blindSpeed", limits.blindSpeed],
+    ["conflictSpeed", limits.conflictSpeed],
+  ] as const) {
+    assert.ok(
+      speed >= (floor ?? 0),
+      `${name} is ${speed} m/s and the platform does not move below ${floor} m/s, ` +
+        "so that limit is a stop that reports itself as a crawl",
+    );
+  }
+});
+
+test("a blind robot told to crawl actually crawls", () => {
+  // End to end, because the two facts above only matter together.
+  const rig = createSimRig({ scenario: "cluttered-office", seed: 2 });
+  const robot = rig.world.robot(rig.robot.id);
+  const real = rig.robot.lidar.bind(rig.robot);
+  Object.assign(rig.robot, {
+    lidar: () => ({ ...real(), ranges: real().ranges.map(() => Number.NaN) }),
+  });
+
+  const start = { x: robot.pose.x, y: robot.pose.y };
+  for (let i = 0; i < 200; i += 1) {
+    const command = rig.governor.govern(rig.robot, 0.6, 0);
+    rig.robot.drive(command.linear, command.angular);
+    rig.world.step(0.05);
+  }
+
+  assert.equal(rig.governor.verdict().level, "slow", "a blind robot should be crawling, not stopped");
+  assert.ok(
+    Math.hypot(robot.pose.x - start.x, robot.pose.y - start.y) > 0.2,
+    "the robot was told to crawl and did not move, which is a stop reporting itself as motion",
+  );
+});
+
+test("an unknown platform does not claim to know its own speed floor", () => {
+  // `CRAWL_PROFILE` is what an unmeasured robot gets, and its kinematics are
+  // marked assumed. Filling in a stiction figure for it would be inventing one,
+  // which is the whole family of mistake this kernel is built against — so it
+  // says nothing, and the audit says that nothing was said.
+  assert.equal(CRAWL_PROFILE.kinematics?.minMovingSpeed, undefined);
+  const findings = auditProfile(CRAWL_PROFILE);
+  assert.ok(
+    findings.some((f) => f.code === "stiction-unknown"),
+    "an unmeasured speed floor was not reported, so nobody would go and measure it",
+  );
 });

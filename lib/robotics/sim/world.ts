@@ -204,6 +204,15 @@ export const HUMAN_RADIUS = 0.25;
 
 const GRAVITY = 9.81;
 const GRIP_FRICTION = 0.6;
+/**
+ * Commands below these do not move the robot, m/s and rad/s.
+ *
+ * Static friction in a geared drive. The figures are ordinary for a small
+ * indoor platform; a heavier one or a worse gearbox is worse.
+ */
+const STICTION_LINEAR = 0.03;
+const STICTION_ANGULAR = 0.08;
+
 /** Complementary-filter time constant for tilt, seconds. */
 const TILT_FUSION_TAU = 0.5;
 /** Physics substep. Bigger steps make the tilt integrator misbehave. */
@@ -489,12 +498,22 @@ export class SimWorld {
     const accelLimit = peakAccel * dt;
     const alphaLimit = 4.0 * dt;
     const previousLinear = robot.linear;
-    robot.linear += clamp(robot.commandedLinear - robot.linear, -accelLimit, accelLimit);
-    robot.angular += clamp(
-      robot.commandedAngular - robot.angular,
-      -alphaLimit,
-      alphaLimit,
-    );
+
+    // Stiction: below some command the wheels do not turn at all.
+    //
+    // The mirror of everything that was wrong on the sensing side, and it had
+    // never been looked at. A commanded 0.001 m/s used to produce exactly
+    // 0.001 m/s; a geared drive produces nothing until the torque clears static
+    // friction, which for a small indoor robot is a few centimetres per second.
+    // It matters here more than it looks: every degraded mode in the safety
+    // governor answers a problem by crawling, and a crawl is exactly the band
+    // where a real motor does nothing.
+    const wanted =
+      Math.abs(robot.commandedLinear) < STICTION_LINEAR ? 0 : robot.commandedLinear;
+    const wantedTurn =
+      Math.abs(robot.commandedAngular) < STICTION_ANGULAR ? 0 : robot.commandedAngular;
+    robot.linear += clamp(wanted - robot.linear, -accelLimit, accelLimit);
+    robot.angular += clamp(wantedTurn - robot.angular, -alphaLimit, alphaLimit);
     const actualAccel = (robot.linear - previousLinear) / dt;
 
     // A tipping robot loses traction, and so does one on a floor that will not

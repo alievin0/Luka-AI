@@ -55,6 +55,23 @@ export type Kinematics = {
    * `assumed` — a guess. Abilities that need metric accuracy refuse on this.
    */
   source: "platform-parameters" | "measured" | "datasheet" | "assumed";
+  /**
+   * The slowest speed this platform will actually move at, m/s.
+   *
+   * Below it the drive does not turn: static friction in the gearbox has not
+   * been cleared, and the command produces nothing. Every real geared drive has
+   * this band and it is a few centimetres per second on a small indoor robot.
+   *
+   * It is in the profile because it decides whether a safety limit is a limit
+   * or a stop. A governor that answers a blind sensor by crawling at 0.02 m/s
+   * on a platform that cannot move below 0.03 has not slowed the robot down, it
+   * has parked it — and it will go on reporting that it is crawling, which is a
+   * command being mistaken for an action.
+   *
+   * Leave it undefined when nobody has measured it. That is different from
+   * zero, and the audit says so.
+   */
+  minMovingSpeed?: number;
 };
 
 export type RobotProfile = {
@@ -200,7 +217,12 @@ export const SIMULATED_ROVER: RobotProfile = {
     // "sender side" are the same side. Nothing can drop between them.
     robotSideWatchdogMs: 20,
   },
-  kinematics: { wheelRadius: 0.05, trackWidth: 0.35, source: "platform-parameters" },
+  kinematics: {
+    wheelRadius: 0.05,
+    trackWidth: 0.35,
+    source: "platform-parameters",
+    minMovingSpeed: 0.03,
+  },
   lidarHeight: 0.2,
   groundClearance: 0.05,
   batteryScale: "fraction",
@@ -456,6 +478,31 @@ export type Finding = {
 export function auditProfile(profile: RobotProfile): Finding[] {
   const findings: Finding[] = [];
   const link = profile.link;
+
+  // A speed limit below the platform's stiction is a stop wearing a limit's
+  // clothes, and nothing else in the kernel would notice: the governor would go
+  // on reporting that it is crawling while the robot sits still.
+  // A profile with no kinematics at all is already reported elsewhere; here the
+  // question is only about the speed floor.
+  const floor = profile.kinematics?.minMovingSpeed;
+  if (profile.kinematics !== undefined && floor === undefined) {
+    findings.push({
+      level: "warn",
+      code: "stiction-unknown",
+      message:
+        "Nobody has measured the slowest speed this platform actually moves at. Command it at " +
+        "0.02 m/s and watch whether the wheels turn; if they do not, every degraded mode that " +
+        "answers a problem by crawling is a stop that reports itself as motion.",
+    });
+  } else if (floor !== undefined && floor >= profile.maxLinear) {
+    findings.push({
+      level: "block",
+      code: "stiction-above-limit",
+      message:
+        `This platform will not move below ${floor} m/s and its speed limit is ` +
+        `${profile.maxLinear} m/s. There is no speed it is both allowed and able to travel at.`,
+    });
+  }
 
   if (link) {
     if (link.maxRoundTripP99Ms > link.controlPeriodMs) {
