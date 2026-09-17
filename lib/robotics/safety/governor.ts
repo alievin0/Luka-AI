@@ -11,6 +11,7 @@
 // involving rated safety hardware.
 
 import { clamp } from "../core/math.ts";
+import { ConflictMonitor, worstResponse, type WorldStateConflict } from "../core/conflict.ts";
 import type { LidarScan, RobotIO, SafetyApi, SafetyVerdict } from "../core/types.ts";
 
 export type SafetyLimits = {
@@ -55,6 +56,19 @@ export type SafetyLimits = {
    * to get out of the way. Slow enough that being wrong is a bump.
    */
   blindSpeed: number;
+  /**
+   * Speed allowed while two senses contradict each other about the robot's own
+   * motion, m/s.
+   *
+   * This is a policy choice and not a measurement, so it is worth saying what
+   * it is hedging against. A motion contradiction does not mean the robot
+   * cannot see — the lidar is still the lidar, and obstacle avoidance still
+   * works on raw ranges. What it means is that the robot's belief about where
+   * it is has come apart from where it is, and it will keep acting on that
+   * belief until somebody intervenes. The speed is set so that the distance it
+   * can accumulate while wrong stays small enough to walk back.
+   */
+  conflictSpeed: number;
 };
 
 export const DEFAULT_LIMITS: SafetyLimits = {
@@ -66,6 +80,7 @@ export const DEFAULT_LIMITS: SafetyLimits = {
   uncertainty: 0.12,
   minScanQuality: 0.5,
   blindSpeed: 0.05,
+  conflictSpeed: 0.2,
   minSeparation: 0.55,
   obstacleClearance: 0.25,
   maxContactForce: 28,
@@ -77,6 +92,12 @@ export type GovernorOptions = {
   allowContact?: boolean;
   /** Called on every level change — wire it to logging or an audit trail. */
   onChange?: (verdict: SafetyVerdict) => void;
+  /**
+   * Watch for the robot's senses contradicting each other about its own
+   * motion, and govern on the result. On by default: a robot whose odometry has
+   * come apart from the world is the case every other check here passes.
+   */
+  watchConflicts?: boolean;
 };
 
 export type GovernedCommand = {
@@ -98,6 +119,35 @@ export class SafetyGovernor implements SafetyApi {
   /** Exponentially-weighted measurement of the real sense-to-act latency, seconds. */
   private measuredLatency = 0;
   private latencyWarned = false;
+  private readonly conflictMonitor: ConflictMonitor | null;
+  /** The contradictions standing as of the last command. */
+  private conflicts: WorldStateConflict[] = [];
+  /**
+   * Which clock the conflict timestamps are being measured on.
+   *
+   * The persistence window only needs differences, and any consistent clock
+   * gives them — but differences taken *across* two clocks are meaningless, and
+   * under the simulator the sensor clock starts at zero while wall time is in
+   * the trillions. Switching between them mid-run would produce a jump of
+   * whatever the offset happens to be, which the monitor would read as a
+   * disagreement that had persisted for fifty years.
+   */
+  private conflictClock: "sensor" | "wall" | null = null;
+  /** The instant already sampled, so sampling it again changes nothing. */
+  private conflictSampledAt: number | null = null;
+  /**
+   * What was last actually sent to the motors.
+   *
+   * Obedience is a question about the motors, so it has to be asked about the
+   * command they were given and not the one an ability asked for. Using the
+   * request would deadlock the moment a conflict stops the wheels: the governed
+   * command is zero, the body is correctly still, and comparing that against a
+   * request for half a metre a second is a disagreement that can never close.
+   *
+   * It is also the physically correct comparison. A body's velocity now is a
+   * response to the command it was given last tick, not to this one.
+   */
+  private lastSentCommand = { linear: 0, angular: 0 };
   private last: SafetyVerdict = {
     level: "clear",
     speedScale: 1,
@@ -109,6 +159,103 @@ export class SafetyGovernor implements SafetyApi {
     this.limits = { ...DEFAULT_LIMITS, ...options.limits };
     this.allowContact = options.allowContact ?? true;
     this.onChange = options.onChange;
+    this.conflictMonitor = (options.watchConflicts ?? true) ? new ConflictMonitor() : null;
+  }
+
+  /**
+   * Compare what was asked for against what the robot's senses say happened.
+   *
+   * Called from `govern`, because that is the only place holding both halves of
+   * the comparison. Everything it finds lands in the next verdict.
+   */
+  private sampleConflicts(robot: RobotIO): void {
+    const monitor = this.conflictMonitor;
+    if (!monitor) return;
+    const hasImu = robot.capabilities.includes("imu" as never);
+    const imu = hasImu ? robot.imu() : null;
+    const scan = this.tracksScan(robot) ? robot.lidar() : null;
+
+    // Prefer the clock that stamped the reading, from whichever channel this
+    // robot actually has. Falling back to wall time is correct on a robot whose
+    // driver stamps nothing, and wrong the moment it is mixed with a sensor
+    // clock, so a change of clock resets the history rather than being
+    // differenced across.
+    const stamped =
+      imu?.stamp === "sensor" ? imu.t : scan?.stamp === "sensor" ? scan.t : null;
+    const clock: "sensor" | "wall" = stamped === null ? "wall" : "sensor";
+    if (clock !== this.conflictClock) {
+      monitor.reset();
+      this.conflicts = [];
+      this.conflictClock = clock;
+      this.conflictSampledAt = null;
+    }
+    const now = stamped ?? Date.now();
+
+    // Sampling the same instant twice is not two observations.
+    //
+    // `drive` governs the command it is given, so a caller that governs and
+    // then drives samples this twice per control tick with the sensors in
+    // exactly the same state. The second pass finds no time elapsed, so the
+    // scan comparison has nothing to difference against and returns nothing —
+    // and that nothing replaced a real detection. Measured: a robot whose
+    // wheels spun for three seconds on a frictionless floor was still allowed
+    // full speed, because every detection was overwritten by its own duplicate.
+    //
+    // Holding the previous answer is the honest response. No time has passed,
+    // so nothing has been learned.
+    if (this.conflictSampledAt === now) return;
+    this.conflictSampledAt = now;
+
+    const odometry = robot.velocity();
+    if (!Number.isFinite(odometry.linear) || !Number.isFinite(odometry.angular)) {
+      // Odometry that is not reporting numbers is a different fault, already
+      // caught upstream as invalid evidence. Comparing against it here would
+      // manufacture a contradiction out of a channel that is simply down.
+      this.conflicts = [];
+      return;
+    }
+    // A gyro that is absent, or not reporting numbers, is a missing channel —
+    // not a gyro claiming the robot is standing still. Standing in the
+    // odometry's own figure makes the comparison a no-op rather than a
+    // fabricated conflict; the missing channel is reported as invalid or absent
+    // evidence elsewhere, which is where it belongs.
+    const gyroYawRate =
+      imu && Number.isFinite(imu.yawRate) ? imu.yawRate : odometry.angular;
+    this.conflicts = monitor.check(
+      {
+        commanded: this.lastSentCommand,
+        odometry,
+        gyroYawRate,
+        scanClosure: this.tracksScan(robot)
+          ? monitor.sampleScan(robot, now, odometry.angular)
+          : null,
+        at: now,
+      },
+      new Map(),
+    );
+  }
+
+  private tracksScan(robot: RobotIO): boolean {
+    return robot.capabilities.includes("lidar" as never);
+  }
+
+  /** Contradictions standing right now, for anyone who has to act on them. */
+  standingConflicts(): readonly WorldStateConflict[] {
+    return this.conflicts;
+  }
+
+  /**
+   * Re-arm after a contradiction, the way an operator resets a tripped guard.
+   *
+   * A conflict is kept until the senses positively agree again at a magnitude
+   * that proves something, and an obedience conflict stops the wheels — so a
+   * robot that has been accused of not obeying can never demonstrate otherwise
+   * on its own. Somebody has to decide to try again. It re-raises immediately
+   * if the fault is still there.
+   */
+  clearConflicts(): void {
+    this.conflictMonitor?.clear();
+    this.conflicts = [];
   }
 
   /**
@@ -215,9 +362,49 @@ export class SafetyGovernor implements SafetyApi {
     const quality = scanQuality(scan);
     const blind = quality < this.limits.minScanQuality;
 
-    const allowed = blind
-      ? Math.min(humanLimit, obstacleLimit, this.limits.blindSpeed)
-      : Math.min(humanLimit, obstacleLimit);
+    // The senses contradicting each other about the robot's own motion.
+    //
+    // Every other check above asks whether a channel is reporting, and a robot
+    // whose wheels are spinning on ice passes all of them: the odometry is
+    // fresh, complete, in range and wrong. Only a second measurement of the
+    // same quantity catches it, which is what this is.
+    const contradiction = worstResponse(this.conflicts);
+    if (contradiction === "stop") {
+      // Not a latched emergency stop: the robot is not doing what it was told,
+      // and the answer to that is to stop telling it things, not to require a
+      // human to come and re-arm it. It clears when the robot obeys again.
+      return this.publish({
+        level: "stop",
+        speedScale: 0,
+        reason: this.conflicts.map((conflict) => conflict.summary).join(" "),
+        nearestHuman,
+        peopleSensed,
+        conflicts: this.conflicts,
+      });
+    }
+
+    const allowed = Math.min(
+      humanLimit,
+      obstacleLimit,
+      blind ? this.limits.blindSpeed : Number.POSITIVE_INFINITY,
+      contradiction === "degrade" || contradiction === "slow"
+        ? this.limits.conflictSpeed
+        : Number.POSITIVE_INFINITY,
+    );
+
+    if (contradiction !== "none" && !blind) {
+      return this.publish({
+        level: "slow",
+        speedScale: clamp(allowed / this.limits.maxLinear, 0, 1),
+        reason:
+          `${this.conflicts.map((conflict) => conflict.quantity).join(" and ")} is being ` +
+          `reported two different ways — holding ${this.limits.conflictSpeed} m/s until they ` +
+          `agree. ${this.conflicts.map((conflict) => conflict.summary).join(" ")}`,
+        nearestHuman,
+        peopleSensed,
+        conflicts: this.conflicts,
+      });
+    }
     const speedScale = clamp(allowed / this.limits.maxLinear, 0, 1);
 
     if (blind) {
@@ -267,6 +454,9 @@ export class SafetyGovernor implements SafetyApi {
    * robot can still look for a way out.
    */
   govern(robot: RobotIO, linear: number, angular: number): GovernedCommand {
+    // Sampled here because this is the only place that sees every command on
+    // its way to the motors.
+    this.sampleConflicts(robot);
     const verdict = this.assess(robot);
 
     // A reflex that has taken the wheel keeps them. Without this, a deliberative
@@ -274,6 +464,10 @@ export class SafetyGovernor implements SafetyApi {
     // the evasive manoeuvre never happens — the two controllers average each
     // other out into standing still.
     if (this.override) {
+      this.lastSentCommand = {
+        linear: this.override.linear,
+        angular: this.override.angular,
+      };
       return {
         linear: this.override.linear,
         angular: this.override.angular,
@@ -296,6 +490,7 @@ export class SafetyGovernor implements SafetyApi {
       this.limits.maxAngular * angularScale,
     );
 
+    this.lastSentCommand = { linear: safeLinear, angular: safeAngular };
     return {
       linear: safeLinear,
       angular: safeAngular,

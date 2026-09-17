@@ -5,6 +5,7 @@
 
 import type { Pose2, Vec2 } from "./math.ts";
 import type { CapabilityEvidenceRecord, EvidenceRequirement } from "./gate.ts";
+import type { WorldStateConflict } from "./conflict.ts";
 
 /**
  * How much damage this ability can do if it misbehaves. The safety governor
@@ -395,6 +396,15 @@ export type SafetyVerdict = {
    * rather than discovering.
    */
   peopleSensed?: boolean;
+  /**
+   * Senses that currently contradict each other about the robot's own motion.
+   *
+   * Present rather than folded into `reason` because a contradiction names two
+   * sources, two readings and two timestamps, and an operator deciding what to
+   * do needs all of it. Collapsing that into a sentence is how "the robot
+   * slowed down for some reason" happens.
+   */
+  conflicts?: WorldStateConflict[];
 };
 
 export type SafetyApi = {

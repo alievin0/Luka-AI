@@ -99,6 +99,17 @@ export type SimRobot = {
   gripperForce: number;
   holding: string | null;
   slip: number;
+  /**
+   * How much of the wheel speed the floor actually converts into travel, 0..1.
+   *
+   * A property of the ground, not of the robot. At 1 the wheels carry the body;
+   * at 0 they turn freely and the robot goes nowhere — ice, a lip the wheels
+   * cannot climb, a chassis jacked up on a threshold. The odometry keeps
+   * reporting the wheel speed the whole time, because that is what a wheel
+   * encoder measures, which is exactly the failure the conflict detectors exist
+   * to catch.
+   */
+  groundTraction: number;
   /** Force a nearby person is applying to whatever the robot is holding, N. */
   externalPull: number;
   armTip: Vec2;
@@ -296,6 +307,7 @@ export class SimWorld {
       gripperForce: 0,
       holding: null,
       slip: 0,
+      groundTraction: 1,
       externalPull: 0,
       armTip: { x: 0.35, y: 0 },
       armHeight: 0.4,
@@ -429,8 +441,11 @@ export class SimWorld {
     );
     const actualAccel = (robot.linear - previousLinear) / dt;
 
-    // A tipping robot loses traction.
-    const traction = clamp(1 - Math.abs(robot.tilt) / 0.5, 0, 1);
+    // A tipping robot loses traction, and so does one on a floor that will not
+    // hold it. Both reduce how much of the wheel speed becomes travel; neither
+    // touches `robot.linear`, which is what the encoders read.
+    const traction =
+      clamp(1 - Math.abs(robot.tilt) / 0.5, 0, 1) * clamp(robot.groundTraction, 0, 1);
     const effectiveLinear = robot.linear * traction;
 
     const nextX = robot.pose.x + Math.cos(robot.pose.theta) * effectiveLinear * dt;
