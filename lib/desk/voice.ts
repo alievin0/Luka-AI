@@ -1,15 +1,19 @@
 /**
- * Browser speech, for hearing the receptionist and talking back to it.
+ * Speech in the browser: hearing the receptionist, and talking back to it.
  *
- * This is NOT the phone channel. A real voice agent answers a telephone
- * number, which needs a telephony provider and is not built. What this does
- * give is a genuine spoken conversation with the same engine, in the browser,
- * with no account of any kind — enough to hear whether the agent sounds right
- * before paying anyone for a phone line.
+ * Output has two engines and they are not equals. A neural provider on the
+ * server (`/api/desk/speak`) sounds like a person; the browser's own
+ * `speechSynthesis` is the unmistakable system robot, and on macOS it is a
+ * voice every listener has heard before. So the server is tried first and the
+ * browser is only the fallback — and `speak` reports which one actually spoke,
+ * because "the demo sounded robotic" is worth knowing rather than hiding.
  *
- * Support is uneven: recognition is WebKit-only in practice (Safari, Chrome),
- * and the set of Arabic voices depends entirely on the operating system. Every
- * function here reports what is actually available rather than assuming.
+ * This is NOT the phone channel either way. A real voice agent answers a
+ * telephone number, which needs a telephony provider and is not built.
+ *
+ * Input support is uneven: recognition is WebKit-only in practice (Safari,
+ * Chrome). Every function here reports what is actually available rather than
+ * assuming.
  */
 
 export type VoiceSupport = {
@@ -88,35 +92,118 @@ function pickArabicVoice(): SpeechSynthesisVoice | null {
 
 export type SpeakHandle = { cancel: () => void };
 
-export function speak(
-  text: string,
-  opts: { onStart?: () => void; onEnd?: () => void; onUnavailable?: () => void } = {},
-): SpeakHandle {
+/** Which engine produced the sound the operator is hearing. */
+export type SpeakEngine = "neural" | "browser";
+
+export type TtsStatus = {
+  configured: boolean;
+  provider: string | null;
+  voice: string | null;
+  available: string[];
+  note: string;
+};
+
+/** Ask the server which voice provider, if any, is wired up. */
+export async function fetchTtsStatus(): Promise<TtsStatus | null> {
+  try {
+    const res = await fetch("/api/desk/speak");
+    if (!res.ok) return null;
+    return (await res.json()) as TtsStatus;
+  } catch {
+    return null;
+  }
+}
+
+type SpeakOpts = {
+  onStart?: (engine: SpeakEngine) => void;
+  onEnd?: () => void;
+  /** No voice at all could be produced — say so rather than failing silently. */
+  onUnavailable?: (why: string) => void;
+};
+
+/**
+ * Speak `text` with the best engine available.
+ *
+ * The neural clip is fetched whole before playing: it is a couple of seconds
+ * of audio and streaming it would buy nothing but a chance to stall mid-word.
+ */
+export function speak(text: string, opts: SpeakOpts = {}): SpeakHandle {
+  let cancelled = false;
+  let audio: HTMLAudioElement | null = null;
+
+  const cancel = () => {
+    cancelled = true;
+    if (audio) {
+      audio.pause();
+      audio.src = "";
+      audio = null;
+    }
+    if (typeof window !== "undefined") window.speechSynthesis?.cancel();
+  };
+
+  // Stop whatever is already playing: replies must never overlap.
+  if (typeof window !== "undefined") window.speechSynthesis?.cancel();
+
+  (async () => {
+    try {
+      const res = await fetch("/api/desk/speak", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+      if (cancelled) return;
+
+      if (res.ok) {
+        const blob = await res.blob();
+        if (cancelled) return;
+        const url = URL.createObjectURL(blob);
+        const el = new Audio(url);
+        audio = el;
+        const done = () => {
+          URL.revokeObjectURL(url);
+          if (audio === el) audio = null;
+          opts.onEnd?.();
+        };
+        el.onended = done;
+        el.onerror = done;
+        el.onplay = () => opts.onStart?.("neural");
+        await el.play();
+        return;
+      }
+    } catch {
+      // Network or playback failure: fall through to the browser voice rather
+      // than leaving the operator with silence and no explanation.
+    }
+    if (!cancelled) speakWithBrowser(text, opts);
+  })();
+
+  return { cancel };
+}
+
+/** The fallback engine: always available, always obviously synthetic. */
+export function speakWithBrowser(text: string, opts: SpeakOpts = {}): void {
   if (typeof window === "undefined" || !window.speechSynthesis) {
-    opts.onUnavailable?.();
-    return { cancel: () => {} };
+    opts.onUnavailable?.("no_engine");
+    return;
   }
   const synth = window.speechSynthesis;
-  synth.cancel(); // never stack utterances on top of each other
+  synth.cancel();
 
   const utter = new SpeechSynthesisUtterance(text);
   const voice = pickArabicVoice();
-  if (voice) {
-    utter.voice = voice;
-    utter.lang = voice.lang;
-  } else {
+  if (!voice) {
     // No Arabic voice installed: say so rather than producing gibberish.
-    opts.onUnavailable?.();
-    return { cancel: () => {} };
+    opts.onUnavailable?.("no_arabic_voice");
+    return;
   }
+  utter.voice = voice;
+  utter.lang = voice.lang;
   utter.rate = 1.0;
   utter.pitch = 1.0;
-  utter.onstart = () => opts.onStart?.();
+  utter.onstart = () => opts.onStart?.("browser");
   utter.onend = () => opts.onEnd?.();
   utter.onerror = () => opts.onEnd?.();
-
   synth.speak(utter);
-  return { cancel: () => synth.cancel() };
 }
 
 export type ListenHandle = { stop: () => void };

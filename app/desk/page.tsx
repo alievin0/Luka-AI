@@ -2,8 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
-  detectSupport, listen, speak, whenVoicesReady,
-  VOICE_ERRORS, type VoiceSupport, type ListenHandle,
+  detectSupport, fetchTtsStatus, listen, speak, whenVoicesReady,
+  VOICE_ERRORS,
+  type VoiceSupport, type ListenHandle, type SpeakEngine, type TtsStatus,
 } from "@/lib/desk/voice";
 
 /**
@@ -52,6 +53,8 @@ export default function DeskConsole() {
   const [listening, setListening] = useState(false);
   const [speaking, setSpeaking] = useState(false);
   const [voiceNote, setVoiceNote] = useState<string | null>(null);
+  const [tts, setTts] = useState<TtsStatus | null>(null);
+  const [engine, setEngine] = useState<SpeakEngine | null>(null);
   const micRef = useRef<ListenHandle | null>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -92,12 +95,19 @@ export default function DeskConsole() {
     return whenVoicesReady(() => setVoice(detectSupport()));
   }, []);
 
+  // Which engine the server can offer decides what the console promises.
+  useEffect(() => { fetchTtsStatus().then(setTts); }, []);
+
   function say(text: string) {
     speak(text, {
-      onStart: () => setSpeaking(true),
+      onStart: (which) => { setEngine(which); setSpeaking(true); },
       onEnd: () => setSpeaking(false),
-      onUnavailable: () =>
-        setVoiceNote("ما في صوت عربي مثبّت على جهازك — نزّل صوت عربي من إعدادات النظام."),
+      onUnavailable: (why) =>
+        setVoiceNote(
+          why === "no_arabic_voice"
+            ? "ما في مزوّد صوت على السيرفر، ولا صوت عربي مثبّت على جهازك."
+            : "ما قدرت أشغّل أي صوت على هالجهاز.",
+        ),
     });
   }
 
@@ -205,7 +215,13 @@ export default function DeskConsole() {
                   : "border-slate-300 text-slate-600 hover:bg-slate-100")
               }
             >
-              {speaking ? "🔊 عم يحكي…" : speakReplies ? "🔊 الصوت شغّال" : "🔈 شغّل الصوت"}
+              {speaking
+                ? engine === "browser"
+                  ? "🤖 صوت آلي…"
+                  : "🔊 عم يحكي…"
+                : speakReplies
+                  ? "🔊 الصوت شغّال"
+                  : "🔈 شغّل الصوت"}
             </button>
           )}
           <button
@@ -345,12 +361,18 @@ export default function DeskConsole() {
             )}
           </form>
 
-          {(voiceNote || voice) && (
+          {(voiceNote || voice || tts) && (
             <p className="border-t border-slate-100 px-3 py-1.5 text-center text-[11px] text-slate-400">
-              {voiceNote ??
-                (voice?.canListen
-                  ? "🎙 صوت عبر المتصفح — مش خط تلفون. الرد على المكالمات بدو مزوّد اتصالات وما انبنى بعد."
-                  : "التعرّف على الصوت مش مدعوم بهالمتصفح — جرّب Safari أو Chrome.")}
+              {voiceNote ?? (
+                <>
+                  {tts?.configured
+                    ? `🔊 ${tts.note}`
+                    : "🤖 صوت المتصفح الآلي — ما في مزوّد صوت مضبوط. شوف DESK.md لتشغيل صوت بشري."}
+                  {voice?.canListen
+                    ? " · 🎙 مايك المتصفح — مش خط تلفون."
+                    : " · التعرّف على الصوت مش مدعوم بهالمتصفح."}
+                </>
+              )}
             </p>
           )}
         </main>

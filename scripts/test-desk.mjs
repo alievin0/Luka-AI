@@ -46,7 +46,7 @@ try {
     ["tsc",
      "lib/desk/time.ts", "lib/desk/tenants.ts", "lib/desk/escalation.ts",
      "lib/desk/bookings.ts", "lib/desk/whatsapp.ts", "lib/desk/agents.ts",
-     "lib/desk/db/index.ts", "lib/desk/db/memory.ts",
+     "lib/desk/db/index.ts", "lib/desk/db/memory.ts", "lib/desk/tts.ts",
      "--outDir", outDir, "--rootDir", "lib", "--module", "commonjs",
      "--target", "es2020", "--moduleResolution", "node",
      "--esModuleInterop", "--skipLibCheck", "--strict"],
@@ -64,6 +64,7 @@ const bk = await load("bookings.js");
 const wa = await load("whatsapp.js");
 const dbmod = await load("db/index.js");
 const mem = await load("db/memory.js");
+const tts = await load("tts.js");
 
 const repo = dbmod.getRepo();
 const B = await repo.getBusiness("t");
@@ -324,6 +325,108 @@ await check("a junk payload yields nothing rather than throwing", () => {
   assert.strictEqual(wa.parseIncoming(null).length, 0);
   assert.strictEqual(wa.parseIncoming({ entry: "nope" }).length, 0);
 });
+
+
+/* ── voice provider selection ─────────────────────────────────────────
+   Which provider speaks is a business decision, not a detail: Azure is the
+   only one with a Jordanian accent, and a client paying to sound local must
+   not silently get Modern Standard Arabic because two keys were present. */
+console.log("\n── voice provider selection ──");
+
+const VOICE_KEYS = [
+  "AZURE_SPEECH_KEY", "AZURE_SPEECH_REGION", "AZURE_SPEECH_VOICE",
+  "ELEVENLABS_API_KEY", "ELEVENLABS_VOICE_ID",
+  "OPENAI_API_KEY", "OPENAI_TTS_VOICE", "TTS_PROVIDER",
+];
+const clearVoiceEnv = () => { for (const k of VOICE_KEYS) delete process.env[k]; };
+
+await check("with no key at all the console is told it is the robot voice", () => {
+  clearVoiceEnv();
+  const st = tts.status();
+  assert.strictEqual(st.configured, false);
+  assert.strictEqual(st.provider, null);
+  assert.deepStrictEqual(st.available, []);
+  assert.match(st.note, /المتصفح/);
+});
+
+await check("an Azure key selects the Jordanian voice by default", () => {
+  clearVoiceEnv();
+  process.env.AZURE_SPEECH_KEY = "k";
+  process.env.AZURE_SPEECH_REGION = "uaenorth";
+  const st = tts.status();
+  assert.strictEqual(st.provider, "azure");
+  assert.strictEqual(st.voice, "ar-JO-TaimNeural");
+  assert.strictEqual(st.configured, true);
+});
+
+await check("Azure without its region is not usable", () => {
+  clearVoiceEnv();
+  process.env.AZURE_SPEECH_KEY = "k";
+  assert.strictEqual(tts.status().configured, false);
+});
+
+await check("Azure wins over ElevenLabs when both are configured", () => {
+  clearVoiceEnv();
+  process.env.AZURE_SPEECH_KEY = "k";
+  process.env.AZURE_SPEECH_REGION = "uaenorth";
+  process.env.ELEVENLABS_API_KEY = "e";
+  const st = tts.status();
+  assert.strictEqual(st.provider, "azure");
+  assert.deepStrictEqual(st.available, ["azure", "elevenlabs"]);
+});
+
+await check("an explicit TTS_PROVIDER overrides the preference order", () => {
+  clearVoiceEnv();
+  process.env.AZURE_SPEECH_KEY = "k";
+  process.env.AZURE_SPEECH_REGION = "uaenorth";
+  process.env.ELEVENLABS_API_KEY = "e";
+  process.env.TTS_PROVIDER = "elevenlabs";
+  assert.strictEqual(tts.status().provider, "elevenlabs");
+});
+
+await check("naming a provider with no key does not silence the voice", () => {
+  clearVoiceEnv();
+  process.env.AZURE_SPEECH_KEY = "k";
+  process.env.AZURE_SPEECH_REGION = "uaenorth";
+  process.env.TTS_PROVIDER = "elevenlabs";
+  // The typo'd choice is ignored and the configured provider still speaks.
+  assert.strictEqual(tts.status().provider, "azure");
+});
+
+await check("a chosen voice name replaces the default", () => {
+  clearVoiceEnv();
+  process.env.AZURE_SPEECH_KEY = "k";
+  process.env.AZURE_SPEECH_REGION = "uaenorth";
+  process.env.AZURE_SPEECH_VOICE = "ar-SA-ZariyahNeural";
+  assert.strictEqual(tts.status().voice, "ar-SA-ZariyahNeural");
+});
+
+await check("with no provider, synthesis says so instead of throwing", async () => {
+  clearVoiceEnv();
+  const r = await tts.synthesize("مرحبا");
+  assert.strictEqual(r.ok, false);
+  assert.strictEqual(r.reason, "unconfigured");
+});
+
+await check("an over-long text is refused before any provider is billed", async () => {
+  clearVoiceEnv();
+  process.env.AZURE_SPEECH_KEY = "k";
+  process.env.AZURE_SPEECH_REGION = "uaenorth";
+  const r = await tts.synthesize("ا".repeat(tts.MAX_CHARS + 1));
+  assert.strictEqual(r.ok, false);
+  assert.strictEqual(r.reason, "too_long");
+});
+
+await check("empty text is refused", async () => {
+  clearVoiceEnv();
+  process.env.AZURE_SPEECH_KEY = "k";
+  process.env.AZURE_SPEECH_REGION = "uaenorth";
+  const r = await tts.synthesize("   ");
+  assert.strictEqual(r.ok, false);
+  assert.strictEqual(r.reason, "empty");
+});
+
+clearVoiceEnv();
 
 console.log(`\n${process.exitCode ? "✗ FAILURES ABOVE" : "✓ all"} — ${passed} checks passed\n`);
 rmSync(outDir, { recursive: true, force: true });
