@@ -189,8 +189,11 @@ def preflight(verbose=True, require_provider=True):
         elif hasattr(prov, "probe"):
             ok_probe, why, res = prov.probe()
             if ok_probe:
-                say("   live probe     : OK (%d in / %d out tokens, $%.6f)"
-                    % (res.tokens_in, res.tokens_out, res.usd))
+                note = "" if res.status == "OK" else "  (no text block, but the "
+                if note:
+                    note += "provider answered and billed tokens)"
+                say("   live probe     : OK (%d in / %d out tokens, $%.6f)%s"
+                    % (res.tokens_in, res.tokens_out, res.usd, note))
             else:
                 fails.append("the provider does not answer: %s" % why)
                 say("   live probe     : FAILED — %s" % why)

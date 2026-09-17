@@ -147,18 +147,31 @@ class ClaudeProvider(Provider):
         return "ANTHROPIC_API_KEY is not set"
 
     def probe(self):
-        """R21. One minimal real call, to learn whether the key actually works.
+        """R21/R23. One minimal real call, to learn whether the provider ANSWERS.
 
-        available() only ever checked that a string was set. A revoked, expired
-        or malformed key passes it, and Campaign #3's first execution attempt
-        duly failed all 90 runs while the pre-flight had reported the provider
-        healthy. Costs a fraction of a cent and is the difference between
-        'a key is present' and 'the provider answers'."""
+        available() only ever checked that a string was set, so a revoked key
+        passed the pre-flight and Campaign #3's second attempt failed all 90
+        runs (R21).
+
+        R23: the first version asked for max_tokens=4. Current Sonnet runs
+        adaptive thinking by default, so the whole budget went to thinking and
+        no text block came back — the probe passed once by luck and failed the
+        next call with 'empty completion', blocking a campaign over a healthy
+        key. Two corrections: enough room to emit text, and a clear separation
+        between the provider NOT ANSWERING (auth, network, HTTP error — which
+        does block a campaign) and the model merely returning no text (a
+        generation outcome, which does not). A 200 with billed tokens is an
+        answer."""
         if not self.key:
             return False, self.why_unavailable(), None
-        res = self.complete("Reply with the single character: 1", "1", max_tokens=4)
-        if res.status == "OK":
+        res = self.complete("Reply with the single character: 1", "1", max_tokens=256)
+
+        # The provider answered if the call completed and tokens were accounted.
+        answered = res.status == "OK" or (
+            res.error == "empty completion" and (res.tokens_in or res.tokens_out))
+        if answered:
             return True, "", res
+
         detail = res.error or res.status
         if "401" in str(detail) or "authentication" in str(detail).lower():
             detail += "  <- the key is present but REJECTED (revoked, expired or wrong)"

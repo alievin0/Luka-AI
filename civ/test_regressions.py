@@ -773,5 +773,61 @@ class R22_TheAnalysisReadTheWrongTaskSet(unittest.TestCase):
                          "v1 task ids must not appear in a v2 campaign's analysis")
 
 
+class R23_TheProbeBlockedAHealthyProvider(unittest.TestCase):
+    """Found on Campaign #3's THIRD attempt, 2026-09-17, on the owner's machine.
+
+    R21's probe asked for max_tokens=4. Current Sonnet runs adaptive thinking by
+    default, so the whole budget went to thinking and no text block came back.
+    It passed once by luck (3 output tokens, $0.000066) and failed the very next
+    call with 'empty completion' — blocking the campaign over a perfectly
+    healthy, freshly minted key.
+
+    Two defects, not one. The budget was too small, and the probe conflated
+    'the provider does not answer' with 'the model returned no text'. Those are
+    different: the first blocks a campaign, the second does not. A 200 with
+    billed tokens is an answer."""
+
+    def test_the_probe_leaves_room_for_a_thinking_model(self):
+        src = inspect.getsource(P.ClaudeProvider.probe)
+        call = [l for l in src.splitlines() if "res = self.complete(" in l][0]
+        self.assertIn("max_tokens=256", call,
+                      "a 4-token probe cannot produce text on a thinking model")
+
+    def test_a_200_with_tokens_counts_as_an_answer_even_with_no_text(self):
+        class NoText(P.ClaudeProvider):
+            def complete(self, system, prompt, model=None, max_tokens=800):
+                return P.Result("FAILED", "model", "claude", "m", text="",
+                                tokens_in=18, tokens_out=40,
+                                error="empty completion")
+        ok, why, res = NoText(key="k").probe()
+        self.assertTrue(ok, "a billed 200 is the provider answering: %s" % why)
+
+    def test_a_401_still_blocks_and_names_the_cause(self):
+        class Rejected(P.ClaudeProvider):
+            def complete(self, system, prompt, model=None, max_tokens=800):
+                return P.Result("FAILED", "model", "claude", "m",
+                                error='HTTP 401: {"type":"authentication_error"}')
+        ok, why, _ = Rejected(key="k").probe()
+        self.assertFalse(ok)
+        self.assertIn("REJECTED", why)
+
+    def test_a_transport_failure_still_blocks(self):
+        class Dead(P.ClaudeProvider):
+            def complete(self, system, prompt, model=None, max_tokens=800):
+                return P.Result("FAILED", "model", "claude", "m",
+                                error="URLError(ConnectionRefused)")
+        ok, _, _ = Dead(key="k").probe()
+        self.assertFalse(ok, "no tokens and no response is not an answer")
+
+    def test_the_campaigns_own_token_budget_is_left_alone(self):
+        """900/500 produced real answers across campaigns #1 and #2 on this
+        model, so it is not changed on suspicion. If it ever does fail, the
+        abort-after-six guard stops it at six runs rather than ninety."""
+        with open(os.path.join(HERE, "bench_run.py"), encoding="utf-8") as fh:
+            src = fh.read()
+        self.assertIn("max_tokens=900", src)
+        self.assertIn("max_tokens=500", src)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
