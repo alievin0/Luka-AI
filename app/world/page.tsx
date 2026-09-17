@@ -4,17 +4,29 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 
 /**
- * The agent world.
+ * The agent world — a miniature model of the business.
  *
- * A mirror of the running system, not a separate animation. Agents, their
- * states, and every moving pulse come from `/api/desk`, which returns what the
+ * It mirrors the running system rather than animating beside it. Agents, their
+ * states and every moving pulse come from `/api/desk`, which returns what the
  * pipeline actually wrote. An agent shown working is working; an agent drawn
- * faded has no code behind it yet and can never be animated as busy.
+ * pale has no code behind it yet and is never animated as busy. The routes
+ * between rooms are not a drawn diagram either — each one exists because a
+ * real message crossed it, and thickens with the traffic it carries.
  *
- * The connections between agents are not drawn from a diagram either: each one
- * appears because a real message travelled that edge, and thickens the more
- * traffic it carries. A fresh install shows an empty floor, which is the
- * truth — the map draws itself as the system is used.
+ * Art direction, because the first pass looked like a debug view:
+ *
+ *   - An ORTHOGRAPHIC camera at a fixed elevation. This one decision is most
+ *     of the difference between "architectural model" and "tech demo"; a free
+ *     perspective orbit reads as unfinished however good the geometry is.
+ *   - A warm, desaturated palette for everything built — sand, cream, oak,
+ *     charcoal. The agents' state colours are then the only saturated things
+ *     on screen, so the eye goes straight to what changed. Spending colour on
+ *     the scenery is what made the previous version unreadable.
+ *   - Flat Lambert shading, one warm key light, long soft shadows, and a
+ *     contact shadow under everything that stands. No emissive glow, no fog,
+ *     no gradient sky: those hide weak forms rather than fixing them.
+ *   - Chunky proportions, head about a third of the height. Realistic
+ *     proportions at this scale read as blobs.
  */
 
 type Agent = {
@@ -43,13 +55,16 @@ const STATE_AR: Record<string, string> = {
   offline: "ما انبنى", deploying: "قيد النشر",
 };
 
+/**
+ * The only saturated colours in the scene. Everything the world is built from
+ * is deliberately muted so that these carry all the meaning.
+ */
 const STATE_COLOR: Record<string, number> = {
-  idle: 0x8fa0bd, working: 0x2f6bf0, processing: 0x2f6bf0, waiting: 0xe0972c,
-  using_tool: 0x8257e6, escalated: 0xdc4436, error: 0xdc4436,
-  offline: 0xbcc5d4, deploying: 0x16a36a,
+  idle: 0x9bb0c9, working: 0x2f6df0, processing: 0x2f6df0, waiting: 0xe8993a,
+  using_tool: 0x8257e6, escalated: 0xd94a3d, error: 0xd94a3d,
+  offline: 0xc9c2b6, deploying: 0x16a36a,
 };
 
-/** The colours the legend explains, in the order it lists them. */
 const LEGEND: Array<{ state: string; label: string }> = [
   { state: "working", label: "شغّال" },
   { state: "using_tool", label: "بيستعمل أداة" },
@@ -59,18 +74,40 @@ const LEGEND: Array<{ state: string; label: string }> = [
   { state: "offline", label: "ما انبنى" },
 ];
 
-/** Where each zone sits on the floor. */
-const ZONE_POS: Record<string, [number, number]> = {
-  reception: [0, 1], knowledge: [-8, -3], booking: [8, -3],
-  escalation: [0, -8], tools: [-8, 5], supervision: [8, 5],
-  workshop: [12, 0], business: [0, -13],
+/** The material palette of the model itself: warm, low-saturation, quiet. */
+const P = {
+  ground: 0xccb99c,
+  floor: 0xfbf8f1,
+  rug: 0xe3d8c4,
+  rim: 0xb09a79,
+  wall: 0xe7ddcb,
+  oak: 0xc08b5c,
+  oakDark: 0x9c6b3a,
+  charcoal: 0x38342e,
+  screen: 0x33465c,
+  plant: 0x6b9e78,
+  plantDark: 0x4e7b5b,
+  ink: 0x6b5a45,
 };
 
-/** Nodes that are not agents but do appear as event endpoints. */
+/**
+ * The floorplan. Rooms sit on a 9.5-unit grid with reception at the heart and
+ * the customer arriving from the front, so the layout itself reads as the path
+ * a message takes.
+ */
+const ZONE_POS: Record<string, [number, number]> = {
+  reception: [0, 3.5],
+  knowledge: [-8.4, 3.5], booking: [8.4, 3.5],
+  tools: [-8.4, 11.9], supervision: [8.4, 11.9],
+  escalation: [0, -4.9],
+  workshop: [-8.4, -4.9], business: [8.4, -4.9],
+};
+
+/** Endpoints that are not rooms: the doorway the customer arrives through. */
 const EXTRA_NODES: Record<string, { label: string; pos: [number, number]; color: number }> = {
-  customer: { label: "الزبون", pos: [0, 11], color: 0x16a36a },
-  "channel-web": { label: "المتصفح", pos: [-5, 7.5], color: 0x8257e6 },
-  "channel-voice": { label: "الصوت", pos: [5, 7.5], color: 0x64748b },
+  customer: { label: "الزبون", pos: [0, 16], color: 0x16a36a },
+  "channel-web": { label: "المتصفح", pos: [-3.4, 12.2], color: 0x8257e6 },
+  "channel-voice": { label: "الصوت", pos: [3.4, 12.2], color: 0x6b7a8f },
 };
 
 const hex = (n: number) => "#" + n.toString(16).padStart(6, "0");
@@ -89,7 +126,6 @@ export default function WorldPage() {
   const seenEvents = useRef<Set<string>>(new Set());
   const primed = useRef(false);
 
-  /* ── data ─────────────────────────────────────────────────────────── */
   useEffect(() => {
     fetch("/api/desk")
       .then((r) => r.json())
@@ -125,15 +161,12 @@ export default function WorldPage() {
     return () => { alive = false; clearInterval(timer); };
   }, [businessId]);
 
-  /**
-   * The map of the system, derived from traffic rather than declared. An edge
-   * exists because messages crossed it, and its weight is how many.
-   */
+  /** The map of the system, derived from traffic rather than declared. */
   const edges = useMemo<Edge[]>(() => {
     const counts = new Map<string, Edge>();
     for (const e of events) {
       if (!e.from || !e.to || e.from === e.to) continue;
-      const key = `${e.from}→${e.to}`;
+      const key = `${e.from}>${e.to}`;
       const hit = counts.get(key);
       if (hit) hit.count += 1;
       else counts.set(key, { from: e.from, to: e.to, count: 1 });
@@ -145,7 +178,6 @@ export default function WorldPage() {
   useEffect(() => { sceneApi.current?.setEdges(edges); }, [edges]);
   useEffect(() => { sceneApi.current?.focus(selected); }, [selected]);
 
-  /* New events since the last poll become pulses in the scene. */
   useEffect(() => {
     if (!sceneApi.current) return;
     const fresh = events.filter((e) => !seenEvents.current.has(e.id));
@@ -153,14 +185,12 @@ export default function WorldPage() {
     // opening the page replays every event ever recorded in one burst.
     const replay = primed.current;
     primed.current = true;
-    // Oldest first, so a burst animates in the order it happened.
     for (const e of [...fresh].reverse()) {
       seenEvents.current.add(e.id);
       if (replay && e.from && e.to) sceneApi.current.pulse(e.from, e.to);
     }
   }, [events]);
 
-  /* ── scene ────────────────────────────────────────────────────────── */
   useEffect(() => {
     if (!mountRef.current) return;
     const api = buildScene(mountRef.current, (code) => setSelected(code));
@@ -177,25 +207,25 @@ export default function WorldPage() {
   const recent = events.slice(0, 40);
 
   return (
-    <div className="flex h-screen flex-col bg-[#0b1220] text-slate-100">
-      <header className="z-10 flex flex-wrap items-center gap-3 border-b border-white/10 bg-[#0e162a] px-4 py-3">
-        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-600 text-lg">🌐</div>
+    <div className="flex h-screen flex-col bg-[#efe8dc]">
+      <header className="z-10 flex flex-wrap items-center gap-3 border-b border-[#ddd2be] bg-[#f7f2e9] px-4 py-3">
+        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#38342e] text-lg">🏛️</div>
         <div className="flex-1">
-          <h1 className="text-base font-bold leading-tight">عالم الوكلاء</h1>
-          <p className="text-[11px] text-slate-400">
-            مرآة للنظام — الحالات والخطوط والحركة كلها من نشرتك الحقيقية
+          <h1 className="text-base font-bold leading-tight text-[#38342e]">عالم الوكلاء</h1>
+          <p className="text-[11px] text-[#8d8271]">
+            نموذج مصغّر لشركتك — الحالات والمسارات والحركة كلها من نشرتك الحقيقية
           </p>
         </div>
 
-        <div className="flex items-center gap-2 text-xs">
-          <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5">
+        <div className="flex items-center gap-2 text-xs text-[#5c554a]">
+          <span className="rounded-full border border-[#ddd2be] bg-white/70 px-3 py-1.5">
             🧩 مبني <b className="font-mono">{live.length}</b>
-            <span className="text-slate-500">/{agents.length}</span>
+            <span className="text-[#a89d8b]">/{agents.length}</span>
           </span>
-          <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5">
+          <span className="rounded-full border border-[#ddd2be] bg-white/70 px-3 py-1.5">
             ⚡️ شغّال الآن <b className="font-mono">{busy.length}</b>
           </span>
-          <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5">
+          <span className="rounded-full border border-[#ddd2be] bg-white/70 px-3 py-1.5">
             🔗 مسارات <b className="font-mono">{edges.length}</b>
           </span>
         </div>
@@ -208,46 +238,45 @@ export default function WorldPage() {
             primed.current = false;
             setSelected(null);
           }}
-          className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm text-slate-100 outline-none focus:border-brand-400"
+          className="rounded-xl border border-[#ddd2be] bg-white px-3 py-2 text-sm text-[#38342e] outline-none focus:border-[#c08b5c]"
         >
           {businesses.map((b) => (
-            <option key={b.id} value={b.id} className="bg-[#0e162a]">{b.name}</option>
+            <option key={b.id} value={b.id}>{b.name}</option>
           ))}
         </select>
         <a
           href="/desk"
-          className="rounded-xl bg-brand-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-700"
+          className="rounded-xl bg-[#38342e] px-4 py-2 text-sm font-semibold text-[#f7f2e9] transition hover:bg-[#4a453d]"
         >
           احكي معهم ←
         </a>
       </header>
 
       {storage && !storage.persistent && (
-        <div className="z-10 border-b border-amber-500/20 bg-amber-500/10 px-4 py-1.5 text-center text-[11px] text-amber-300">
+        <div className="z-10 border-b border-amber-300/60 bg-amber-100/70 px-4 py-1.5 text-center text-[11px] text-amber-900">
           🗄️ التخزين بالذاكرة — الأحداث والمسارات بتنمسح مع كل نشر.
         </div>
       )}
       {error && (
-        <div className="z-10 border-b border-red-500/20 bg-red-500/10 px-4 py-1.5 text-center text-[11px] text-red-300">
+        <div className="z-10 border-b border-red-300/60 bg-red-100/70 px-4 py-1.5 text-center text-[11px] text-red-800">
           ⚠️ {error}
         </div>
       )}
 
       <div className="flex flex-1 overflow-hidden">
         <div ref={mountRef} className="relative flex-1">
-          {/* Depth at the edges, so the floor reads as a space rather than a page. */}
           <div
             className="pointer-events-none absolute inset-0"
-            style={{ boxShadow: "inset 0 0 180px 60px rgba(4,8,18,0.75)" }}
+            style={{ boxShadow: "inset 0 0 160px 50px rgba(120,104,80,0.16)" }}
           />
 
-          <div className="pointer-events-none absolute right-4 top-4 rounded-2xl border border-white/10 bg-black/35 p-3 backdrop-blur-sm">
-            <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-slate-400">
+          <div className="pointer-events-none absolute right-4 top-4 rounded-2xl border border-[#ddd2be] bg-white/85 p-3 shadow-sm backdrop-blur-sm">
+            <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-[#a89d8b]">
               الألوان
             </p>
             <ul className="space-y-1">
               {LEGEND.map((l) => (
-                <li key={l.state} className="flex items-center gap-2 text-[11px] text-slate-300">
+                <li key={l.state} className="flex items-center gap-2 text-[11px] text-[#5c554a]">
                   <span
                     className="h-2.5 w-2.5 rounded-full"
                     style={{ background: hex(STATE_COLOR[l.state]) }}
@@ -259,102 +288,102 @@ export default function WorldPage() {
           </div>
 
           {agents.length > 0 && edges.length === 0 && (
-            <div className="pointer-events-none absolute inset-x-0 top-1/2 flex justify-center">
-              <p className="pointer-events-auto rounded-2xl border border-white/10 bg-black/50 px-5 py-3 text-center text-xs text-slate-300 backdrop-blur-sm">
-                الوكلاء واقفين بأماكنهم، بس ما في مسارات لسّا.
+            <div className="pointer-events-none absolute inset-x-0 bottom-14 flex justify-center px-4">
+              <p className="pointer-events-auto rounded-2xl border border-[#ddd2be] bg-white/90 px-5 py-3 text-center text-xs text-[#5c554a] shadow-sm backdrop-blur-sm">
+                الوكلاء بمكاتبهم، بس ما في مسارات لسّا.
                 <br />
-                <a className="text-brand-300 underline" href="/desk">افتح لوحة التجربة</a> واحكي
-                معهم — كل رسالة بترسم خط جديد هون.
+                <a className="font-semibold text-[#a2713f] underline" href="/desk">افتح لوحة التجربة</a>{" "}
+                واحكي معهم — كل رسالة بترسم مسار جديد هون.
               </p>
             </div>
           )}
 
-          <p className="pointer-events-none absolute bottom-3 right-4 rounded-full border border-white/10 bg-black/35 px-3 py-1 text-[11px] text-slate-400 backdrop-blur-sm">
+          <p className="pointer-events-none absolute bottom-3 right-4 rounded-full border border-[#ddd2be] bg-white/85 px-3 py-1 text-[11px] text-[#8d8271] backdrop-blur-sm">
             اسحب لتدوير · عجلة الماوس للتقريب · اضغط على وكيل
           </p>
         </div>
 
-        <aside className="flex w-[350px] shrink-0 flex-col overflow-hidden border-r border-white/10 bg-[#0e162a]">
-          <section className="border-b border-white/10 p-4">
-            <h2 className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+        <aside className="flex w-[350px] shrink-0 flex-col overflow-hidden border-r border-[#ddd2be] bg-[#f7f2e9]">
+          <section className="border-b border-[#ddd2be] p-4">
+            <h2 className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-[#a89d8b]">
               الوكيل المحدّد
             </h2>
             {current ? (
               <>
                 <div className="flex items-center gap-2">
-                  <h3 className="text-base font-bold">{current.name}</h3>
+                  <h3 className="text-base font-bold text-[#38342e]">{current.name}</h3>
                   <span
                     className="rounded-md border px-2 py-0.5 text-[10px] font-semibold"
                     style={{
-                      color: hex(STATE_COLOR[current.state] ?? 0x8fa0bd),
+                      color: hex(STATE_COLOR[current.state] ?? 0x9bb0c9),
                       borderColor: "currentColor",
                     }}
                   >
                     {STATE_AR[current.state] ?? current.state}
                   </span>
                 </div>
-                <p className="text-xs text-slate-400">{current.role}</p>
+                <p className="text-xs text-[#8d8271]">{current.role}</p>
                 <dl className="mt-3 space-y-1.5 text-xs">
                   <div className="flex gap-2">
-                    <dt className="w-16 shrink-0 text-slate-500">المنطقة</dt>
-                    <dd className="text-slate-300">{ZONE_AR[current.zone] ?? current.zone}</dd>
+                    <dt className="w-16 shrink-0 text-[#a89d8b]">المكتب</dt>
+                    <dd className="text-[#5c554a]">{ZONE_AR[current.zone] ?? current.zone}</dd>
                   </div>
                   <div className="flex gap-2">
-                    <dt className="w-16 shrink-0 text-slate-500">الحالة</dt>
-                    <dd className="text-slate-300">
+                    <dt className="w-16 shrink-0 text-[#a89d8b]">الحالة</dt>
+                    <dd className="text-[#5c554a]">
                       {current.lifecycle === "live" ? "كوده مكتوب" : "تصميم — ما انبنى"}
                     </dd>
                   </div>
                 </dl>
                 {current.capabilities.length > 0 && (
                   <>
-                    <h4 className="mt-3 text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+                    <h4 className="mt-3 text-[10px] font-semibold uppercase tracking-widest text-[#a89d8b]">
                       بيقدر يعمل
                     </h4>
-                    <ul className="mt-1 space-y-0.5 text-xs text-slate-300">
+                    <ul className="mt-1 space-y-0.5 text-xs text-[#5c554a]">
                       {current.capabilities.map((c) => <li key={c}>• {c}</li>)}
                     </ul>
                   </>
                 )}
                 {current.permissions.length > 0 && (
                   <>
-                    <h4 className="mt-3 text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+                    <h4 className="mt-3 text-[10px] font-semibold uppercase tracking-widest text-[#a89d8b]">
                       صلاحياته
                     </h4>
-                    <p className="mt-1 text-xs text-slate-300">{current.permissions.join(" · ")}</p>
+                    <p className="mt-1 text-xs text-[#5c554a]">{current.permissions.join(" · ")}</p>
                   </>
                 )}
               </>
             ) : (
-              <p className="text-xs text-slate-500">اضغط على وكيل بالعالم لتشوف تفاصيله.</p>
+              <p className="text-xs text-[#a89d8b]">اضغط على وكيل بالعالم لتشوف تفاصيله.</p>
             )}
           </section>
 
           <section className="flex min-h-0 flex-1 flex-col p-4">
-            <h2 className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+            <h2 className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-[#a89d8b]">
               الأحداث — مباشرة
             </h2>
             {recent.length === 0 ? (
-              <p className="text-xs text-slate-500">
+              <p className="text-xs text-[#a89d8b]">
                 ما في أحداث بعد. افتح{" "}
-                <a className="text-brand-300 underline" href="/desk">لوحة التجربة</a> واحكي
-                مع الوكيل — وارجع لهون تشوف الحركة.
+                <a className="font-semibold text-[#a2713f] underline" href="/desk">لوحة التجربة</a>{" "}
+                واحكي مع الوكيل — وارجع لهون تشوف الحركة.
               </p>
             ) : (
               <ul className="scroll-area -mr-2 flex-1 space-y-1.5 overflow-y-auto pr-2">
                 {recent.map((e) => (
-                  <li key={e.id} className="border-b border-white/5 pb-1.5 text-xs last:border-0">
+                  <li key={e.id} className="border-b border-[#e4dbcb] pb-1.5 text-xs last:border-0">
                     <div className="flex items-baseline justify-between gap-2">
-                      <span className="font-mono text-[10px] text-slate-600" dir="ltr">
+                      <span className="font-mono text-[10px] text-[#b5aa97]" dir="ltr">
                         {new Date(e.createdAt).toLocaleTimeString("en-GB")}
                       </span>
                       {e.from && e.to && (
-                        <span className="font-mono text-[10px] text-brand-300" dir="ltr">
+                        <span className="font-mono text-[10px] text-[#a2713f]" dir="ltr">
                           {e.from} → {e.to}
                         </span>
                       )}
                     </div>
-                    <div className="text-slate-400">{e.summary}</div>
+                    <div className="text-[#5c554a]">{e.summary}</div>
                   </li>
                 ))}
               </ul>
@@ -366,7 +395,7 @@ export default function WorldPage() {
   );
 }
 
-/* ══ the three.js scene ═══════════════════════════════════════════════ */
+/* ══ the model ════════════════════════════════════════════════════════ */
 
 type SceneApi = {
   setAgents: (agents: Agent[]) => void;
@@ -376,100 +405,199 @@ type SceneApi = {
   dispose: () => void;
 };
 
-const BG_TOP = 0x141f3a;
-const BG_BOTTOM = 0x070c18;
+/** One shared box; every piece of furniture is this, scaled. */
+const BOX = new THREE.BoxGeometry(1, 1, 1);
+
+function lambert(color: number, opts: { transparent?: boolean; opacity?: number } = {}) {
+  return new THREE.MeshLambertMaterial({ color, ...opts });
+}
+
+/** A box placed by centre and size, so furniture reads as dimensions. */
+function block(
+  parent: THREE.Object3D, material: THREE.Material,
+  x: number, y: number, z: number, w: number, h: number, d: number,
+  shadow = true,
+): THREE.Mesh {
+  const mesh = new THREE.Mesh(BOX, material);
+  mesh.position.set(x, y, z);
+  mesh.scale.set(w, h, d);
+  mesh.castShadow = shadow;
+  mesh.receiveShadow = true;
+  parent.add(mesh);
+  return mesh;
+}
 
 function buildScene(mount: HTMLElement, onPick: (code: string) => void): SceneApi {
   const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setClearColor(0xefe8dc, 1);
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.1;
   mount.appendChild(renderer.domElement);
   renderer.domElement.style.display = "block";
   renderer.domElement.style.width = "100%";
   renderer.domElement.style.height = "100%";
 
   const scene = new THREE.Scene();
-  scene.background = gradientTexture();
-  // Fog tinted to the horizon colour: distant zones recede instead of floating.
-  scene.fog = new THREE.Fog(BG_BOTTOM, 34, 78);
-  const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 400);
 
-  /* lighting */
-  scene.add(new THREE.HemisphereLight(0x9ec1ff, 0x0a1020, 0.75));
-  const key = new THREE.DirectionalLight(0xffffff, 1.5);
-  key.position.set(12, 24, 10);
+  /**
+   * Orthographic, not perspective. Parallel projection is what makes this read
+   * as a model on a table rather than a game camera, and it keeps every room
+   * the same size wherever it sits on the floor.
+   */
+  const FRUSTUM = 27;
+  const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 400);
+
+  /* One warm key light at a fixed angle, so every shadow in the model falls
+     the same way — the thing that most makes a set of boxes look built. */
+  const key = new THREE.DirectionalLight(0xfff4e2, 1.75);
+  /** Held relative to whatever the camera is framing, so the light direction —
+      and every shadow with it — stays put as the view moves. */
+  const KEY_OFFSET = new THREE.Vector3(-26, 38, 20);
+  key.position.copy(KEY_OFFSET);
   key.castShadow = true;
   key.shadow.mapSize.set(2048, 2048);
-  key.shadow.camera.left = -30; key.shadow.camera.right = 30;
-  key.shadow.camera.top = 30; key.shadow.camera.bottom = -30;
-  key.shadow.bias = -0.0008;
+  key.shadow.camera.left = -34; key.shadow.camera.right = 34;
+  key.shadow.camera.top = 34; key.shadow.camera.bottom = -34;
+  key.shadow.camera.near = 1; key.shadow.camera.far = 120;
+  key.shadow.bias = -0.0012;
+  key.shadow.normalBias = 0.02;
   scene.add(key);
-  const rim = new THREE.DirectionalLight(0x5b8cff, 0.6);
-  rim.position.set(-14, 8, -12);
-  scene.add(rim);
+  scene.add(key.target);
+  // Cool sky against warm sand bounce: shadows go blue-grey, not black.
+  scene.add(new THREE.HemisphereLight(0xdfeaff, 0xd8c8ae, 0.68));
+  scene.add(new THREE.AmbientLight(0xffffff, 0.15));
 
-  /* floor */
-  const floor = new THREE.Mesh(
-    new THREE.CircleGeometry(30, 72),
-    new THREE.MeshStandardMaterial({ color: 0x121c33, roughness: 0.92, metalness: 0.05 }),
-  );
-  floor.rotation.x = -Math.PI / 2;
-  floor.receiveShadow = true;
-  scene.add(floor);
+  // Scoped to this scene: a module-level list would outlive dispose() and the
+  // frame loop would go on turning signs belonging to a torn-down world.
+  const signs: THREE.Group[] = [];
 
-  const grid = new THREE.GridHelper(60, 60, 0x2b3c63, 0x1b2745);
-  const gridMat = grid.material as THREE.Material;
-  gridMat.transparent = true;
-  gridMat.opacity = 0.35;
-  grid.position.y = 0.012;
-  scene.add(grid);
+  const mats = {
+    ground: lambert(P.ground),
+    floor: lambert(P.floor),
+    rug: lambert(P.rug),
+    rim: lambert(P.rim),
+    wall: lambert(P.wall),
+    oak: lambert(P.oak),
+    oakDark: lambert(P.oakDark),
+    charcoal: lambert(P.charcoal),
+    screen: lambert(P.screen),
+    plant: lambert(P.plant),
+    plantDark: lambert(P.plantDark),
+    shadow: new THREE.MeshBasicMaterial({
+      color: 0x7a6c56, transparent: true, opacity: 0.16, depthWrite: false,
+    }),
+  };
 
-  /* ── zone pads ─────────────────────────────────────────────────────── */
-  for (const [zone, [x, z]] of Object.entries(ZONE_POS)) {
-    const pad = new THREE.Mesh(
-      new THREE.CylinderGeometry(3.2, 3.35, 0.16, 56),
-      new THREE.MeshStandardMaterial({ color: 0x1b2846, roughness: 0.7, metalness: 0.15 }),
-    );
-    pad.position.set(x, 0.08, z);
-    pad.receiveShadow = true;
-    scene.add(pad);
+  /* ── the plinth the whole model sits on ────────────────────────────── */
+  const base = new THREE.Mesh(BOX, mats.ground);
+  base.position.set(0, -0.45, 4);
+  base.scale.set(26, 0.9, 28);
+  base.receiveShadow = true;
+  scene.add(base);
 
-    const rimRing = new THREE.Mesh(
-      new THREE.TorusGeometry(3.3, 0.045, 10, 72),
-      new THREE.MeshBasicMaterial({ color: 0x3f5f9e, transparent: true, opacity: 0.45 }),
-    );
-    rimRing.rotation.x = -Math.PI / 2;
-    rimRing.position.set(x, 0.17, z);
-    scene.add(rimRing);
+  const baseRim = new THREE.Mesh(BOX, mats.rim);
+  baseRim.position.set(0, -0.94, 4);
+  baseRim.scale.set(27, 0.38, 29);
+  baseRim.receiveShadow = true;
+  scene.add(baseRim);
 
-    scene.add(billboard(ZONE_AR[zone] ?? zone, "#93a6c9", 26, x, 0.42, z + 4.1, 3.4));
-  }
+  /* ── rooms ─────────────────────────────────────────────────────────── */
+  const ROOM = 6.6;
+  const half = ROOM / 2;
+  const leafGeo = new THREE.IcosahedronGeometry(0.5, 0);
+  const leafGeoSmall = new THREE.IcosahedronGeometry(0.32, 0);
 
-  /* ── non-agent endpoints ───────────────────────────────────────────── */
+  Object.entries(ZONE_POS).forEach(([zone, [x, z]], index) => {
+    const room = new THREE.Group();
+    room.position.set(x, 0, z);
+    scene.add(room);
+
+    block(room, mats.floor, 0, 0.09, 0, ROOM, 0.18, ROOM, false);
+    // A rug under the desk. The previous pass put a quarter tile here, which
+    // read as a rendering fault rather than a floor.
+    block(room, mats.rug, -0.9, 0.185, -1.3, 3.9, 0.02, 2.9, false);
+
+    // Low perimeter walls with a doorway toward reception. Kept under the
+    // height of a figure so they never hide anyone at any camera angle.
+    const t = 0.24, wallY = 0.43, wallH = 0.52;
+    const gap = z > 4 ? "front" : z < -1 ? "back" : x < 0 ? "right" : "left";
+    if (gap !== "back") block(room, mats.wall, 0, wallY, -half, ROOM, wallH, t);
+    if (gap !== "front") block(room, mats.wall, 0, wallY, half, ROOM, wallH, t);
+    if (gap !== "left") block(room, mats.wall, -half, wallY, 0, t, wallH, ROOM);
+    if (gap !== "right") block(room, mats.wall, half, wallY, 0, t, wallH, ROOM);
+
+    /* desk, screen, chair — the props that turn a platform into a place */
+    const dx = -0.9, dz = -1.75;
+    block(room, mats.oak, dx, 0.82, dz, 2.8, 0.13, 1.25);
+    block(room, mats.oakDark, dx - 1.25, 0.46, dz, 0.15, 0.6, 1.15);
+    block(room, mats.oakDark, dx + 1.25, 0.46, dz, 0.15, 0.6, 1.15);
+    block(room, mats.charcoal, dx, 0.96, dz - 0.16, 0.46, 0.16, 0.36);
+    block(room, mats.screen, dx, 1.4, dz - 0.16, 1.5, 0.84, 0.09);
+    block(room, mats.charcoal, dx, 0.28, dz + 1.35, 0.62, 0.1, 0.62);
+    block(room, mats.charcoal, dx, 0.64, dz + 1.64, 0.62, 0.72, 0.09);
+
+    // Eight identical offices read as a tiling error, so each room places its
+    // greenery in a different corner and every other one gets a cabinet.
+    const corners: Array<[number, number]> = [
+      [half - 1.0, -half + 1.0], [half - 1.0, half - 1.0],
+      [-half + 1.0, half - 1.0], [half - 1.0, half - 1.6],
+    ];
+    const [px, pz] = corners[index % corners.length];
+    block(room, mats.oakDark, px, 0.42, pz, 0.6, 0.64, 0.6);
+    const leaf = new THREE.Mesh(leafGeo, mats.plant);
+    leaf.position.set(px, 1.12, pz);
+    leaf.castShadow = true;
+    room.add(leaf);
+    const leafB = new THREE.Mesh(leafGeoSmall, mats.plantDark);
+    leafB.position.set(px - 0.22, 1.45, pz + 0.16);
+    leafB.castShadow = true;
+    room.add(leafB);
+
+    if (index % 2 === 0) {
+      block(room, mats.wall, -half + 0.85, 0.52, -half + 1.4, 1.2, 0.86, 0.7);
+    }
+
+    // A standing sign rather than floating text: it belongs to the room, and
+    // billboards on Y only so it stays readable as the model turns.
+    const sign = signPost(ZONE_AR[zone] ?? zone);
+    sign.position.set(-half + 0.9, 0, half - 0.85);
+    room.add(sign);
+    signs.push(sign);
+  });
+
+  /* ── the doorway and its approach ──────────────────────────────────── */
   const nodePos = new Map<string, THREE.Vector3>();
   for (const [id, meta] of Object.entries(EXTRA_NODES)) {
-    const disc = new THREE.Mesh(
-      new THREE.CylinderGeometry(1.05, 1.2, 0.42, 36),
-      new THREE.MeshStandardMaterial({
-        color: meta.color, roughness: 0.4, metalness: 0.3,
-        emissive: meta.color, emissiveIntensity: 0.25,
-      }),
+    const [x, z] = meta.pos;
+    const pad = new THREE.Group();
+    pad.position.set(x, 0, z);
+    scene.add(pad);
+
+    block(pad, mats.floor, 0, 0.09, 0, 3.0, 0.18, 3.0, false);
+    block(pad, mats.wall, 0, 0.3, 0, 1.9, 0.24, 1.9, false);
+    const marker = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.5, 0.62, 1.0, 6),
+      lambert(meta.color),
     );
-    disc.position.set(meta.pos[0], 0.24, meta.pos[1]);
-    disc.castShadow = true;
-    scene.add(disc);
-    scene.add(billboard(meta.label, "#cbd5e1", 28, meta.pos[0], 1.35, meta.pos[1], 2.4));
-    nodePos.set(id, new THREE.Vector3(meta.pos[0], 0.9, meta.pos[1]));
+    marker.position.y = 0.92;
+    marker.castShadow = true;
+    pad.add(marker);
+
+    const sign = signPost(meta.label);
+    sign.position.set(-1.1, 0, 1.0);
+    sign.scale.setScalar(0.86);
+    pad.add(sign);
+    signs.push(sign);
+
+    nodePos.set(id, new THREE.Vector3(x, 1.1, z));
   }
 
   /* ── agents ────────────────────────────────────────────────────────── */
   type Figure = {
     group: THREE.Group;
+    skin: THREE.MeshLambertMaterial;
     ring: THREE.Mesh;
-    halo: THREE.Mesh;
-    glow: THREE.Mesh;
+    base: THREE.Mesh;
     label: Label;
     agent: Agent;
     phase: number;
@@ -478,12 +606,12 @@ function buildScene(mount: HTMLElement, onPick: (code: string) => void): SceneAp
   const figures = new Map<string, Figure>();
   const picks: THREE.Object3D[] = [];
   const pulses: Array<{
-    mesh: THREE.Mesh; trail: THREE.Mesh[]; curve: THREE.QuadraticBezierCurve3; t: number;
+    mesh: THREE.Mesh; shade: THREE.Mesh; trail: THREE.Mesh[];
+    curve: THREE.QuadraticBezierCurve3; t: number;
   }> = [];
   const flashes: Array<{ mesh: THREE.Mesh; t: number }> = [];
 
   function setAgents(agents: Agent[]) {
-    // Group by zone so several agents in one zone fan out instead of stacking.
     const byZone = new Map<string, Agent[]>();
     for (const a of agents) {
       const list = byZone.get(a.zone) ?? [];
@@ -494,10 +622,12 @@ function buildScene(mount: HTMLElement, onPick: (code: string) => void): SceneAp
     for (const [zone, list] of Array.from(byZone.entries())) {
       const [zx, zz] = ZONE_POS[zone] ?? [0, 0];
       list.forEach((agent, i) => {
-        const angle = (i / Math.max(1, list.length)) * Math.PI * 2 - Math.PI / 2;
-        const r = list.length > 1 ? 1.65 : 0;
-        const x = zx + Math.cos(angle) * r;
-        const z = zz + Math.sin(angle) * r;
+        // Stand them in a short line facing the desk rather than a ring: a
+        // row reads as people at work, a ring reads as a diagram.
+        const spread = 1.75;
+        const offset = (i - (list.length - 1) / 2) * spread;
+        const x = zx + offset;
+        const z = zz + 1.6;
 
         let fig = figures.get(agent.code);
         if (!fig) {
@@ -509,7 +639,7 @@ function buildScene(mount: HTMLElement, onPick: (code: string) => void): SceneAp
           fig.agent.state !== agent.state || fig.agent.lifecycle !== agent.lifecycle;
         fig.agent = agent;
         fig.group.position.set(x, 0, z);
-        nodePos.set(agent.code, new THREE.Vector3(x, 0.95, z));
+        nodePos.set(agent.code, new THREE.Vector3(x, 1.25, z));
         if (changed) fig.label.draw(agent);
         applyState(fig);
       });
@@ -518,36 +648,26 @@ function buildScene(mount: HTMLElement, onPick: (code: string) => void): SceneAp
 
   function applyState(fig: Figure) {
     const planned = fig.agent.lifecycle === "planned";
-    const color = STATE_COLOR[fig.agent.state] ?? 0x8fa0bd;
-    fig.group.traverse((o) => {
-      const mesh = o as THREE.Mesh;
-      if (!mesh.isMesh || mesh.userData.fixed) return;
-      const mat = mesh.material as THREE.MeshStandardMaterial;
-      if (!mat?.color) return;
-      mat.color.setHex(color);
-      if (mat.emissive) {
-        mat.emissive.setHex(color);
-        mat.emissiveIntensity = planned ? 0.05 : 0.22;
-      }
-      mat.transparent = planned;
-      mat.opacity = planned ? 0.3 : 1;
-    });
-    for (const m of [fig.ring, fig.halo, fig.glow]) {
-      (m.material as THREE.MeshBasicMaterial).color.setHex(color);
-    }
-    // A planned agent must never look busy, whatever the rest of the scene does.
-    fig.halo.visible = !planned && fig.agent.state !== "idle";
+    const color = STATE_COLOR[fig.agent.state] ?? 0x9bb0c9;
+    fig.skin.color.setHex(color);
+    fig.skin.transparent = planned;
+    fig.skin.opacity = planned ? 0.38 : 1;
+    (fig.ring.material as THREE.MeshBasicMaterial).color.setHex(color);
+    const baseMat = fig.base.material as THREE.MeshBasicMaterial;
+    baseMat.color.setHex(color);
+    baseMat.opacity = planned ? 0.35 : 0.85;
+    // A planned agent must never look busy, at any frame.
+    fig.ring.visible = !planned && fig.agent.state !== "idle";
   }
 
-  /* ── edges, drawn from real traffic ────────────────────────────────── */
+  /* ── routes, drawn from real traffic ───────────────────────────────── */
   const edgeGroup = new THREE.Group();
   scene.add(edgeGroup);
   let edgeKey = "";
 
   function curveBetween(a: THREE.Vector3, b: THREE.Vector3): THREE.QuadraticBezierCurve3 {
     const mid = a.clone().add(b).multiplyScalar(0.5);
-    // Lift proportional to span, so long hops arc higher and never overlap.
-    mid.y += Math.max(1.4, a.distanceTo(b) * 0.24);
+    mid.y += Math.max(2.1, a.distanceTo(b) * 0.24);
     return new THREE.QuadraticBezierCurve3(a.clone(), mid, b.clone());
   }
 
@@ -555,8 +675,6 @@ function buildScene(mount: HTMLElement, onPick: (code: string) => void): SceneAp
     const key = edges.map((e) => `${e.from}>${e.to}:${e.count}`).sort().join("|");
     if (key === edgeKey) return;
 
-    // Rebuild wholesale: a handful of tubes, and polling would otherwise leak
-    // geometry on every change.
     for (const child of [...edgeGroup.children]) {
       edgeGroup.remove(child);
       const m = child as THREE.Mesh;
@@ -571,17 +689,17 @@ function buildScene(mount: HTMLElement, onPick: (code: string) => void): SceneAp
       const b = nodePos.get(e.to);
       if (!a || !b) {
         // An endpoint the roster has not placed yet. Draw the rest, but do not
-        // cache this key, or the edge would never be retried once it can be.
+        // cache this key, or the route would never be retried once it can be.
         complete = false;
         continue;
       }
       const weight = e.count / heaviest;
+      // Ink on a plan: dark enough to be the graphic it is meant to be, and
+      // neutral, so the agents keep the only colour on the board.
       const tube = new THREE.Mesh(
-        new THREE.TubeGeometry(curveBetween(a, b), 36, 0.02 + weight * 0.05, 7, false),
+        new THREE.TubeGeometry(curveBetween(a, b), 44, 0.04 + weight * 0.055, 7, false),
         new THREE.MeshBasicMaterial({
-          color: 0x4d7fe8,
-          transparent: true,
-          opacity: 0.16 + weight * 0.34,
+          color: P.ink, transparent: true, opacity: 0.5 + weight * 0.35,
         }),
       );
       edgeGroup.add(tube);
@@ -590,106 +708,115 @@ function buildScene(mount: HTMLElement, onPick: (code: string) => void): SceneAp
   }
 
   /* ── pulses ────────────────────────────────────────────────────────── */
-  const TRAIL = 5;
+  const PULSE_GEO = new THREE.SphereGeometry(0.26, 18, 14);
+  const SHADE_GEO = new THREE.CircleGeometry(0.28, 22);
+  const TRAIL = 4;
+
   function pulse(from: string, to: string) {
     const a = nodePos.get(from);
     const b = nodePos.get(to);
     if (!a || !b) return;
 
-    const geo = new THREE.SphereGeometry(0.17, 14, 12);
     const mesh = new THREE.Mesh(
-      geo,
-      new THREE.MeshBasicMaterial({ color: 0xbcd4ff, transparent: true, opacity: 1 }),
+      PULSE_GEO,
+      new THREE.MeshBasicMaterial({ color: 0x2f6df0 }),
     );
     scene.add(mesh);
+
+    // A shadow tracking along the floor beneath it. Small touch, and the one
+    // that makes the pulse read as travelling *over* the model.
+    const shade = new THREE.Mesh(SHADE_GEO, mats.shadow.clone());
+    shade.rotation.x = -Math.PI / 2;
+    scene.add(shade);
 
     const trail: THREE.Mesh[] = [];
     for (let i = 0; i < TRAIL; i++) {
       const t = new THREE.Mesh(
-        geo,
-        new THREE.MeshBasicMaterial({ color: 0x5b8cff, transparent: true, opacity: 0 }),
+        PULSE_GEO,
+        new THREE.MeshBasicMaterial({ color: 0x6d97f5, transparent: true, opacity: 0 }),
       );
-      t.scale.setScalar(1 - (i + 1) / (TRAIL + 1));
+      t.scale.setScalar(1 - (i + 1) / (TRAIL + 1.2));
       scene.add(t);
       trail.push(t);
     }
-    pulses.push({ mesh, trail, curve: curveBetween(a, b), t: 0 });
+    pulses.push({ mesh, shade, trail, curve: curveBetween(a, b), t: 0 });
   }
 
-  /** A ring that expands where a pulse lands, so arrival is legible. */
   function flash(at: THREE.Vector3) {
     const mesh = new THREE.Mesh(
-      new THREE.RingGeometry(0.3, 0.42, 36),
+      new THREE.RingGeometry(0.42, 0.58, 44),
       new THREE.MeshBasicMaterial({
-        color: 0x9dc0ff, transparent: true, opacity: 0.9, side: THREE.DoubleSide,
+        color: 0x2f6df0, transparent: true, opacity: 0.85, side: THREE.DoubleSide,
       }),
     );
     mesh.rotation.x = -Math.PI / 2;
-    mesh.position.set(at.x, 0.2, at.z);
+    mesh.position.set(at.x, 0.22, at.z);
     scene.add(mesh);
     flashes.push({ mesh, t: 0 });
   }
 
-  /* ── camera ────────────────────────────────────────────────────────── */
-  const orb = { a: Math.PI * 0.5, p: 0.78, r: 36, drag: false, lx: 0, ly: 0, spin: true };
-  const want = { a: orb.a, p: orb.p, r: orb.r };
-  const lookAt = new THREE.Vector3(0, 1, 0);
-  const lookWant = new THREE.Vector3(0, 1, 0);
+  /* ── camera rig ────────────────────────────────────────────────────── */
+  const orb = { a: Math.PI * 0.25, p: 0.86, zoom: 1, drag: false, lx: 0, ly: 0 };
+  const want = { a: orb.a, p: orb.p, zoom: 1 };
+  const lookAt = new THREE.Vector3(0, 0, 4.6);
+  const lookWant = new THREE.Vector3(0, 0, 4.6);
   let focused: string | null = null;
 
   function focus(code: string | null) {
     focused = code;
     const p = code ? nodePos.get(code) : null;
     if (p) {
-      lookWant.set(p.x, 1, p.z);
-      want.r = 20;
-      orb.spin = false;
-      setTimeout(() => { orb.spin = true; }, 8000);
+      lookWant.set(p.x, 0, p.z);
+      want.zoom = 2.1;
     } else {
-      lookWant.set(0, 1, 0);
-      want.r = 36;
+      lookWant.set(0, 0, 4.6);
+      want.zoom = 1;
     }
   }
 
+  const DIST = 90;
   function place() {
-    const p = Math.max(0.18, Math.min(1.32, orb.p));
+    // Elevation is held in a narrow band: the model must always be read from
+    // above, never from the side.
+    const p = Math.max(0.52, Math.min(1.0, orb.p));
     camera.position.set(
-      lookAt.x + Math.cos(orb.a) * Math.sin(p) * orb.r,
-      Math.cos(p) * orb.r + 1,
-      lookAt.z + Math.sin(orb.a) * Math.sin(p) * orb.r,
+      lookAt.x + Math.cos(orb.a) * Math.sin(p) * DIST,
+      Math.cos(p) * DIST,
+      lookAt.z + Math.sin(orb.a) * Math.sin(p) * DIST,
     );
     camera.lookAt(lookAt);
+    key.position.copy(lookAt).add(KEY_OFFSET);
+    key.target.position.copy(lookAt);
+    key.target.updateMatrixWorld();
   }
 
   const el = renderer.domElement;
   let downAt = { x: 0, y: 0 };
   const onDown = (e: PointerEvent) => {
-    orb.drag = true; orb.spin = false;
+    orb.drag = true;
     orb.lx = e.clientX; orb.ly = e.clientY;
     downAt = { x: e.clientX, y: e.clientY };
     el.setPointerCapture(e.pointerId);
   };
   const onMove = (e: PointerEvent) => {
     if (!orb.drag) return;
-    want.a -= (e.clientX - orb.lx) * 0.005;
-    want.p = Math.max(0.18, Math.min(1.32, want.p - (e.clientY - orb.ly) * 0.004));
+    want.a -= (e.clientX - orb.lx) * 0.006;
+    want.p = Math.max(0.52, Math.min(1.0, want.p - (e.clientY - orb.ly) * 0.003));
     orb.lx = e.clientX; orb.ly = e.clientY;
   };
   const onUp = (e: PointerEvent) => {
     if (!orb.drag) return;
     orb.drag = false;
     try { el.releasePointerCapture(e.pointerId); } catch { /* capture already gone */ }
-    setTimeout(() => { orb.spin = true; }, 6000);
   };
   const onWheel = (e: WheelEvent) => {
     e.preventDefault();
-    want.r = Math.max(10, Math.min(60, want.r + e.deltaY * 0.03));
+    want.zoom = Math.max(0.6, Math.min(3.2, want.zoom * (1 - e.deltaY * 0.0012)));
   };
 
   const raycaster = new THREE.Raycaster();
   const pointer = new THREE.Vector2();
   const onClick = (e: MouseEvent) => {
-    // A drag that ends over a figure is not a click on it.
     if (Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y) > 6) return;
     const rect = el.getBoundingClientRect();
     pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
@@ -711,7 +838,11 @@ function buildScene(mount: HTMLElement, onPick: (code: string) => void): SceneAp
     const h = mount.clientHeight || 1;
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     renderer.setSize(w, h, false);
-    camera.aspect = w / h;
+    const aspect = w / h;
+    camera.left = (-FRUSTUM * aspect) / 2;
+    camera.right = (FRUSTUM * aspect) / 2;
+    camera.top = FRUSTUM / 2;
+    camera.bottom = -FRUSTUM / 2;
     camera.updateProjectionMatrix();
   }
   const ro = new ResizeObserver(resize);
@@ -723,80 +854,82 @@ function buildScene(mount: HTMLElement, onPick: (code: string) => void): SceneAp
   let raf = 0;
   const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const ease = (from: number, to: number, k: number) => from + (to - from) * k;
+  const camDir = new THREE.Vector3();
 
   function frame() {
     const dt = Math.min(clock.getDelta(), 0.05);
     const t = clock.getElapsedTime();
-    const k = Math.min(1, dt * 4);
+    const k = Math.min(1, dt * 4.5);
 
-    if (orb.spin && !orb.drag && !reduced) want.a += dt * 0.03;
     orb.a = ease(orb.a, want.a, k);
     orb.p = ease(orb.p, want.p, k);
-    orb.r = ease(orb.r, want.r, k);
+    orb.zoom = ease(orb.zoom, want.zoom, k);
     lookAt.lerp(lookWant, k);
+    if (Math.abs(camera.zoom - orb.zoom) > 0.0005) {
+      camera.zoom = orb.zoom;
+      camera.updateProjectionMatrix();
+    }
     place();
+
+    // Signs turn about Y only, so they stay upright and legible as the model
+    // rotates without ever tipping toward the camera.
+    camera.getWorldDirection(camDir);
+    const faceY = Math.atan2(-camDir.x, -camDir.z);
+    for (const s of signs) s.rotation.y = faceY - (s.parent?.rotation.y ?? 0);
 
     figures.forEach((fig, code) => {
       const planned = fig.agent.lifecycle === "planned";
       const active = !planned && fig.agent.state !== "idle" && fig.agent.state !== "offline";
 
-      // Breathing at rest, a quicker lift when working: the difference is what
-      // reads as "this one is doing something".
-      fig.group.position.y = active
-        ? Math.sin(t * 3.4 + fig.phase) * 0.06
-        : Math.sin(t * 0.9 + fig.phase) * 0.018;
+      fig.group.position.y = reduced ? 0
+        : active ? Math.abs(Math.sin(t * 3.1 + fig.phase)) * 0.09
+          : Math.sin(t * 0.85 + fig.phase) * 0.02;
 
-      // Idle agents drift their gaze; active ones settle and get on with it.
-      const drift = active ? 0 : Math.sin(t * 0.35 + fig.phase) * 0.5;
-      fig.facing = ease(fig.facing, drift, dt * 1.6);
+      // Idle agents glance around; working ones square up to the desk.
+      const drift = active ? 0 : Math.sin(t * 0.32 + fig.phase) * 0.45;
+      fig.facing = ease(fig.facing, Math.PI + drift, dt * 1.5);
       fig.group.rotation.y = fig.facing;
 
       const sel = code === focused;
-      const target = sel ? 1.16 : 1;
-      fig.group.scale.setScalar(ease(fig.group.scale.x, target, k));
+      fig.group.scale.setScalar(ease(fig.group.scale.x, sel ? 1.12 : 1, k));
 
-      const ringMat = fig.ring.material as THREE.MeshBasicMaterial;
-      ringMat.opacity = (planned ? 0.14 : 0.3) +
-        (active ? Math.abs(Math.sin(t * 2.6 + fig.phase)) * 0.45 : 0.06) +
-        (sel ? 0.25 : 0);
-
-      if (fig.halo.visible) {
-        fig.halo.rotation.z = t * 1.6 + fig.phase;
-        (fig.halo.material as THREE.MeshBasicMaterial).opacity =
-          0.35 + Math.abs(Math.sin(t * 2.2 + fig.phase)) * 0.4;
+      if (fig.ring.visible) {
+        fig.ring.scale.setScalar(1 + Math.abs(Math.sin(t * 2.3 + fig.phase)) * 0.28);
+        (fig.ring.material as THREE.MeshBasicMaterial).opacity =
+          0.5 - Math.abs(Math.sin(t * 2.3 + fig.phase)) * 0.28;
       }
-      (fig.glow.material as THREE.MeshBasicMaterial).opacity = planned ? 0.04 : active ? 0.16 : 0.08;
+      fig.label.sprite.visible = sel || active;
     });
 
     for (let i = pulses.length - 1; i >= 0; i--) {
       const p = pulses[i];
-      p.t += dt * 0.75;
+      p.t += dt * 0.7;
       if (p.t >= 1) {
         flash(p.curve.getPoint(1));
-        scene.remove(p.mesh);
-        for (const m of p.trail) {
+        for (const m of [p.mesh, p.shade, ...p.trail]) {
           scene.remove(m);
           (m.material as THREE.Material).dispose();
         }
-        p.mesh.geometry.dispose();
-        (p.mesh.material as THREE.Material).dispose();
         pulses.splice(i, 1);
         continue;
       }
-      p.mesh.position.copy(p.curve.getPoint(p.t));
-      const fade = Math.sin(p.t * Math.PI);
-      (p.mesh.material as THREE.MeshBasicMaterial).opacity = 0.5 + fade * 0.5;
+      const at = p.curve.getPoint(p.t);
+      p.mesh.position.copy(at);
+      p.shade.position.set(at.x, 0.2, at.z);
+      const lift = Math.max(0.2, at.y);
+      p.shade.scale.setScalar(1 + lift * 0.22);
+      (p.shade.material as THREE.MeshBasicMaterial).opacity = 0.2 / (1 + lift * 0.35);
       p.trail.forEach((m, j) => {
-        const lag = Math.max(0, p.t - (j + 1) * 0.035);
+        const lag = Math.max(0, p.t - (j + 1) * 0.04);
         m.position.copy(p.curve.getPoint(lag));
         (m.material as THREE.MeshBasicMaterial).opacity =
-          fade * 0.5 * (1 - (j + 1) / (TRAIL + 1));
+          Math.sin(p.t * Math.PI) * 0.55 * (1 - (j + 1) / (TRAIL + 1.2));
       });
     }
 
     for (let i = flashes.length - 1; i >= 0; i--) {
       const f = flashes[i];
-      f.t += dt * 1.8;
+      f.t += dt * 2;
       if (f.t >= 1) {
         scene.remove(f.mesh);
         f.mesh.geometry.dispose();
@@ -804,8 +937,8 @@ function buildScene(mount: HTMLElement, onPick: (code: string) => void): SceneAp
         flashes.splice(i, 1);
         continue;
       }
-      f.mesh.scale.setScalar(1 + f.t * 3.5);
-      (f.mesh.material as THREE.MeshBasicMaterial).opacity = (1 - f.t) * 0.8;
+      f.mesh.scale.setScalar(1 + f.t * 3);
+      (f.mesh.material as THREE.MeshBasicMaterial).opacity = (1 - f.t) * 0.7;
     }
 
     renderer.render(scene, camera);
@@ -829,11 +962,14 @@ function buildScene(mount: HTMLElement, onPick: (code: string) => void): SceneAp
       el.removeEventListener("click", onClick);
       scene.traverse((o) => {
         const m = o as THREE.Mesh;
-        m.geometry?.dispose();
+        if (m.geometry && m.geometry !== BOX) m.geometry.dispose();
         const mat = m.material as THREE.Material | THREE.Material[] | undefined;
         if (Array.isArray(mat)) mat.forEach((x) => x.dispose());
         else mat?.dispose();
       });
+      // BOX is module-level and shared with the next mount — never disposed.
+      PULSE_GEO.dispose();
+      SHADE_GEO.dispose();
       renderer.dispose();
       if (el.parentElement === mount) mount.removeChild(el);
     },
@@ -844,104 +980,101 @@ function buildScene(mount: HTMLElement, onPick: (code: string) => void): SceneAp
 
 type Label = { sprite: THREE.Sprite; draw: (agent: Agent) => void };
 
+/**
+ * A figure at roughly two and a half heads tall. Realistic proportions read as
+ * a blob at this scale; an oversized head reads as a character.
+ */
 function makeFigure(agent: Agent, picks: THREE.Object3D[]) {
   const group = new THREE.Group();
-  const shell = new THREE.MeshStandardMaterial({
-    color: 0x8fa0bd, roughness: 0.38, metalness: 0.22,
-    emissive: 0x8fa0bd, emissiveIntensity: 0.2,
-  });
+  const skin = new THREE.MeshLambertMaterial({ color: 0x9bb0c9 });
 
-  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.34, 0.46, 8, 20), shell);
+  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.38, 0.4, 6, 20), skin);
   body.position.y = 0.66;
   body.castShadow = true;
   body.userData.code = agent.code;
   group.add(body);
   picks.push(body);
 
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.29, 24, 18), shell);
-  head.position.y = 1.32;
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.42, 28, 22), skin);
+  head.position.y = 1.5;
   head.castShadow = true;
   head.userData.code = agent.code;
   group.add(head);
   picks.push(head);
 
-  // A dark visor reads as a face and gives the figure a front to turn.
+  // A dark band for a face: gives the figure a front, which is what makes
+  // turning toward the desk legible.
   const visor = new THREE.Mesh(
-    new THREE.SphereGeometry(0.3, 24, 18, 0, Math.PI * 2, Math.PI * 0.3, Math.PI * 0.26),
-    new THREE.MeshStandardMaterial({
-      color: 0x0b1120, roughness: 0.18, metalness: 0.6,
-      emissive: 0x2a3d63, emissiveIntensity: 0.5,
-    }),
+    new THREE.SphereGeometry(0.427, 28, 22, 0, Math.PI * 2, Math.PI * 0.36, Math.PI * 0.2),
+    new THREE.MeshLambertMaterial({ color: 0x2c2f38 }),
   );
-  visor.position.y = 1.32;
-  visor.rotation.x = -0.28;
-  visor.userData.fixed = true;
+  visor.position.y = 1.5;
+  visor.rotation.x = -0.2;
   group.add(visor);
 
-  const ring = new THREE.Mesh(
-    new THREE.RingGeometry(0.52, 0.66, 40),
+  const contact = new THREE.Mesh(
+    new THREE.CircleGeometry(0.56, 28),
     new THREE.MeshBasicMaterial({
-      color: 0x8fa0bd, transparent: true, opacity: 0.4, side: THREE.DoubleSide,
+      color: 0x7a6c56, transparent: true, opacity: 0.22, depthWrite: false,
     }),
   );
-  ring.rotation.x = -Math.PI / 2;
-  ring.position.y = 0.035;
-  ring.userData.fixed = true;
-  group.add(ring);
+  contact.rotation.x = -Math.PI / 2;
+  contact.position.y = 0.2;
+  group.add(contact);
 
-  // A soft pool of light under the figure, standing in for a bounce light.
-  const glow = new THREE.Mesh(
-    new THREE.CircleGeometry(1.15, 36),
+  // A colour under every agent, always. Hiding it while idle left a floor of
+  // identical grey figures with nothing to read.
+  const base = new THREE.Mesh(
+    new THREE.RingGeometry(0.46, 0.62, 44),
     new THREE.MeshBasicMaterial({
-      color: 0x8fa0bd, transparent: true, opacity: 0.08,
+      color: 0x9bb0c9, transparent: true, opacity: 0.85,
       side: THREE.DoubleSide, depthWrite: false,
     }),
   );
-  glow.rotation.x = -Math.PI / 2;
-  glow.position.y = 0.025;
-  glow.userData.fixed = true;
-  group.add(glow);
+  base.rotation.x = -Math.PI / 2;
+  base.position.y = 0.21;
+  group.add(base);
 
-  // Only shown while the agent is doing something — never for a planned one.
-  const halo = new THREE.Mesh(
-    new THREE.TorusGeometry(0.4, 0.028, 8, 40, Math.PI * 1.35),
-    new THREE.MeshBasicMaterial({ color: 0x8fa0bd, transparent: true, opacity: 0.6 }),
+  // The expanding ring is the extra signal, shown only while the agent is
+  // doing something and never for a planned one.
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(0.62, 0.72, 44),
+    new THREE.MeshBasicMaterial({
+      color: 0x9bb0c9, transparent: true, opacity: 0.45,
+      side: THREE.DoubleSide, depthWrite: false,
+    }),
   );
-  halo.rotation.x = -Math.PI / 2;
-  halo.position.y = 1.78;
-  halo.visible = false;
-  halo.userData.fixed = true;
-  group.add(halo);
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.y = 0.215;
+  ring.visible = false;
+  group.add(ring);
 
   const label = makeLabel(agent);
   group.add(label.sprite);
 
   return {
-    group, ring, halo, glow, label, agent,
-    phase: Math.random() * Math.PI * 2,
-    facing: 0,
+    group, skin, ring, base, label, agent,
+    phase: Math.random() * Math.PI * 2, facing: Math.PI,
   };
 }
 
 /**
- * Name and state on a sprite above the agent.
- *
- * A sprite rather than text on the floor: it always faces the camera, so the
- * labels stay readable while the view orbits. The browser shapes the Arabic on
- * a canvas — three.js cannot.
+ * Name and state on a small card above the agent, shown only while it is
+ * working or selected. Labelling everything at once is what made the previous
+ * version noisy.
  */
 function makeLabel(agent: Agent): Label {
   const canvas = document.createElement("canvas");
-  canvas.width = 384;
-  canvas.height = 128;
+  canvas.width = 400;
+  canvas.height = 132;
   const tex = new THREE.CanvasTexture(canvas);
   const sprite = new THREE.Sprite(
     new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }),
   );
-  sprite.scale.set(3, 1, 1);
-  sprite.position.y = 2.35;
-  sprite.userData.fixed = true;
+  sprite.scale.set(2.9, 0.96, 1);
+  sprite.position.y = 2.6;
   sprite.renderOrder = 10;
+  sprite.visible = false;
 
   const draw = (a: Agent) => {
     const ctx = canvas.getContext("2d");
@@ -951,24 +1084,30 @@ function makeLabel(agent: Agent): Label {
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
 
-    const state = STATE_AR[a.state] ?? a.state;
-    const color = hex(STATE_COLOR[a.state] ?? 0x8fa0bd);
-    const dim = a.lifecycle === "planned";
+    const color = hex(STATE_COLOR[a.state] ?? 0x9bb0c9);
 
-    ctx.fillStyle = dim ? "rgba(10,16,30,0.5)" : "rgba(10,16,30,0.72)";
-    roundRect(ctx, 12, 14, canvas.width - 24, 100, 22);
+    ctx.save();
+    ctx.shadowColor = "rgba(90,76,52,0.28)";
+    ctx.shadowBlur = 14;
+    ctx.shadowOffsetY = 4;
+    ctx.fillStyle = "#ffffff";
+    roundRect(ctx, 14, 14, canvas.width - 28, 92, 20);
     ctx.fill();
-    ctx.strokeStyle = color + (dim ? "55" : "aa");
-    ctx.lineWidth = 3;
-    ctx.stroke();
+    ctx.restore();
 
-    ctx.font = '600 38px "Segoe UI", system-ui, sans-serif';
-    ctx.fillStyle = dim ? "rgba(226,232,240,0.55)" : "#e8eefc";
-    ctx.fillText(a.name, canvas.width / 2, 50, canvas.width - 60);
-
-    ctx.font = '500 27px "Segoe UI", system-ui, sans-serif';
+    // The state colour as a spine on the trailing edge, so the card carries
+    // the same signal as the figure without shouting.
     ctx.fillStyle = color;
-    ctx.fillText(state, canvas.width / 2, 90, canvas.width - 60);
+    roundRect(ctx, canvas.width - 32, 22, 12, 76, 6);
+    ctx.fill();
+
+    ctx.font = '600 34px "Segoe UI", system-ui, sans-serif';
+    ctx.fillStyle = "#38342e";
+    ctx.fillText(a.name, canvas.width / 2 - 6, 48, canvas.width - 90);
+
+    ctx.font = '500 25px "Segoe UI", system-ui, sans-serif';
+    ctx.fillStyle = color;
+    ctx.fillText(STATE_AR[a.state] ?? a.state, canvas.width / 2 - 6, 82, canvas.width - 90);
 
     tex.needsUpdate = true;
   };
@@ -976,31 +1115,43 @@ function makeLabel(agent: Agent): Label {
   return { sprite, draw };
 }
 
-/** A standing caption for a zone or a fixed node. */
-function billboard(
-  text: string, color: string, size: number,
-  x: number, y: number, z: number, width: number,
-): THREE.Sprite {
+/** A small standing sign: a post, a board, and the room's name on it. */
+function signPost(text: string): THREE.Group {
+  const group = new THREE.Group();
+
+  const post = new THREE.Mesh(BOX, new THREE.MeshLambertMaterial({ color: P.charcoal }));
+  post.position.y = 0.5;
+  post.scale.set(0.09, 0.82, 0.09);
+  post.castShadow = true;
+  group.add(post);
+
   const canvas = document.createElement("canvas");
-  canvas.width = 384;
-  canvas.height = 96;
+  canvas.width = 448;
+  canvas.height = 128;
   const ctx = canvas.getContext("2d");
   if (ctx) {
+    // Cream on charcoal. A pale board on a pale floor was the reason none of
+    // these could be read at the distance the model is actually viewed from.
+    ctx.fillStyle = "#38342e";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.direction = "rtl";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.font = `600 ${size * 1.6}px "Segoe UI", system-ui, sans-serif`;
-    ctx.fillStyle = color;
-    ctx.fillText(text, canvas.width / 2, canvas.height / 2, canvas.width - 24);
+    ctx.font = '700 62px "Segoe UI", system-ui, sans-serif';
+    ctx.fillStyle = "#f7f2e9";
+    ctx.fillText(text, canvas.width / 2, canvas.height / 2 + 3, canvas.width - 28);
   }
-  const sprite = new THREE.Sprite(
-    new THREE.SpriteMaterial({
-      map: new THREE.CanvasTexture(canvas), transparent: true, depthWrite: false,
+  const board = new THREE.Mesh(
+    new THREE.PlaneGeometry(2.2, 0.63),
+    new THREE.MeshLambertMaterial({
+      map: new THREE.CanvasTexture(canvas), side: THREE.DoubleSide,
     }),
   );
-  sprite.scale.set(width, width * 0.25, 1);
-  sprite.position.set(x, y, z);
-  return sprite;
+  board.position.y = 1.2;
+  board.castShadow = true;
+  group.add(board);
+
+  return group;
 }
 
 function roundRect(
@@ -1014,22 +1165,4 @@ function roundRect(
   ctx.arcTo(x, y + h, x, y, r);
   ctx.arcTo(x, y, x + w, y, r);
   ctx.closePath();
-}
-
-/** A vertical gradient standing in for a sky, so the scene has a horizon. */
-function gradientTexture(): THREE.CanvasTexture {
-  const canvas = document.createElement("canvas");
-  canvas.width = 4;
-  canvas.height = 256;
-  const ctx = canvas.getContext("2d");
-  if (ctx) {
-    const g = ctx.createLinearGradient(0, 0, 0, 256);
-    g.addColorStop(0, hex(BG_TOP));
-    g.addColorStop(1, hex(BG_BOTTOM));
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, 4, 256);
-  }
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
 }
