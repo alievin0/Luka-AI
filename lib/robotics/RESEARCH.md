@@ -283,6 +283,77 @@ CC-BY 4.0. الادّعاء إنك بتحتاج حساب صحيح للواجهة
 
 ---
 
+## ٨. شو بيقدر يتطوّر هون فعلًا — ARC-2 and the limits of this simulator
+
+**السؤال:** قبل ما نبني أي قدرة لـ ARC-2 (تحوّل عجلة↔ساق، تكيّف مع التضاريس،
+تنقّل واعي بعدم اليقين)، هل المحاكي عنا بيقدر يمثّل الفيزياء الي بتخلي أي نتيجة
+منه تعني شي؟ الجواب انقاس، ما انفترض.
+
+> **The question, asked before building anything:** can this simulator represent
+> the physics that would make an ARC-2 result mean anything? It was measured
+> rather than assumed, and the answer has two halves that point opposite ways.
+
+### النصف الأول: البندول مضبوط — the pendulum is sound
+
+المحاكي بيدّعي إنه بينفّذ بندولًا مقلوبًا خطيًا مع مركز ضغط بيتشبّع عند حافة
+القدم. هاد انفحص مقابل الحل التحليلي لنفس المعادلات:
+
+| الفحص | النتيجة |
+| --- | --- |
+| الكمية المحفوظة `E = ½θ̇² + ω₀²cos θ + ω₀²(u/L)θ` | انحراف ٣٫٦٥٪ عبر سقطة كاملة عند خطوة الإنتاج |
+| ترتيب التقارب | الخطأ **بينصّ بالضبط** مع كل تنصيف للخطوة (٣٫٦٥ → ١٫٧٥ → ٠٫٨٧ → ٠٫٤٣٪) |
+| معدّل التباعد `λ = √(ω₀²cos θ*)` | **٤٫١٧٥ مقابل ٤٫١٨٠ نظريًا — فرق ٠٫١٪** |
+
+> The simulator integrates the equations it claims to integrate, to 0.1% on the
+> divergence rate, with clean first-order convergence. The balance numbers in
+> this repository rest on arithmetic that is correct.
+
+**تحذير قياس يستاهل الكتابة:** أول محاولة أعطت ٣٫١٢٧ مقابل ٤٫١٨ — خطأ ٢٥٪ شكله
+نموذج مكسور. **القياس هو الي كان مكسور:** الروبوت المُطلق من السكون بيتبع `cosh`
+مو أسّيًا، وملاءمة ميل لوغاريتمي عبر هالعبور بتقرأ أقل بـ١٢٪. الفرق بين «النموذج
+غلط» و«قياسي غلط» كلّف جولة كاملة.
+
+> The first attempt read 25% off and looked exactly like a broken model. The
+> measurement was broken: released from rest the solution is a cosh, not an
+> exponential. Telling those two apart is the whole job.
+
+### النصف الثاني: ما في تضاريس أصلًا — there is no terrain
+
+العالم **ثنائي الأبعاد بالكامل**. العوائق دوائر وصناديق **بتحجب**؛ حقل `height`
+على الصندوق هو امتداده بمحور Y، **مو ارتفاع**. ما في حقل ارتفاع، ولا ميل، ولا
+عمودي أرضي، ولا تلامس قدم، ولا ساق.
+
+يعني بالمباشر: **قدرات ARC-2 المميِّزة ما بتنقاس هون إطلاقًا.** أي رقم عن عبور
+عتبة، أو تغيير مشية، أو تكيّف مع سطح — رح يكون رقمًا عن لا شي. وهاد أخطر من عدم
+وجود رقم، لأنه رح ينصدَّق.
+
+> The distinguishing ARC-2 capabilities cannot be measured here at all. A number
+> produced for one would describe nothing, which is worse than having no number
+> because it would be believed. This is written as a test
+> (`__tests__/physics.test.ts`) rather than a comment, so the boundary fails
+> loudly if the world ever quietly gains geometry.
+
+### القرار — the call
+
+**ARC-2 ما بينبنى هون هلق.** مو لأنّ الفكرة ضعيفة — بل لأنه ما في أرضية تُقاس
+عليها. الخيارات، بترتيب الصدق:
+
+1. **انتظار العتاد.** ARC-2 يضل تصميمًا، وأول قياس حقيقي يصير على آلة.
+2. **دمج محرّك فيزياء حقيقي** (MuJoCo / Bullet / Isaac) بدل كتابة نموذج تلامس
+   من الصفر. ديناميكا التلامس للمشي مسألة صعبة، وهاي المحرّكات موجودة تحديدًا
+   لهالسبب — ونموذج تلامس مكتوب على عجل بينتج هراءً واثقًا.
+3. **كتابة حقل ارتفاع بسيط هون.** أرخص خيار وأسوأه: بيعطي أرقامًا عن حقل
+   الارتفاع الي كتبته أنا، مو عن روبوت.
+
+الخيار ٣ مرفوض. الخيار ٢ شغل مستقل ومعتبر. الخيار ١ هو الوضع الحالي.
+
+> Not because the idea is weak, but because there is no ground to measure it
+> against. Writing a quick height field is the cheap option and the worst one:
+> it produces numbers about the height field, and `simulation success =
+> hardware validation` is on the forbidden list for a reason.
+
+---
+
 ## ملاحظة أخيرة — the disclaimer that matters
 
 كل شي بهالمكتبة بيشتغل على محاكي ثنائي الأبعاد. **الحتمية خاصية قابلية إعادة
