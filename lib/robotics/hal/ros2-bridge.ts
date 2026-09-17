@@ -94,6 +94,8 @@ export type Ros2BridgeOptions = {
    * Left unset, charge is read pessimistically and marked unconfident.
    */
   batteryScale?: "fraction" | "percent" | "unknown";
+  /** Called when the transport is delivering something this client cannot read. */
+  onProblem?: (message: string) => void;
 };
 
 export type WebSocketLike = {
@@ -120,6 +122,13 @@ export class Ros2Bridge implements RobotIO {
 
   /** Units the battery driver publishes in. Declared, never inferred. */
   private readonly batteryScale?: "fraction" | "percent" | "unknown";
+  /**
+   * Frames that arrived and could not be read. A robot whose every message is
+   * undecodable is indistinguishable from a robot with no sensors, so this is
+   * counted and exposed rather than discarded.
+   */
+  private undecodableFrames = 0;
+  private readonly onProblem?: (message: string) => void;
 
   constructor(options: Ros2BridgeOptions) {
     this.id = options.robotId;
@@ -136,10 +145,21 @@ export class Ros2Bridge implements RobotIO {
     ];
     this.topics = { ...DEFAULT_TOPICS, ...options.topics };
     this.maxStalenessMs = options.maxStalenessMs ?? 500;
-    this.compression = options.compression ?? "cbor";
+    // JSON, because JSON is what the frame handler below can actually read.
+    //
+    // This defaulted to CBOR while the handler parsed every frame with
+    // JSON.parse and swallowed the failure, which meant a bridge talking to a
+    // rosbridge that honoured the request received nothing at all and said
+    // nothing about it. Every topic would simply go stale forever.
+    //
+    // CBOR is the better wire format for scans and images and the subscribe
+    // call still accepts it — but asking for it needs a decoder here first, so
+    // it is opt-in rather than the default.
+    this.compression = options.compression ?? "none";
     this.throttleMs = options.throttleMs ?? 20;
     this.socketFactory = options.socketFactory;
     this.batteryScale = options.batteryScale;
+    this.onProblem = options.onProblem;
   }
 
   async connect(): Promise<void> {
@@ -154,7 +174,23 @@ export class Ros2Bridge implements RobotIO {
       socket.addEventListener("error", (event) => reject(new Error(`rosbridge: ${String(event)}`)));
     });
 
-    socket.addEventListener("message", (event: { data: string }) => {
+    socket.addEventListener("message", (event: { data: unknown }) => {
+      if (typeof event.data !== "string") {
+        // A binary frame, which means the server is sending CBOR or PNG and
+        // nothing here can read it. Counted and reported rather than dropped:
+        // silently discarding every message looks exactly like a robot with no
+        // sensors, and that is a much harder thing to debug than an error.
+        this.undecodableFrames += 1;
+        if (this.undecodableFrames === 1) {
+          this.onProblem?.(
+            "rosbridge is sending binary frames and this client only decodes JSON. " +
+              `Subscriptions were requested with compression "${this.compression}". ` +
+              "Every topic will read as silent until this is resolved.",
+          );
+        }
+        return;
+      }
+
       try {
         const frame = JSON.parse(event.data) as { op: string; topic?: string; msg?: unknown };
         if (frame.op !== "publish" || !frame.topic) return;
@@ -165,7 +201,9 @@ export class Ros2Bridge implements RobotIO {
           this.mailbox.set(this.topics.mesh, list.slice(-256));
         }
       } catch {
-        // A malformed frame is not worth taking the robot down for.
+        // One malformed frame is not worth taking the robot down for. A stream
+        // of them is a different problem, so they are counted.
+        this.undecodableFrames += 1;
       }
     });
 
@@ -271,9 +309,20 @@ export class Ros2Bridge implements RobotIO {
     }>(this.topics.scan);
     if (!msg) return { ranges: [], fov: 0, maxRange: 0, t: Date.now() };
     return {
-      // ROS reports out-of-range beams as null/Infinity; the abilities expect a
-      // number they can compare, so unreachable means "as far as I can see".
-      ranges: msg.ranges.map((r) => (Number.isFinite(r) && r !== null ? r : msg.range_max)),
+      // Two very different things arrive looking similar here, and collapsing
+      // them loses the only evidence that the sensor has failed.
+      //
+      // Infinity is a beam that reached nothing within range. That is an answer,
+      // and `range_max` represents it faithfully: clear at least that far.
+      //
+      // NaN or null is a beam that returned no data. That is not an answer, and
+      // it has to stay unusable, because a scan of nothing and a scan of an
+      // empty room are otherwise identical — which is how a robot whose lidar
+      // has died concludes the path is clear.
+      ranges: msg.ranges.map((r) => {
+        if (r === null || Number.isNaN(r)) return Number.NaN;
+        return Number.isFinite(r) ? r : msg.range_max;
+      }),
       fov: msg.angle_max - msg.angle_min,
       maxRange: msg.range_max,
       t: Date.now(),
@@ -434,6 +483,11 @@ export class Ros2Bridge implements RobotIO {
       all.filter((m) => m.topic !== topic),
     );
     return mine.map((m) => m.payload);
+  }
+
+  /** How many frames arrived that could not be decoded. */
+  transportProblems(): number {
+    return this.undecodableFrames;
   }
 
   private read<T>(topic: string): T | null {
