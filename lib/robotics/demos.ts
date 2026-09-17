@@ -631,9 +631,12 @@ export const DEMOS: Record<DemoName, Demo> = {
           `With people who never look up it got through ${(distractedRate * 100).toFixed(0)}% of the time ` +
           `at ${distractedContacts.toFixed(1)} contacts per crossing — and predicting their path instead ` +
           `of reversing away from it took that to ${(yieldingRate * 100).toFixed(0)}% at ` +
-          `${yieldingContacts.toFixed(1)}. Tuned on these twenty seeds and then checked on forty ` +
-          `it had never seen, which came back 40/40 — but every one of those numbers is simulation, ` +
-          `and none of it has met a real corridor.`,
+          `${yieldingContacts.toFixed(1)}. Measured properly over sixty seeds with a paired test it ` +
+          `is 0/60 clean against 41/60, p = 0.0000 — real, and not the 20/20 an earlier version of ` +
+          `this claimed. That number came from the simulator handing out people's true velocities; ` +
+          `on an estimated one the same code was worse than doing nothing, until it stopped ` +
+          `rechoosing which way to dodge every tick. Every one of these numbers is still ` +
+          `simulation, and none of it has met a real corridor.`,
         details,
         metrics,
       };

@@ -6,6 +6,9 @@ import { clamp, distance, headingTo, type Pose2, type Vec2, wrapAngle } from "..
 
 /** How far a docking beacon reaches, metres. Real infrared docks manage a few. */
 const DOCK_BEACON_RANGE = 3;
+
+/** Detections kept per person for estimating velocity. */
+const TRACK_WINDOW = 8;
 import type { SafetyGovernor } from "../safety/governor.ts";
 import type {
   ArmState,
@@ -106,6 +109,20 @@ export class SimRobotAdapter implements RobotIO {
     this.capabilities = this.options.capabilities;
   }
 
+  /**
+   * Recent observations of each person, for estimating how fast they are going.
+   *
+   * A real tracker has no access to anybody's velocity. It sees a sequence of
+   * noisy detections and differences them, which makes the estimate both noisy
+   * and late — and `hri.yield-path` projects it five seconds forward, where a
+   * fifth of a metre per second of error becomes a metre of prediction.
+   *
+   * Reporting the true velocity instead made that capability look better than
+   * any tracker can be. This keeps the last few detections and fits a line
+   * through them, which is what the estimate actually costs.
+   */
+  private tracks = new Map<string, Array<{ t: number; x: number; y: number }>>();
+
   private get self(): SimRobot {
     return this.world.robot(this.id);
   }
@@ -144,6 +161,64 @@ export class SimRobotAdapter implements RobotIO {
       x: believed.x + forward * Math.cos(believed.theta) - left * Math.sin(believed.theta),
       y: believed.y + forward * Math.sin(believed.theta) + left * Math.cos(believed.theta),
     };
+  }
+
+  /**
+   * How fast somebody is going, from having watched them.
+   *
+   * A least-squares line through the last few detections, which is what a
+   * tracker's filter approximates. Shorter windows follow a change of direction
+   * faster and are noisier; longer ones are smoother and later. Both costs are
+   * real and neither is avoidable, which is the point of estimating it here
+   * rather than handing out the truth.
+   */
+  private estimateVelocity(id: string, observed: Vec2): { velocity: Vec2; uncertainty: number } {
+    const now = this.world.timeMs;
+    const history = this.tracks.get(id) ?? [];
+    // One sample per instant: an ability polling twice in a tick must not get a
+    // velocity differenced against zero elapsed time.
+    if (history.length === 0 || now > history[history.length - 1].t) {
+      history.push({ t: now, x: observed.x, y: observed.y });
+    }
+    while (history.length > TRACK_WINDOW) history.shift();
+    this.tracks.set(id, history);
+
+    // Too few detections to fit anything. Zero velocity with unbounded
+    // uncertainty, rather than a confident standstill.
+    if (history.length < 3) {
+      return { velocity: { x: 0, y: 0 }, uncertainty: Number.POSITIVE_INFINITY };
+    }
+    const meanT = history.reduce((a, h) => a + h.t, 0) / history.length;
+    let varT = 0;
+    let covX = 0;
+    let covY = 0;
+    for (const h of history) {
+      const dt = h.t - meanT;
+      varT += dt * dt;
+      covX += dt * h.x;
+      covY += dt * h.y;
+    }
+    if (varT <= 0) return { velocity: { x: 0, y: 0 }, uncertainty: Number.POSITIVE_INFINITY };
+    // Slope is metres per millisecond; the caller wants metres per second.
+    const velocity = { x: (covX / varT) * 1000, y: (covY / varT) * 1000 };
+
+    // How far the detections sit from the line that was fitted to them. This is
+    // the tracker's own opinion of itself, and it is available on real hardware
+    // for the same reason it is available here: it falls out of the fit.
+    const meanX = history.reduce((a, h) => a + h.x, 0) / history.length;
+    const meanY = history.reduce((a, h) => a + h.y, 0) / history.length;
+    let residual = 0;
+    for (const h of history) {
+      const dt = (h.t - meanT) / 1000;
+      residual +=
+        (h.x - (meanX + velocity.x * dt)) ** 2 + (h.y - (meanY + velocity.y * dt)) ** 2;
+    }
+    const spread = Math.sqrt(residual / Math.max(1, history.length - 2));
+    // Standard error of a slope: the scatter about the line, over the spread of
+    // the times it was fitted across.
+    const spanSeconds = Math.sqrt(varT) / 1000;
+    const uncertainty = spanSeconds > 0 ? spread / spanSeconds : Number.POSITIVE_INFINITY;
+    return { velocity, uncertainty };
   }
 
   /**
@@ -303,22 +378,16 @@ export class SimRobotAdapter implements RobotIO {
         const dist = distance(robot.pose, human.at);
         const index = human.waypointIndex ?? 0;
         const target = human.waypoints[index % Math.max(human.waypoints.length, 1)];
-        const velocity =
-          human.waypoints.length > 0 && target
-            ? {
-                x: ((target.x - human.at.x) / Math.max(distance(target, human.at), 1e-6)) *
-                  human.speed,
-                y: ((target.y - human.at.y) / Math.max(distance(target, human.at), 1e-6)) *
-                  human.speed,
-              }
-            : { x: 0, y: 0 };
+        const observed = {
+          x: this.world.noisy(this.asBelieved(human.at).x, 0.03),
+          y: this.world.noisy(this.asBelieved(human.at).y, 0.03),
+        };
+        const motion = this.estimateVelocity(human.id, observed);
         return {
           id: human.id,
-          at: {
-            x: this.world.noisy(this.asBelieved(human.at).x, 0.03),
-            y: this.world.noisy(this.asBelieved(human.at).y, 0.03),
-          },
-          velocity,
+          at: observed,
+          velocityUncertainty: motion.uncertainty,
+          velocity: motion.velocity,
           distance: Math.max(this.world.noisy(dist, 0.03), 0),
           attentive: human.attentive,
         };

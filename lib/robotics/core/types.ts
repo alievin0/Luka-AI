@@ -271,6 +271,19 @@ export type HumanTrack = {
   at: Vec2;
   /** Estimated velocity, m/s. */
   velocity: Vec2;
+  /**
+   * How wrong that velocity is likely to be, m/s, one standard deviation.
+   *
+   * A tracker never knows anybody's velocity; it differences noisy detections,
+   * and the residuals of that fit say how much to trust the answer. Anything
+   * projecting the velocity forward multiplies this by the horizon, so a
+   * consumer that ignores it is making a prediction whose error it could have
+   * known and chose not to.
+   *
+   * Optional because a driver that cannot report it should say nothing rather
+   * than report a confident zero.
+   */
+  velocityUncertainty?: number;
   distance: number;
   /** True while the person is facing (and probably aware of) the robot. */
   attentive: boolean;

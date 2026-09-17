@@ -25,14 +25,44 @@
 // their path — the direction that opens the gap fastest — while there is still
 // time for the movement to matter.
 //
+// ── What the first version of this measured, and why it was wrong ──────────
+//
+// It reported 0/20 clean crossings becoming 20/20, with contacts falling from
+// 12.7 per run to zero. That number was an artifact of the simulator handing
+// out people's *true* velocities: exact, noiseless, with no lag. A tracker has
+// no such thing. It differences noisy detections, which costs about 0.28 m/s
+// here — squarely inside the 0.2–0.4 m/s that published person-trackers report.
+//
+// Given a real estimate, the capability did not merely stop helping. It made
+// things worse: 12.3 contacts per crossing against 5.0 for doing nothing at
+// all. The robot was dodging noise and stepping into people.
+//
+// The cause was not the noise itself but what the code did with it. Both
+// perpendicular escapes stay valid while the estimate wobbles, and the
+// direction was rechosen from scratch every tick, so the scoring swapped sides
+// and the robot dithered in the corridor — the dance two people do in a
+// doorway. Committing to a side once chosen, and keeping it until it is
+// blocked, is the whole fix.
+//
+// A second fix was tried and removed. Bounding the horizon by the tracker's own
+// uncertainty is sound on paper — five seconds of a 0.28 m/s error is 1.39 m of
+// prediction guarding 0.8 m of clearance — and it measured as nothing. Swept
+// over sixty seeds with a paired test, 2.5 s, 3.5 s and 5 s are
+// indistinguishable (p = 0.44 and p = 1.00). An earlier warning buys more time
+// to finish the sidestep than the extra error costs.
+//
 // ── Evidence ───────────────────────────────────────────────────────────────
 //
 //   status: SIMULATED
 //
-// Twenty corridor crossings against distracted people go from 0/20 clean to
-// 20/20, with contacts per run from 12.7 to zero. The horizon was swept on
-// those twenty seeds, so they are not independent evidence of anything; forty
-// further seeds that were never looked at during the sweep came back 40/40.
+// Sixty corridor crossings against people who never look up, paired on seed:
+//
+//   without yielding    0/60 clean [0–6%]    3.73 contacts per crossing
+//   with yielding      41/60 clean [56–79%]  1.63 contacts per crossing
+//
+// McNemar on the paired episodes: 41 wins to 0 across 41 disagreements,
+// p = 0.0000. It works, and it is not the miracle the first measurement
+// claimed. Roughly a third of crossings still end in contact.
 //
 // That is a simulator agreeing with itself. It is not a claim about a corridor.
 // The people in it walk at a constant speed along straight waypoints and never
@@ -122,14 +152,22 @@ const manifest = {
   proof: {
     status: "SIMULATED" as const,
     basis:
-      "Corridor crossings against people who never look up go from 0/20 clean to 20/20, and " +
-      "contacts per run from 12.7 to zero. The five-second horizon was swept on those twenty " +
-      "seeds, so they are not independent; forty unseen seeds came back 40/40.",
+      "Sixty corridor crossings against people who never look up, paired on seed: 0/60 clean " +
+      "and 3.73 contacts per crossing without it, 41/60 clean [56-79%] and 1.63 contacts with " +
+      "it. McNemar gives 41 wins to 0 across 41 disagreements, p = 0.0000. An earlier version " +
+      "claimed 20/20 and zero contacts; that was measured against a simulator handing out " +
+      "people's true velocities, and with an estimated one the same code was worse than doing " +
+      "nothing.",
     verification:
       "A person walking a marked line at a measured pace, crossing a robot on a marked course, " +
       "with the closest approach measured from overhead video. The number to check is the " +
       "predicted closest approach against the observed one, not whether it felt comfortable.",
     failureModes: [
+      "About a third of crossings still end in contact. A corridor with somebody walking into " +
+        "the robot who never looks up is not a solved problem and this does not solve it.",
+      "Both escapes stay valid while the velocity estimate wobbles, so the direction is " +
+        "committed once chosen. That buys consistency and costs the ability to change its mind " +
+        "when the person changes theirs.",
       "The simulated people walk at constant speed along straight waypoints and never hesitate " +
         "or change their minds. Real people do, and stepping into somebody who stepped the same " +
         "way is this class of prediction's signature failure.",
@@ -188,6 +226,8 @@ export const yieldPath: Ability<YieldInput, YieldReport> = {
     };
 
     let yieldingFor: string | null = null;
+    /** The escape direction already chosen for them, kept until it is blocked. */
+    let committedSide: Vec2 | null = null;
 
     while (!ctx.signal.aborted) {
       report.ticks += 1;
@@ -205,6 +245,24 @@ export const yieldPath: Ability<YieldInput, YieldReport> = {
       for (const person of people) {
         report.minDistance = Math.min(report.minDistance, person.distance);
         const approach = closestApproach(pose, own, person);
+
+        // A horizon bound from the tracker's own uncertainty was tried here and
+        // removed, because measuring it said the theory was wrong.
+        //
+        // The reasoning was sound on paper: a velocity estimate carries error,
+        // projecting it forward multiplies that error by the horizon, and at
+        // five seconds against a tracker with 0.28 m/s of error the prediction
+        // is 1.39 m uncertain while guarding 0.8 m of clearance. So bound the
+        // horizon by clearance/uncertainty, around 2.4 s.
+        //
+        // Swept, with the direction committed: 1 s gives 0/20 clean, 2.45 s
+        // gives 12/20, 5 s gives 14/20 and 8 s adds nothing. Longer is better
+        // and the bound is inert at best — when it bites it costs two clean
+        // crossings. An earlier warning buys more time to finish the sidestep
+        // than the extra prediction error costs, and once the escape direction
+        // is committed a slightly wrong prediction still produces a useful
+        // escape. The horizon stays where the measurement puts it.
+
         // Only paths that are actually converging, and soon enough that moving
         // changes the outcome.
         if (approach.time < 0 || approach.time > horizon) continue;
@@ -215,6 +273,7 @@ export const yieldPath: Ability<YieldInput, YieldReport> = {
       if (!worst) {
         if (yieldingFor !== null) {
           yieldingFor = null;
+          committedSide = null;
           ctx.safety.releaseWheel();
           ctx.robot.setLights("idle", "#3b82f6");
         }
@@ -240,12 +299,35 @@ export const yieldPath: Ability<YieldInput, YieldReport> = {
         { x: along.y, y: -along.x },
       ];
 
+      // Having picked a side for somebody, keep it.
+      //
+      // The direction used to be recomputed from scratch every tick, out of a
+      // velocity estimate that moves. Both perpendiculars stay valid escapes
+      // while the estimate wobbles, so the scoring swapped between them and the
+      // robot dithered in the corridor instead of leaving it — which is the
+      // awkward dance two people do in a doorway, and it is why contacts went
+      // *up* when this ran on a real tracker rather than on true velocities:
+      // 12.3 per crossing against 5.0 for standing still and doing nothing.
+      //
+      // Committing costs the ability to change its mind when the person does.
+      // That is the right trade here: the escape only has to be good enough,
+      // and an escape carried through beats a better one abandoned halfway.
+      const committed: Vec2 | null = yieldingFor === worst.person.id ? committedSide : null;
+
       // Prefer the side that takes the robot further from where they are going,
       // and only use a side the lidar says is open.
       const scan = ctx.robot.lidar();
       let chosen: Vec2 | null = null;
       let best = -Infinity;
-      for (const option of options) {
+
+      // The side already chosen, if it is still open. Only a blocked escape
+      // justifies reconsidering.
+      if (committed) {
+        const relative = wrap(Math.atan2(committed.y, committed.x) - heading);
+        if (isClear(scan, relative, 1.0)) chosen = committed;
+      }
+
+      for (const option of chosen ? [] : options) {
         const bearing = Math.atan2(option.y, option.x);
         const relative = wrap(bearing - heading);
         if (!isClear(scan, relative, 1.0)) continue;
@@ -271,6 +353,7 @@ export const yieldPath: Ability<YieldInput, YieldReport> = {
         continue;
       }
 
+      committedSide = chosen;
       if (yieldingFor !== worst.person.id) {
         yieldingFor = worst.person.id;
         report.yields += 1;
