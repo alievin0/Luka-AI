@@ -214,7 +214,32 @@ export const hardwareCheckout: Ability<CheckoutInput, CheckoutReport> = {
       }
     }
 
-    // 3a. Do the robot's clocks agree with each other?
+    // 3a. Is the link carrying traffic in both directions at all?
+    //
+    //     A transport that cannot decode what arrives, or cannot deliver what
+    //     is sent, produces a robot that looks obedient and inert. Commands
+    //     return normally with nothing sent; topics stay silent with nothing
+    //     reported. Either way this process and the robot have stopped agreeing
+    //     about what is happening, and that is not a state to drive in.
+    const transport = ctx.robot as { transportProblems?: () => number; isConnected?: () => boolean };
+    if (typeof transport.transportProblems === "function") {
+      const problems = transport.transportProblems();
+      const connected = transport.isConnected?.() ?? true;
+      if (!connected) {
+        add("transport", "fail", "There is no connection to the robot. Nothing sent will arrive.");
+      } else if (problems > 0) {
+        add(
+          "transport",
+          "fail",
+          `${problems} message(s) could not be decoded or delivered. A link that drops traffic ` +
+            "makes a robot look obedient and inert — commands return normally having gone nowhere.",
+        );
+      } else {
+        add("transport", "pass", "The link is carrying traffic in both directions.");
+      }
+    }
+
+    // 3b. Do the robot's clocks agree with each other?
     //
     //     This is the failure that most often shows up as "navigation does not
     //     work". A robot is usually several computers — a base, a sensor
@@ -276,7 +301,7 @@ export const hardwareCheckout: Ability<CheckoutInput, CheckoutReport> = {
       }
     }
 
-    // 3b. How fast does the loop actually close? The governor measures this
+    // 3c. How fast does the loop actually close? The governor measures this
     //    continuously and widens its separation distances when the measurement
     //    is worse than the budget, so the number is already there — what this
     //    check adds is saying it out loud before a mission rather than after.

@@ -128,6 +128,8 @@ export class Ros2Bridge implements RobotIO {
    * counted and exposed rather than discarded.
    */
   private undecodableFrames = 0;
+  /** Commands issued with nowhere to send them. */
+  private undeliveredCommands = 0;
   /** Last velocity actually reported, held so silence does not read as stopped. */
   private lastVelocity = { linear: 0, angular: 0 };
   /**
@@ -531,9 +533,19 @@ export class Ros2Bridge implements RobotIO {
     return mine.map((m) => m.payload);
   }
 
-  /** How many frames arrived that could not be decoded. */
+  /**
+   * Frames that could not be read, plus commands that could not be sent.
+   *
+   * Either one alone means the robot and this process have stopped agreeing
+   * about what is happening, which is worth refusing to drive on.
+   */
   transportProblems(): number {
-    return this.undecodableFrames;
+    return this.undecodableFrames + this.undeliveredCommands;
+  }
+
+  /** Whether there is currently a connection to send on. */
+  isConnected(): boolean {
+    return this.socket !== null;
   }
 
   private read<T>(topic: string): T | null {
@@ -544,6 +556,21 @@ export class Ros2Bridge implements RobotIO {
   }
 
   private publish(frame: Record<string, unknown>): void {
-    this.socket?.send(JSON.stringify(frame));
+    if (!this.socket) {
+      // Every command here returned normally with nothing sent: drive, and
+      // more to the point stop. A caller asking a disconnected robot to halt
+      // was told it had halted. Commands that go nowhere are counted and
+      // reported, because a robot that silently ignores instructions is
+      // indistinguishable from one that is obeying them and not moving.
+      this.undeliveredCommands += 1;
+      if (this.undeliveredCommands === 1) {
+        this.onProblem?.(
+          "A command was issued with no connection to the robot. Nothing was sent, and " +
+            "nothing on the robot changed — including any stop.",
+        );
+      }
+      return;
+    }
+    this.socket.send(JSON.stringify(frame));
   }
 }

@@ -293,3 +293,43 @@ test("an unreported gripper does not claim zero force", async () => {
   assert.ok(Number.isNaN(grip.force), `reported ${grip.force} N with nothing published`);
   assert.equal(grip.holding, null);
 });
+
+test("a command with nowhere to go is not reported as delivered", async () => {
+  // The dangerous half of this is stop. A caller asking a disconnected robot to
+  // halt was told it had halted — the call returned normally, nothing was sent,
+  // and nothing on the robot changed. A robot silently ignoring instructions
+  // looks exactly like one obeying them and not moving.
+  const problems: string[] = [];
+  const bridge = new Ros2Bridge({
+    robotId: "r1",
+    url: "ws://localhost:9090",
+    onProblem: (message) => problems.push(message),
+  });
+
+  assert.equal(bridge.isConnected(), false);
+  assert.equal(bridge.transportProblems(), 0);
+
+  bridge.drive(0.8, 0);
+  bridge.stop();
+
+  assert.ok(bridge.transportProblems() >= 2, "undelivered commands were not counted");
+  assert.equal(problems.length, 1, "the problem was reported either never or on every command");
+  assert.match(problems[0], /including any stop/);
+
+  // Once connected, commands land and nothing further is reported.
+  const fake = fakeSocket();
+  const connecting = new Ros2Bridge({
+    robotId: "r2",
+    url: "ws://localhost:9090",
+    socketFactory: () => fake.socket,
+  });
+  const opening = connecting.connect();
+  fake.open();
+  await opening;
+
+  assert.equal(connecting.isConnected(), true);
+  fake.sent.length = 0;
+  connecting.stop();
+  assert.equal(fake.sent.length, 1, "a connected bridge dropped a stop");
+  assert.equal(connecting.transportProblems(), 0);
+});
