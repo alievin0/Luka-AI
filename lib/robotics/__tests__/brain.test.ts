@@ -8,6 +8,15 @@ import {
   population,
   DEFAULT_NEURON,
 } from "../brain/network.ts";
+import {
+  EscapeCircuit,
+  ESCAPE_EDGES,
+  FLY_FAITHFUL_TUNING,
+  angularSize,
+} from "../brain/circuits/escape.ts";
+import { signOf } from "../brain/connectome.ts";
+import { createSimRig } from "../index.ts";
+import type { LoomingReport } from "../abilities/looming.ts";
 
 test("a neuron does not fire below its rheobase and does above it", () => {
   const net = new SpikingNetwork({ neuronCount: 1, synapses: [], stepMs: 0.5 });
@@ -154,4 +163,222 @@ test("population rate averages over the population", () => {
   const all = net.populationRate([0, 1, 2, 3], 500);
   assert.ok(driven > 0);
   assert.ok(Math.abs(all - driven / 2) < 1e-6, "silent neurons must pull the average down");
+});
+
+// ── the fly's escape circuit ───────────────────────────────────────────────
+// These tests check two different things and it is worth keeping them apart:
+// that the wiring matches what the connectome measured, and that the dynamics
+// behave the way the published physiology says. The first is a data claim and
+// must be exact. The second is a modelling claim and is only ever approximate.
+
+test("the escape circuit is wired to the measured cell counts", () => {
+  const circuit = new EscapeCircuit();
+  const census = circuit.census();
+
+  // 367 cells, eye to jump muscle, as counted in MaleCNS v1.0.
+  const total = Object.values(census).reduce((a, b) => a + b, 0);
+  assert.equal(total, 367);
+  assert.equal(census.LC4, 126);
+  assert.equal(census.LPLC2, 185);
+  assert.equal(census.DNp01, 2, "the Giant Fibre is one cell per hemisphere and no more");
+  assert.equal(census.TTMn, 2);
+
+  // The measured quantity is the type-to-type synapse total, so that is what
+  // has to survive being spread over a projection.
+  const declared = ESCAPE_EDGES.reduce((sum, e) => sum + e.synapses, 0);
+  assert.ok(
+    Math.abs(circuit.compiled.stats.contacts - declared) / declared < 0.01,
+    `contacts drifted: ${circuit.compiled.stats.contacts.toFixed(0)} vs ${declared} measured`,
+  );
+});
+
+test("glutamate is wired inhibitory, as it is in the fly", () => {
+  // PVLP010 is the circuit's only brake. In the fly, glutamate acting on GluClα
+  // is inhibitory — the opposite of the vertebrate default — and getting this
+  // backwards turns the brake into an accelerator.
+  assert.equal(signOf({ id: "x", transmitter: "glutamate" }), -1);
+  assert.equal(signOf({ id: "y", transmitter: "acetylcholine" }), 1);
+
+  const circuit = new EscapeCircuit();
+  assert.ok(
+    circuit.compiled.stats.inhibitory > 0,
+    "no inhibitory edges survived, so the feed-forward brake is missing",
+  );
+});
+
+test("the circuit fires for an approach and stays quiet for everything else", () => {
+  const approach = (speed: number, radius = 0.25, start = 8) => {
+    const circuit = new EscapeCircuit();
+    let previous = angularSize(radius, start);
+    for (let t = 20; t < 20_000; t += 20) {
+      const range = start - speed * (t / 1000);
+      if (range <= 0.05) break;
+      const theta = angularSize(radius, range);
+      const stimulus = { theta, dTheta: (theta - previous) / 0.02 };
+      previous = theta;
+      if (circuit.advance(20, { L: stimulus, R: stimulus }).triggered) return range;
+    }
+    return null;
+  };
+
+  assert.ok((approach(1.5) ?? 0) > 1, "did not fire for a 1.5 m/s approach");
+  assert.ok((approach(1.0) ?? 0) > 1, "did not fire for a 1.0 m/s approach");
+
+  // Receding, static and slowly drifting objects must not trigger an escape.
+  const steady = (theta: number, dTheta: number) => {
+    const circuit = new EscapeCircuit();
+    for (let i = 0; i < 200; i += 1) {
+      if (circuit.advance(20, { L: { theta, dTheta }, R: { theta, dTheta } }).triggered) return true;
+    }
+    return false;
+  };
+  assert.equal(steady(0.8, 0), false, "fired at a stationary object");
+  assert.equal(steady(0.8, -2), false, "fired at a receding object");
+  assert.equal(steady(1.4, 0), false, "fired at something large but not moving");
+});
+
+test("the escape is directional: the side that fires is the side the threat is on", () => {
+  const drive = (side: "L" | "R") => {
+    const circuit = new EscapeCircuit();
+    const quiet = { theta: 0, dTheta: 0 };
+    let previous = angularSize(0.25, 8);
+    for (let t = 20; t < 12_000; t += 20) {
+      const range = 8 - 1.5 * (t / 1000);
+      if (range <= 0.05) break;
+      const theta = angularSize(0.25, range);
+      const stimulus = { theta, dTheta: (theta - previous) / 0.02 };
+      previous = theta;
+      const verdict = circuit.advance(20, {
+        L: side === "L" ? stimulus : quiet,
+        R: side === "R" ? stimulus : quiet,
+      });
+      if (verdict.triggered) return verdict;
+    }
+    return null;
+  };
+
+  const left = drive("L");
+  assert.equal(left?.side, "L");
+  assert.equal(left?.giantFibre.R, 0, "the quiet side fired too");
+
+  const right = drive("R");
+  assert.equal(right?.side, "R");
+  assert.equal(right?.giantFibre.L, 0);
+});
+
+test("time to contact at firing is roughly constant across approach speeds", () => {
+  // This is the property that makes the circuit worth borrowing, and it is not
+  // coded anywhere: the drive is linear in expansion rate and Gaussian in size,
+  // and a near-constant time-to-contact threshold falls out of the combination.
+  const ttcAt = (speed: number) => {
+    const circuit = new EscapeCircuit();
+    const start = Math.max(8, speed * 5);
+    let previous = angularSize(0.25, start);
+    for (let t = 20; t < 30_000; t += 20) {
+      const range = start - speed * (t / 1000);
+      if (range <= 0.05) break;
+      const theta = angularSize(0.25, range);
+      const stimulus = { theta, dTheta: (theta - previous) / 0.02 };
+      previous = theta;
+      if (circuit.advance(20, { L: stimulus, R: stimulus }).triggered) return range / speed;
+    }
+    return null;
+  };
+
+  const speeds = [1.0, 1.5, 2.0, 2.5];
+  const times = speeds.map(ttcAt);
+  for (const [i, t] of times.entries()) {
+    assert.ok(t !== null, `never fired at ${speeds[i]} m/s`);
+    assert.ok(t! > 0.4 && t! < 2.0, `${speeds[i]} m/s fired at ${t?.toFixed(2)} s to contact`);
+  }
+
+  // Over a 2.5x range of speeds, the firing range must grow — that is what
+  // keeps the time margin from collapsing at speed.
+  const ranges = speeds.map((v, i) => times[i]! * v);
+  assert.ok(
+    ranges[ranges.length - 1] > ranges[0],
+    `firing range shrank with speed: ${ranges.map((r) => r.toFixed(2)).join(", ")}`,
+  );
+});
+
+test("at the fly's own sensitivity the threshold matches the published range", () => {
+  // Calibration check against the animal, not against this implementation.
+  // Published takeoff data puts the giant-fibre angular-size threshold between
+  // about 39 deg and 67 deg. At sensitivity 1 this circuit should land there for
+  // ordinary approach speeds — if it does not, the model has drifted off the
+  // physiology it claims to reproduce.
+  const thresholdDeg = (speed: number) => {
+    const circuit = new EscapeCircuit({ tuning: FLY_FAITHFUL_TUNING });
+    const start = 8;
+    let previous = angularSize(0.25, start);
+    for (let t = 20; t < 30_000; t += 20) {
+      const range = start - speed * (t / 1000);
+      if (range <= 0.05) break;
+      const theta = angularSize(0.25, range);
+      const stimulus = { theta, dTheta: (theta - previous) / 0.02 };
+      previous = theta;
+      if (circuit.advance(20, { L: stimulus, R: stimulus }).triggered) {
+        return (theta * 180) / Math.PI;
+      }
+    }
+    return null;
+  };
+
+  for (const speed of [1.0, 1.5, 2.0]) {
+    const deg = thresholdDeg(speed);
+    assert.ok(deg !== null, `never fired at ${speed} m/s`);
+    assert.ok(
+      deg! >= 35 && deg! <= 70,
+      `at ${speed} m/s the Giant Fibre fired at ${deg?.toFixed(0)} deg, outside the published 39-67 deg range`,
+    );
+  }
+
+  // And the robot default must be more cautious than the fly, not less.
+  const flyRange = (() => {
+    const circuit = new EscapeCircuit({ tuning: FLY_FAITHFUL_TUNING });
+    let previous = angularSize(0.25, 8);
+    for (let t = 20; t < 30_000; t += 20) {
+      const range = 8 - 1.5 * (t / 1000);
+      if (range <= 0.05) break;
+      const theta = angularSize(0.25, range);
+      const stimulus = { theta, dTheta: (theta - previous) / 0.02 };
+      previous = theta;
+      if (circuit.advance(20, { L: stimulus, R: stimulus }).triggered) return range;
+    }
+    return 0;
+  })();
+  assert.ok(flyRange < 0.8, `the fly-faithful tuning fired at ${flyRange.toFixed(2)} m, further out than expected`);
+});
+
+test("reflex.looming pulls the robot away from someone walking into it", async () => {
+  const rig = createSimRig({ scenario: "empty-hall" });
+  const robot = rig.world.robot("luka-1");
+  rig.world.humans.push({
+    id: "threat",
+    at: { x: robot.pose.x + 7, y: robot.pose.y + 0.8 },
+    waypoints: [{ x: robot.pose.x - 3, y: robot.pose.y + 0.2 }],
+    speed: 1.5,
+    attentive: false,
+  });
+
+  const daemon = rig.runtime.startDaemon<Record<string, never>, LoomingReport>(
+    "reflex.looming",
+    {},
+  );
+
+  const probe = (async () => {
+    for (let i = 0; i < 260; i += 1) await rig.runtime.sleep(20);
+  })();
+  await rig.runtime.settle(probe);
+  await rig.runtime.stopDaemons();
+  const report = await daemon.promise;
+
+  assert.equal(report.ok, true, report.summary);
+  assert.ok((report.data?.escapes ?? 0) > 0, "never escaped from someone walking straight at it");
+  assert.ok(
+    (report.data?.circuit.cells ?? 0) === 367,
+    "the reported circuit is not the one that was measured",
+  );
+  // The robot is not allowed to have driven into the person while escaping.
+  assert.equal(rig.world.robot("luka-1").collisions, 0);
 });

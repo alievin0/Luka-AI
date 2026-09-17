@@ -11,6 +11,7 @@ import { intentTelegraph } from "./intent-telegraph.ts";
 import { learnFromDemo } from "./learn-demo.ts";
 import { navigateTo } from "./navigate-to.ts";
 import { powerLifeline } from "./power-lifeline.ts";
+import { loomingReflex } from "./looming.ts";
 import { reflexShield } from "./reflex-shield.ts";
 import { rehearsePlan } from "./rehearse.ts";
 import { safetyStoppable } from "./stoppable.ts";
@@ -29,6 +30,7 @@ export const ALL_ABILITIES: Array<Ability<never, never>> = [
   learnFromDemo,
   navigateTo,
   powerLifeline,
+  loomingReflex,
   reflexShield,
   rehearsePlan,
   safetyStoppable,
@@ -52,6 +54,7 @@ export {
   learnFromDemo,
   navigateTo,
   powerLifeline,
+  loomingReflex,
   reflexShield,
   rehearsePlan,
   safetyStoppable,
