@@ -255,5 +255,186 @@ class ProposedSetShape(unittest.TestCase):
                              "recalibration must not be able to run a campaign")
 
 
+from core import bench_metrics as M              # noqa: E402
+
+
+class OptionALocked(unittest.TestCase):
+    """The owner pre-registered OPTION A after preliminary evidence of a
+    multi-agent advantage was already visible. That timing is the whole point:
+    the rule is frozen precisely because the data has been peeked at."""
+
+    def test_the_rule_is_exactly_as_preregistered(self):
+        out = I.check_option_a_locked(V2.TASKS_V2)[0]
+        self.assertEqual(out["status"], I.PASS, out["detail"])
+
+    def test_alpha_and_the_cell_minimums_are_untouched(self):
+        from core import benchmark as B
+        self.assertEqual(B.SIGN_TEST_ALPHA, 0.05)
+        self.assertEqual(B.MIN_RUNS_PER_CELL, 5)
+        self.assertEqual(B.MIN_TASKS_WITH_SIGNAL, 3)
+
+    def test_six_of_eight_is_the_derived_bar(self):
+        d = D.design_power(8, 0.05)
+        self.assertEqual(d["min_decided_for_significance"], 6)
+        self.assertGreater(D._binom_two_sided(5, 5), 0.05, "a 5-sweep must NOT clear alpha")
+        self.assertLessEqual(D._binom_two_sided(6, 6), 0.05)
+
+    def test_moving_alpha_fails_the_gate(self):
+        from core import benchmark as B
+        original = B.SIGN_TEST_ALPHA
+        try:
+            B.SIGN_TEST_ALPHA = 0.10
+            out = I.check_option_a_locked(V2.TASKS_V2)[0]
+            self.assertEqual(out["status"], I.FAIL)
+            self.assertIn("alpha moved", out["detail"])
+        finally:
+            B.SIGN_TEST_ALPHA = original
+
+    def test_adding_a_ninth_discriminating_task_fails_the_gate(self):
+        """The bar was pre-registered against EIGHT. Growing the set is option B,
+        which the owner declined."""
+        extra = V2.TASKS_V2 + [dict(V2.TASKS_V2[1], id="V2-T10-extra")]
+        out = I.check_option_a_locked(extra)[0]
+        self.assertEqual(out["status"], I.FAIL)
+        self.assertIn("discriminating task count moved", out["detail"])
+
+
+class NineDimensions(unittest.TestCase):
+
+    def test_all_nine_are_preregistered_with_a_pass_fail_rule(self):
+        self.assertEqual(len(M.DIMENSIONS), 9)
+        for r in I.check_every_dimension_is_preregistered():
+            self.assertEqual(r["status"], I.PASS, r["detail"])
+
+    def test_the_owners_nine_are_all_present(self):
+        want = {"quality", "correctness", "reliability", "evidence_quality", "cost",
+                "latency", "human_intervention", "coordination_failure", "damage"}
+        self.assertEqual({d["key"] for d in M.DIMENSIONS}, want)
+
+    def test_only_quality_feeds_the_statistical_rule(self):
+        self.assertEqual(I.check_one_dimension_feeds_the_test()[0]["status"], I.PASS)
+
+    def test_there_is_no_overall_winner_score(self):
+        self.assertEqual(I.check_no_overall_winner_score()[0]["status"], I.PASS)
+
+    def test_the_metric_definitions_are_frozen_by_hash(self):
+        self.assertEqual(I.check_metrics_frozen()[0]["status"], I.PASS)
+
+    def test_editing_a_threshold_breaks_the_freeze(self):
+        original = M.DIMENSIONS[0]["threshold"]
+        try:
+            M.DIMENSIONS[0]["threshold"] = 0.01
+            self.assertEqual(I.check_metrics_frozen()[0]["status"], I.FAIL)
+        finally:
+            M.DIMENSIONS[0]["threshold"] = original
+        self.assertEqual(I.check_metrics_frozen()[0]["status"], I.PASS)
+
+
+class ReliabilityIsNotMeanQuality(unittest.TestCase):
+    """The correction campaigns #1-2 forced. T04's single agent read as 0.80
+    mean, which looks like slightly worse work. It was four perfect runs and
+    one total absence."""
+
+    def setUp(self):
+        self.steady = [{"correctness": 0.8, "completed": True} for _ in range(5)]
+        self.spiky = [{"correctness": c, "completed": True}
+                      for c in (1.0, 1.0, 0.0, 1.0, 1.0)]
+
+    def test_two_systems_with_the_same_mean_read_differently(self):
+        self.assertAlmostEqual(M.quality(self.steady), M.quality(self.spiky))
+        a, b = M.reliability(self.steady), M.reliability(self.spiky)
+        self.assertEqual(a["catastrophic"], 0)
+        self.assertEqual(b["catastrophic"], 1)
+        self.assertEqual(a["failure_free_proportion"], 1.0)
+        self.assertEqual(b["failure_free_proportion"], 0.8)
+
+    def test_catastrophic_runs_are_counted_not_averaged(self):
+        r = M.reliability(self.spiky)
+        self.assertEqual(r["worst_run"], 0.0)
+        self.assertEqual(r["attempts"], 5)
+
+    def test_an_incomplete_run_counts_as_catastrophic(self):
+        runs = [{"correctness": 1.0, "completed": False}]
+        self.assertEqual(M.reliability(runs)["catastrophic"], 1)
+
+
+class CostRequiresSuccess(unittest.TestCase):
+
+    def test_a_condition_with_no_verified_success_has_no_cost_per_result(self):
+        runs = [{"correctness": 0.0, "usd": 0.01, "verified": False} for _ in range(5)]
+        c = M.cost(runs)
+        self.assertIsNone(c["per_verified_success"])
+        self.assertEqual(c["verified_successes"], 0)
+
+    def test_cheap_and_useless_does_not_beat_dear_and_working(self):
+        cheap = M.cost([{"correctness": 0.0, "usd": 0.001, "verified": False}] * 5)
+        dear = M.cost([{"correctness": 1.0, "usd": 0.10, "verified": True}] * 5)
+        self.assertEqual(M.cost_favours(cheap, dear), M.MULTI)
+        self.assertEqual(M.cost_favours(dear, cheap), M.SINGLE)
+
+    def test_cheaper_wins_only_when_both_actually_succeed(self):
+        cheap = M.cost([{"correctness": 1.0, "usd": 0.01, "verified": True}] * 5)
+        dear = M.cost([{"correctness": 1.0, "usd": 0.10, "verified": True}] * 5)
+        self.assertEqual(M.cost_favours(cheap, dear), M.SINGLE)
+
+
+class DamageIsMeasurable(unittest.TestCase):
+
+    def test_a_set_with_no_damage_task_is_rejected(self):
+        """v1's exact shape: nothing hands over correct work, so the dimension
+        cannot be measured at all."""
+        out = I.check_damage_dimension_has_a_task(
+            [dict(t) for t in V2.TASKS_V2 if not t.get("damage_class")])[0]
+        self.assertEqual(out["status"], I.FAIL)
+        self.assertIn("cannot", out["detail"])
+
+    def test_a_damage_class_task_exists(self):
+        self.assertEqual(I.check_damage_dimension_has_a_task(V2.TASKS_V2)[0]["status"], I.PASS)
+
+    def test_leaving_correct_work_alone_scores_no_damage(self):
+        t = next(t for t in V2.TASKS_V2 if t.get("damage_class"))
+        clean = [{"correctness": 1.0, "completed": True} for _ in range(5)]
+        self.assertEqual(M.damage(clean, t)["damage_rate"], 0.0)
+
+    def test_breaking_working_code_is_recorded_as_damage(self):
+        t = next(t for t in V2.TASKS_V2 if t.get("damage_class"))
+        broke = [{"correctness": c, "completed": True} for c in (1.0, 0.7, 1.0, 1.0, 1.0)]
+        self.assertEqual(M.damage(broke, t)["runs_that_damaged_a_working_artifact"], 1)
+
+    def test_damage_is_not_applicable_where_there_is_nothing_to_break(self):
+        t = next(t for t in V2.TASKS_V2 if not t.get("damage_class"))
+        runs = [{"correctness": 0.0, "completed": True}]
+        self.assertFalse(M.damage(runs, t)["applicable"])
+        self.assertIsNone(M.damage(runs, t)["damage_rate"])
+
+
+class EveryComparisonIsSymmetric(unittest.TestCase):
+    """Swap the two conditions and every verdict must mirror. A rule that reads
+    differently depending on who is being measured is a thumb on the scale."""
+
+    def _cell(self, scores, usd, latency, verified=True):
+        return [{"correctness": c, "completed": True, "usd": usd, "verified": verified,
+                 "latency_ms": latency, "tokens": 100, "unsupported_claims": 0,
+                 "contradictions": 0, "retries": 0, "tool_denials": 0,
+                 "human_interventions": 0, "tool_calls": 1} for c in scores]
+
+    def test_swapping_the_conditions_mirrors_every_verdict(self):
+        a = M.compute_all(self._cell([1.0, 1.0, 1.0, 1.0, 1.0], 0.01, 1000))
+        b = M.compute_all(self._cell([0.6, 0.6, 0.0, 0.6, 0.6], 0.05, 9000))
+        fwd = M.compare(a, b)
+        rev = M.compare(b, a)
+        mirror = {M.SINGLE: M.MULTI, M.MULTI: M.SINGLE, M.NEITHER: M.NEITHER}
+        for key, verdict in fwd.items():
+            self.assertEqual(rev[key], mirror[verdict],
+                             "%s is not symmetric: %s vs %s" % (key, verdict, rev[key]))
+
+    def test_raw_scores_survive_into_the_report(self):
+        scores = [1.0, 0.0, 1.0, 0.8, 1.0]
+        out = M.compute_all(self._cell(scores, 0.01, 100))
+        self.assertEqual(out["raw_scores"], scores,
+                         "raw per-run observations must never be summarised away")
+        self.assertEqual(out["attempts"], 5)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

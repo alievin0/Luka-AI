@@ -242,10 +242,29 @@ Campaign #3 runs:
 α stays at 0.05 under every option. `MIN_RUNS_PER_CELL` and
 `MIN_TASKS_WITH_SIGNAL` are unchanged and a test asserts it.
 
-My recommendation is **C + B together**, and I want to be explicit about why
-you should discount that recommendation somewhat: it is the option most likely
-to let the organisation demonstrate an effect, and I am the one who built the
-organisation. Option A is the one that most protects you from me.
+My recommendation was **C + B together**, with the note that you should
+discount it: it is the option most likely to let the organisation demonstrate
+an effect, and I built the organisation.
+
+### RESOLVED — the owner chose OPTION A, 2026-09-17
+
+C+B was explicitly declined. The stated reason is recorded with the rule: the
+benchmark designer has already observed preliminary evidence of a multi-agent
+advantage, so changing the statistical decision rule now creates an avoidable
+researcher-degrees-of-freedom problem **even if the change is defensible
+statistically**.
+
+Option A is sealed in `PREREGISTRATION-C3.md` and enforced by
+`check_option_a_locked`: alpha 0.05, two-sided sign test over per-task QUALITY
+directions, 6 of 8 discriminating tasks required. Tests assert that moving
+alpha to 0.10, or adding a ninth discriminating task, each fail the gate.
+
+The sign test is not the only useful analysis, and the owner said so. Nine
+dimensions are now reported separately — quality, correctness, reliability,
+evidence quality, cost, latency, human intervention, coordination failure,
+damage — with every metric and PASS/FAIL rule fixed before Campaign #3 data
+exists, and the whole set hashed so it cannot drift afterwards. Exactly one
+of the nine feeds the statistical rule.
 
 ---
 

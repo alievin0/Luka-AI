@@ -40,18 +40,47 @@ def git_commit():
         return "unknown"
 
 
+def _fixture_sha(task):
+    import hashlib
+    return hashlib.sha256(
+        json.dumps(task["fixture"], sort_keys=True).encode()).hexdigest()
+
+
+ACTIVE = BT          # the task-set module in force; v1 by default
+
+
+def use_task_set(name):
+    """Select the task set. v1 is the default so campaigns #1-2 stay reproducible.
+
+    Campaign #3's set is v2 and must be asked for by name — nothing silently
+    upgrades a run to a task set the owner has not authorised."""
+    global ACTIVE
+    if name in (None, "", "v1"):
+        ACTIVE = BT
+    elif name == "v2":
+        from core import bench_tasks_v2 as V2
+        ACTIVE = V2
+    else:
+        raise ValueError("unknown task set %r (expected 'v1' or 'v2')" % name)
+    return ACTIVE
+
+
+def active_tasks():
+    return getattr(ACTIVE, "TASKS", None) or ACTIVE.TASKS_V2
+
+
 def register_tasks(con):
-    for t in BT.TASKS:
+    for t in active_tasks():
         con.execute(
             "INSERT OR REPLACE INTO bench_tasks(id,title,description,domain,difficulty,"
             "fixture,fixture_sha,expected,allowed_tools,max_usd,max_seconds,seed,favours,"
             "rationale,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (t["id"], t["title"], t["description"], t["domain"], t["difficulty"],
-             json.dumps(t["fixture"], ensure_ascii=False), BT.fixture_sha(t),
-             json.dumps(t["expected"]), json.dumps(t["allowed_tools"]),
+             json.dumps(t["fixture"], ensure_ascii=False), _fixture_sha(t),
+             json.dumps(t.get("expected", {})), json.dumps(t["allowed_tools"]),
              t["max_usd"], t.get("max_seconds", 180), t.get("seed"), t["favours"],
-             t["rationale"], now()))
-    return len(BT.TASKS)
+             t.get("rationale") or t.get("relevance", ""), now()))
+    return len(active_tasks())
 
 
 def open_campaign(con, name, provider, model, repeats):
@@ -128,7 +157,8 @@ def evaluate(con, brid, task, ran, evaluator="EVAL-OBJECTIVE"):
     """Objective where possible. The evaluator is given a token, not a label."""
     r = con.execute("SELECT * FROM bench_runs WHERE id=?", (brid,)).fetchone()
     blind = sha("%d:%s" % (brid, task["id"]))[:16]
-    checker = BT.CHECKERS[task["checker"]]
+    checker = (getattr(ACTIVE, "CHECKERS", None)
+               or ACTIVE.CHECKERS_V2)[task["checker"]]
     m = checker(r["output"] or "", ran or {}, task["fixture"])
     con.execute(
         "INSERT OR REPLACE INTO bench_evaluations(bench_run_id,blind_token,method,correctness,"

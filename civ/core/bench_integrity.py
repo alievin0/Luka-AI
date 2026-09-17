@@ -205,6 +205,122 @@ def check_design_power(tasks, alpha=0.05):
                     "decided 2." % (need, len(disc), alpha, d["p_at_clean_sweep"]))]
 
 
+# ── 8. OPTION A is locked, and the metric set cannot drift ────────────
+# The owner pre-registered OPTION A on 2026-09-17, after preliminary evidence of
+# a multi-agent advantage had already been observed. That timing is exactly why
+# the rule is frozen: changing a decision rule once you have seen which way the
+# data leans is a researcher-degrees-of-freedom problem whether or not the new
+# rule is statistically defensible.
+OPTION_A = {
+    "alpha": 0.05,
+    "test": "two-sided exact binomial sign test over per-task QUALITY directions",
+    "min_runs_per_cell": 5,
+    "min_tasks_with_signal": 3,
+    "decided_needed_for_significance": 6,
+    "discriminating_tasks": 8,
+}
+
+# Fingerprint of the nine dimensions as pre-registered. A campaign whose metric
+# definitions hash differently has had its metrics edited after the fact.
+PREREGISTERED_METRICS_SHA = "8553b9ce2ddd224192cdc6e4c8f84a3134372c8e30767cb5703006ded37c6407"
+
+
+def check_option_a_locked(tasks):
+    from core import benchmark as B
+    from core.bench_diagnosis import design_power
+    problems = []
+    if B.SIGN_TEST_ALPHA != OPTION_A["alpha"]:
+        problems.append("alpha moved: %r (pre-registered %r)"
+                        % (B.SIGN_TEST_ALPHA, OPTION_A["alpha"]))
+    if B.MIN_RUNS_PER_CELL != OPTION_A["min_runs_per_cell"]:
+        problems.append("min_runs_per_cell moved: %r" % B.MIN_RUNS_PER_CELL)
+    if B.MIN_TASKS_WITH_SIGNAL != OPTION_A["min_tasks_with_signal"]:
+        problems.append("min_tasks_with_signal moved: %r" % B.MIN_TASKS_WITH_SIGNAL)
+    disc = [t for t in tasks if t.get("purpose") != "baseline_competence"]
+    if len(disc) != OPTION_A["discriminating_tasks"]:
+        problems.append("discriminating task count moved: %d (pre-registered %d)"
+                        % (len(disc), OPTION_A["discriminating_tasks"]))
+    need = design_power(len(disc), OPTION_A["alpha"])["min_decided_for_significance"]
+    if need != OPTION_A["decided_needed_for_significance"]:
+        problems.append("the derived bar moved: %s of %d decided (pre-registered %d)"
+                        % (need, len(disc), OPTION_A["decided_needed_for_significance"]))
+    return [_result("option-a-locked", FAIL if problems else PASS,
+                    "; ".join(problems) if problems
+                    else "alpha 0.05 · sign test over QUALITY · %d of %d decided tasks "
+                         "needed · unchanged since pre-registration"
+                         % (OPTION_A["decided_needed_for_significance"], len(disc)))]
+
+
+def check_metrics_frozen():
+    from core import bench_metrics as M
+    got = M.dimensions_sha()
+    ok = got == PREREGISTERED_METRICS_SHA
+    return [_result("metrics-frozen", PASS if ok else FAIL,
+                    "9 dimensions match the pre-registered fingerprint" if ok
+                    else "metric definitions changed since pre-registration: %s != %s"
+                         % (got[:16], PREREGISTERED_METRICS_SHA[:16]))]
+
+
+def check_one_dimension_feeds_the_test():
+    """Eight dimensions are reported. Exactly one is tested. Adding a second
+    test after seeing the data is the thing Option A exists to prevent."""
+    from core import bench_metrics as M
+    tested = [d["key"] for d in M.DIMENSIONS if d["feeds_statistical_rule"]]
+    ok = tested == ["quality"]
+    return [_result("single-tested-dimension", PASS if ok else FAIL,
+                    "only QUALITY feeds the sign test; 8 dimensions reported "
+                    "separately" if ok
+                    else "dimensions feeding the statistical rule: %r" % (tested,))]
+
+
+def check_every_dimension_is_preregistered():
+    from core import bench_metrics as M
+    out = []
+    for d in M.DIMENSIONS:
+        missing = [f for f in ("definition", "metric", "threshold", "pass_fail")
+                   if d.get(f) in (None, "")]
+        out.append(_result("metric:%s" % d["key"], FAIL if missing else PASS,
+                           "missing %s" % ", ".join(missing) if missing
+                           else "%s | threshold %s" % (d["metric"][:52], d["threshold"])))
+    return out
+
+
+def check_no_overall_winner_score():
+    """A single blended number is how a nine-dimension report becomes a slogan."""
+    from core import bench_metrics as M
+    problems = []
+    for bad in ("overall", "winner", "total_score", "composite", "weighted"):
+        if hasattr(M, bad):
+            problems.append("bench_metrics defines %r" % bad)
+    sample = M.compare(
+        {k: None for k in ("quality", "correctness", "reliability", "evidence_quality",
+                           "cost", "latency", "human_intervention",
+                           "coordination_failure", "damage")},
+        {k: None for k in ("quality", "correctness", "reliability", "evidence_quality",
+                           "cost", "latency", "human_intervention",
+                           "coordination_failure", "damage")})
+    if len(sample) != 9:
+        problems.append("compare() returned %d verdicts, expected 9" % len(sample))
+    return [_result("no-winner-score", FAIL if problems else PASS,
+                    "; ".join(problems) if problems
+                    else "compare() returns 9 separate verdicts and no blended score")]
+
+
+def check_damage_dimension_has_a_task(tasks):
+    """The DAMAGE dimension is unmeasurable without a task that hands over
+    already-correct work. v1 had none, which is why two campaigns could not
+    have detected the organisation making things worse.
+
+    Takes the task set as an argument like every other check: a gate that reads
+    hidden module state can pass or fail by call order, which is not a property
+    you want in the thing that decides whether to spend money."""
+    have = [t["id"] for t in tasks if t.get("damage_class")]
+    return [_result("damage-measurable", PASS if have else FAIL,
+                    "damage-class task(s): %s" % ", ".join(have) if have
+                    else "no task hands over a correct artifact, so DAMAGE cannot "
+                         "be measured at all")]
+
+
 # ── run them all ──────────────────────────────────────────────────────
 def run_all(tasks, checkers, task_input, alpha=0.05):
     results = []
@@ -215,6 +331,12 @@ def run_all(tasks, checkers, task_input, alpha=0.05):
     results += check_identical_surface(tasks, task_input)
     results += check_ceiling_declared(tasks)
     results += check_design_power(tasks, alpha)
+    results += check_option_a_locked(tasks)
+    results += check_metrics_frozen()
+    results += check_one_dimension_feeds_the_test()
+    results += check_every_dimension_is_preregistered()
+    results += check_no_overall_winner_score()
+    results += check_damage_dimension_has_a_task(tasks)
     failed = [r for r in results if r["status"] == FAIL]
     warned = [r for r in results if r["status"] == WARN]
     return {

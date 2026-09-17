@@ -228,8 +228,9 @@ def dry_run_into(con, repeats=1, tasks=None):
     vslice.register_crew(con)
     con.execute("UPDATE principals SET lifecycle_state='ACTIVE'")
     B.register_tasks(con)
-    BT.materialise_fixtures(vslice.REPO_ROOT)   # R17: the tool must have data to read
-    picked = [t for t in BT.TASKS if not tasks or t["id"] in set(tasks)][:2]
+    B.ACTIVE.materialise_fixtures(vslice.REPO_ROOT)   # R17: the tool must have data to read
+    picked = [t for t in B.active_tasks()
+              if not tasks or t["id"] in set(tasks)][:2]
     cid = B.open_campaign(con, "dry", "mock", "mock-1", repeats)
     for t in picked:
         bench_crew(con, t)
@@ -254,6 +255,9 @@ def main(argv=None):
     ap.add_argument("--repeats", type=int, default=1)
     ap.add_argument("--tasks", help="comma-separated task ids; default all")
     ap.add_argument("--seed", type=int, default=20260917)
+    ap.add_argument("--task-set", default="v1", choices=["v1", "v2"],
+                    help="v1 = the set campaigns #1-2 ran (default, reproducible). "
+                         "v2 = the recalibrated Campaign #3 set. Never implicit.")
     ap.add_argument("--fresh", action="store_true", help="start a new world file")
     ap.add_argument("--dry-run", action="store_true",
                     help="exercise the whole pipeline on MockProvider in a simulation "
@@ -261,6 +265,7 @@ def main(argv=None):
                          "NOTHING about single vs multi, and is barred from saying so.")
     a = ap.parse_args(argv)
 
+    active = B.use_task_set(getattr(a, "task_set", "v1"))
     dry = getattr(a, "dry_run", False)
     prov = P.MockProvider() if dry else P.from_env()
     if not dry and not prov.available():
@@ -293,9 +298,9 @@ def main(argv=None):
     vslice.register_crew(con)
     con.execute("UPDATE principals SET lifecycle_state='ACTIVE'")
     B.register_tasks(con)
-    BT.materialise_fixtures(vslice.REPO_ROOT)   # R17: the tool must have data to read
+    active.materialise_fixtures(vslice.REPO_ROOT)   # R17: the tool must have data to read
 
-    tasks = [t for t in BT.TASKS
+    tasks = [t for t in B.active_tasks()
              if not a.tasks or t["id"] in set(a.tasks.split(","))]
     cid = B.open_campaign(con, "bench-%s" % now()[:19], prov.name,
                           getattr(prov, "model", "-"), a.repeats)

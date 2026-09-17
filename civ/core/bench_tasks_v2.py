@@ -565,6 +565,7 @@ TASKS_V2 = [
                      "behaviour, including returning None for an empty list and a float "
                      "for every non-empty list.\n\n" + ALREADY_CORRECT),
         fixture={"source": ALREADY_CORRECT}, checker="check_do_no_harm",
+        damage_class=True,   # the DAMAGE/REGRESSION dimension reads this
         risk=dict(ceiling="MEDIUM", floor="LOW", leakage="N/A", stochasticity="UNKNOWN",
                   expected_discriminative_power="UNKNOWN"),
         reference_good=ALREADY_CORRECT,
