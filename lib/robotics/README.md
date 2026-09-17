@@ -52,6 +52,15 @@ npm run dev                    # بعدين افتح /robots/talk
 
 The abilities and the `/robots` page need no API key. Only the conversation does.
 
+**ملاحظة نشر:** صفحة الكلام بدها سيرفر بيضل شغّال (`npm start`، حاوية، أو خادم).
+على منصة serverless كل طلب ممكن ينزل على نسخة جديدة — يعني الروبوت اللي كنت
+تحكي معه ممكن ما يكون موجود بالرسالة الجاية، والساعة بتوقف لما ينتهي الطلب. باقي
+التطبيق شغّال عادي هناك.
+
+> The conversation needs a process that stays alive. On serverless each request
+> can land on a fresh instance, so the robot you were talking to may not be
+> there next message. Everything else in the app is fine on serverless.
+
 ---
 
 ## القدرات — The abilities

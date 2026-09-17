@@ -7,6 +7,12 @@
 //
 // In-process and per-session, the same trade-off as `lib/cart.ts`. A fleet of
 // these belongs behind a real process supervisor, not a module-level Map.
+//
+// This needs a server that stays alive: `npm start`, a container, a VM. On a
+// serverless platform each request can land on a fresh instance, so the robot
+// you were talking to may not be there next message, and the ambient clock
+// stops when the invocation ends. The rest of the app is fine there; this part
+// wants a process.
 
 import { createSimRig, type SimRig } from "../index.ts";
 import { createInMemoryBackend, type MemoryBackend } from "../core/memory.ts";
