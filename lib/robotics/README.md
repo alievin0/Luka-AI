@@ -26,12 +26,25 @@ npm run robo -- run navigate.to '{"x":12,"y":8}'
   حقيقي لازم يكون تحتها مراقب على عتاد أو خيط بأولوية حقيقية.
 - **أمان الروبوت عم يعتمد على تعاون الإنسان.** شوف عرض `measured-crossing`:
   ٢٠/٢٠ عبور نظيف مع ناس بينتبهوا، ٠/٢٠ مع ناس ما بيرفعوا راسهم.
+- **مستوى الليدار فوق الأرض بعشرات السنتيمترات.** ما بيشوف قدم، ولا قطة، ولا شخص
+  مستلقي، ولا حافّة درجة. ولا شي بهالمكتبة بيغيّر هالحقيقة.
+- **`reflex.looming` انعكاس فزع، مو تفادي اصطدام.** ما بيشتعل للاقتراب البطيء
+  (تحت ~٠٫٤ م/ث) بالتصميم، وعنده إنذارات كاذبة وقت المناورة: خمس مرات بسبع أمتار
+  بغرفة مزدحمة، ولا وحدة منها خطر حقيقي.
+- **قاطع الأوامر الميتة بيشتغل جوّا هالعملية.** فالحالة اللي ما بيغطّيها هي بالضبط
+  موت العملية نفسها. لهيك لازم يكون عند القاعدة مهلة أوامر خاصة فيها، والفحص
+  بيعتبر غيابها على وصلة لاسلكية سبب رفض إذا السرعة أعلى من الزحف.
 
 > The simulator is 2-D and determinism is a reproducibility property, not a
 > fidelity claim. The safety governor and the stoppability monitor are design
 > aids, not certified safety functions. A 50 Hz loop in TypeScript over a
-> WebSocket is not a real-time layer. And the robot's safety record depends on
-> people cooperating — `measured-crossing` measures exactly how much.
+> WebSocket is not a real-time layer. The robot's safety record depends on
+> people cooperating — `measured-crossing` measures exactly how much. The lidar
+> plane cannot see a foot, an animal or a person lying down. `reflex.looming` is
+> a startle, not collision avoidance, and it has false positives while
+> manoeuvring. And the deadman runs inside this process, so the one case it
+> cannot cover is this process dying — which is why a wireless robot without its
+> own command timeout is refused above crawl speed.
 
 ## احكي معه — talk to it
 
@@ -81,6 +94,8 @@ The abilities and the `/robots` page need no API key. Only the conversation does
 | 12 | `explore.frontier` · المستكشف | بيرسم خريطة مكان مجهول بالمشي على الحدود بين المعروف والمجهول | شرط التوقف واضح: ما ضل حدود يعني خلص المكان |
 | 13 | `navigate.to` · التنقل | بيوصل لنقطة ويتفادى كل شي بيظهر بالطريق | الأساس اللي بتبني عليه الباقي |
 | 14 | `safety.stoppable` · مراقب التوقف | بيجاوب باستمرار: لو وقف هلق، بيوصل لوضع ثابت بدون ما يوقع أو يصطدم؟ | حدّ السرعة بيجاوب «قديش بسرعة»، مو «هل التوقف لسا ممكن» — والاتنين بينفصلوا بالضبط وين بيهمّوا |
+| 15 | `hardware.checkout` · فحص ما قبل التشغيل | بيفحص الحسّاسات والفرامل وزر الطوارئ قبل أول حركة، وبيرفض يعطي الإذن إذا وحدة فشلت | الحسّاس المتجمّد أخطر من المعطّل: بيرجّع نفس المشهد للأبد، وهاد بينقرأ كعالم ساكن تماماً |
+| 16 | `reflex.looming` · انعكاس الاقتراب | ٣٦٧ خلية عصبية من كونكتوم الذبابة بتشتعل لما شي يكبر قدّام الليدار، وبتسحب الروبوت من الطريق | الشي اللي جاي عليك بيكبر بمعدّل بيرمّز الوقت الباقي — بدون ما تعرف سرعة حدا |
 
 كل قدرة بتشتغل هيك:
 
@@ -299,6 +314,77 @@ The tests are behavioural, not smoke tests. They assert things like:
   noisy estimate;
 - a rehearsal of a hundred imagined missions leaves the real robot where it was,
   to within a micrometre.
+
+## نقله لروبوت حقيقي — moving it to a real robot
+
+ثلاث حاجات لازم تكون موجودة قبل ما يتحرّك عتاد فعلي، وكلها هون:
+
+**١. ملف تعريف الروبوت (`hal/profile.ts`).** وصف للآلة دقيق كفاية لتقدر تكون غلط
+فيه: القياسات، الحدود، الحسّاسات الموجودة، **والحسّاسات المفقودة**، ونوع الوصلة،
+ومن وين إجت أرقام الحركة. `verified` بيقول إذا الأرقام انقاست ولّا انفترضت،
+و`absent` بيخلّي القدرة ترفض بالاسم بدل ما تفشل بنص الحركة.
+
+مافي افتراضي متساهل. المنصّة المجهولة بتاخد `CRAWL_PROFILE`: ٠٫٠٥ م/ث، قيادة بس،
+وحركيات مُعلَّمة «مفترضة» فبكل شغل بدّه دقّة مترية بينرفض.
+
+**٢. قاطع الأوامر الميتة (`hal/deadman.ts`).** أمر السرعة أمر دائم، مو حدث —
+بيضل شغّال لحد ما شي يستبدله. فإذا انقطعت الوصلة أو وقعت العملية، الروبوت
+بيكمّل على آخر أمر. المهلة عند المُرسِل ما بتنفع: المُرسِل هو اللي مات.
+
+فكل أمر إله تاريخ انتهاء. لما ينتهي: صفر، ومكرّر، وبعدين **بيتقفّل**. وبيضل
+مقفّل. إعادة التشغيل قرار منفصل، وبينرفض والعجلات لسا بتدور. ما في «بيرجع لحاله»
+— لأن معناها إنو الروبوت بيبلّش يتحرّك ومحدا واقف يتفرّج.
+
+**٣. الفحص قبل التشغيل (`hardware.checkout`).** بيفحص بترتيب مقصود: الملف، ثم
+ادعاءات العتاد، ثم حياة الليدار، ثم الـIMU، ثم البطارية، ثم التأخير، ثم زر
+الطوارئ، ثم القيادة، ثم الفرامل، ثم قاطع الأوامر الميتة — وهاد الأخير **بينقاس
+مو بينقال**: بيحرّك الروبوت، بيتخلّى عن الأمر، وبيسجّل شو صار.
+
+> A profile describes the machine including what it does not have, a deadman
+> makes velocity commands expire and never resume on their own, and the checkout
+> refuses to clear the robot when any of it fails. The unknown platform gets a
+> crawl profile, not a permissive default.
+
+## عقل الذبابة — the fly's circuit, and the honest answer about cats
+
+`reflex.looming` مو تشبيه. جوّاته مسار الهروب الحقيقي عند ذبابة الفاكهة، موصول من
+بيانات كونكتوم مقيسة: **٣٦٧ خلية** من العين لعضلة القفز، مع **٥٧٬٤٥٠ نقطة اشتباك**
+بأعداد متأكّد منها.
+
+المقيس: مين بيوصل لمين، كم خلية بكل نوع، وكم مشبك بكل وصلة.
+المنمذَج: كل الأوزان، كل الثوابت الزمنية، كثافة كل إسقاط، ومنحنيات الاستجابة.
+المتوقَّع مو المقيس: إشارات التنشيط/التثبيط — و**الليف العملاق نفسه ثقته ٠٫٥٠**،
+يعني رمية عملة على أهم خلية بالدائرة.
+
+ليش تستاهل النقل؟ لأن مدخلَي الدائرة هما الحجم الزاوي ومعدّل توسّعه. الذبابة لازم
+تقدّرهم من تدفّق بصري؛ الليدار بيعطي المسافة مباشرة، فالحجم الزاوي بيطلع من قوس
+ظل واحد. الروبوت بيحسب الكميّات اللي هالخلايا تطوّرت لترميزها **أوضح من العين
+اللي تطوّرت إلها**.
+
+نتيجة ما انبرمجت: وقت التلامس عند الاشتعال بيضل شبه ثابت عبر مدى واسع من السرعات،
+والمدى بيكبر لما الاقتراب يصير أسرع.
+
+### وعن عقل القطة — about the cat brain
+
+سألتني عن عقول الذباب **والقطط**. الجواب المستقيم: **ما في كونكتوم لقطة، ولا مرة
+كان في.** ولا على مستوى الخلية ولا المشبك.
+
+اللي موجود وبينسمّى غلط «كونكتوم القطة» شغلتين:
+- **مصفوفة ٦٥ منطقة قشرية** من تحليل تجميعي لدراسات تتبّع (١٩٩٥). ٦٥ عقدة مقابل
+  ١٣٩٬٢٥٥ بدماغ الذبابة، وبتقول «V1 بتوصل لـV2 بقوة» — مو مخطّط أسلاك. ما فيك
+  تبني منها متحكّم.
+- **محاكاة IBM سنة ٢٠٠٩** اللي انحكى عنها «بحجم دماغ قطة». ما استعملت أي بيانات
+  اتصال من قطة إطلاقاً — كانت شبكة موصولة عشوائياً مقيسة على أعداد خلايا القشرة.
+
+أكبر كائن عنده خريطة عصبية **كاملة بدقّة المشبك** لليوم هو ذبابة الفاكهة. لهيك
+جبت الذبابة وما جبت القطة: الذبابة موجودة، والقطة لأ.
+
+> There is no cat connectome and there never has been. What gets called one is
+> either a 65-area matrix from a 1995 meta-analysis of tract-tracing papers — 65
+> nodes against the fly's 139,255, and areal rather than cellular — or the 2009
+> IBM "cat-scale" simulation, which used no cat connectivity data at all. The
+> largest animal with a complete synapse-resolution map is still the fruit fly,
+> which is why the fly is what is in here.
 
 ## Known limits
 
