@@ -128,6 +128,8 @@ export class Ros2Bridge implements RobotIO {
    * counted and exposed rather than discarded.
    */
   private undecodableFrames = 0;
+  /** Topics already reported as publishing an unreadable shape. */
+  private readonly reportedMalformed = new Set<string>();
   /** Commands issued with nowhere to send them. */
   private undeliveredCommands = 0;
   /** Last velocity actually reported, held so silence does not read as stopped. */
@@ -295,9 +297,19 @@ export class Ros2Bridge implements RobotIO {
   // --- sensing -------------------------------------------------------------
 
   pose(): Pose2 {
-    const msg = this.read<{
+    const msg = this.shaped<{
       pose: { pose: { position: { x: number; y: number }; orientation: { z: number; w: number } } };
-    }>(this.topics.odom);
+    }>(
+      this.topics.odom,
+      this.read(this.topics.odom),
+      (m) => {
+        const inner = (m.pose as { pose?: { position?: unknown; orientation?: unknown } })?.pose;
+        return (
+          typeof (inner?.position as { x?: unknown })?.x === "number" &&
+          typeof (inner?.orientation as { w?: unknown })?.w === "number"
+        );
+      },
+    );
     if (!msg) {
       // The origin is a plausible pose, which is exactly what makes returning
       // it dangerous: an ability would navigate confidently from a position the
@@ -316,8 +328,16 @@ export class Ros2Bridge implements RobotIO {
   }
 
   velocity(): { linear: number; angular: number } {
-    const msg = this.read<{ twist: { twist: { linear: { x: number }; angular: { z: number } } } }>(
+    const msg = this.shaped<{ twist: { twist: { linear: { x: number }; angular: { z: number } } } }>(
       this.topics.odom,
+      this.read(this.topics.odom),
+      (m) => {
+        const inner = (m.twist as { twist?: { linear?: unknown; angular?: unknown } })?.twist;
+        return (
+          typeof (inner?.linear as { x?: unknown })?.x === "number" &&
+          typeof (inner?.angular as { z?: unknown })?.z === "number"
+        );
+      },
     );
     if (msg) {
       this.lastVelocity = {
@@ -336,12 +356,20 @@ export class Ros2Bridge implements RobotIO {
   }
 
   lidar(): LidarScan {
-    const msg = this.read<{
+    const msg = this.shaped<{
       ranges: number[];
       angle_min: number;
       angle_max: number;
       range_max: number;
-    }>(this.topics.scan);
+    }>(
+      this.topics.scan,
+      this.read(this.topics.scan),
+      (m) =>
+        Array.isArray(m.ranges) &&
+        typeof m.angle_min === "number" &&
+        typeof m.angle_max === "number" &&
+        typeof m.range_max === "number",
+    );
     if (!msg) return { ranges: [], fov: 0, maxRange: 0, t: 0, stamp: "arrival" };
     const stamped = this.stampOf(msg);
     return {
@@ -370,11 +398,18 @@ export class Ros2Bridge implements RobotIO {
   }
 
   imu(): ImuSample {
-    const msg = this.read<{
+    const msg = this.shaped<{
       orientation: { x: number; y: number; z: number; w: number };
       angular_velocity: { y: number; z: number };
       linear_acceleration: { x: number };
-    }>(this.topics.imu);
+    }>(
+      this.topics.imu,
+      this.read(this.topics.imu),
+      (m) =>
+        typeof (m.orientation as { w?: unknown })?.w === "number" &&
+        typeof (m.angular_velocity as { z?: unknown })?.z === "number" &&
+        typeof (m.linear_acceleration as { x?: unknown })?.x === "number",
+    );
     if (!msg) {
       // The last real sample, with the timestamp it actually arrived at.
       //
@@ -403,8 +438,18 @@ export class Ros2Bridge implements RobotIO {
   }
 
   battery(): BatteryState {
-    const msg = this.read<{ percentage: number; current: number; voltage: number; capacity: number }>(
+    const msg = this.shaped<{
+      percentage: number;
+      current: number;
+      voltage: number;
+      capacity: number;
+    }>(
       this.topics.battery,
+      this.read(this.topics.battery),
+      (m) =>
+        typeof m.percentage === "number" &&
+        typeof m.voltage === "number" &&
+        typeof m.current === "number",
     );
     if (!msg) return { charge: 0, drawWatts: 0, capacityWh: 1, confident: false };
 
@@ -439,8 +484,12 @@ export class Ros2Bridge implements RobotIO {
   }
 
   trackHumans(): HumanTrack[] {
-    const msg = this.read<{ people: HumanTrack[] }>(this.topics.people);
-    return (msg?.people ?? []).sort((a, b) => a.distance - b.distance);
+    const msg = this.shaped<{ people: HumanTrack[] }>(
+      this.topics.people,
+      this.read(this.topics.people),
+      (m) => Array.isArray(m.people),
+    );
+    return [...(msg?.people ?? [])].sort((a, b) => a.distance - b.distance);
   }
 
   gripper(): GripperState {
@@ -568,6 +617,45 @@ export class Ros2Bridge implements RobotIO {
    * clocks agree. Falling back to arrival time silently would make that
    * question unanswerable while appearing to answer it.
    */
+  /**
+   * Check a message has the fields the reader is about to use.
+   *
+   * Every reader indexed straight into the payload, so a driver publishing a
+   * slightly different shape — a different ROS version, a renamed field, a
+   * partially written message — threw out of the reader. That is not a
+   * cosmetic difference from returning nothing: the safety governor calls
+   * `lidar()` on every control tick, so one badly shaped frame took the entire
+   * safety loop down with it. Seven of nine malformed frames did exactly that
+   * when this was measured.
+   *
+   * A frame that does not match is treated as a frame that did not arrive,
+   * counted as a transport problem, and reported once. The reading then
+   * degrades the same way a silent topic does, which is a path that is already
+   * tested and already fails closed.
+   */
+  private shaped<T>(topic: string, msg: unknown, required: (m: Record<string, unknown>) => boolean): T | null {
+    if (msg === null || typeof msg !== "object") return this.malformed<T>(topic);
+    try {
+      if (!required(msg as Record<string, unknown>)) return this.malformed<T>(topic);
+    } catch {
+      return this.malformed<T>(topic);
+    }
+    return msg as T;
+  }
+
+  private malformed<T>(topic: string): T | null {
+    this.undecodableFrames += 1;
+    if (!this.reportedMalformed.has(topic)) {
+      this.reportedMalformed.add(topic);
+      this.onProblem?.(
+        `A message on ${topic} did not have the fields this client reads. The driver is ` +
+          "publishing a shape this bridge does not understand, and the reading is being treated " +
+          "as absent rather than guessed at.",
+      );
+    }
+    return null;
+  }
+
   private stampOf(msg: unknown): number | null {
     const header = (msg as { header?: { stamp?: { sec?: number; nanosec?: number } } })?.header;
     const stamp = header?.stamp;

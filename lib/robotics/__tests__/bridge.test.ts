@@ -419,3 +419,74 @@ test("a driver republishing one frame repeats its stamp", async () => {
   assert.equal(first.t, second.t, "a repeated frame produced a moving timestamp");
   assert.equal(first.t, 5_000_000);
 });
+
+test("a message the driver shaped differently does not take the safety loop down", async () => {
+  // This is the worst failure found in the bridge, and it was not subtle once
+  // looked for. Every reader indexed straight into the payload, so a driver on
+  // a different ROS version, or one that renamed a field, threw out of the
+  // reader. Seven of the nine malformed frames below did.
+  //
+  // That matters far more than a bad reading, because the safety governor
+  // calls lidar() on every control tick. One badly shaped frame took the whole
+  // safety loop down with it.
+  const { bridge, fake } = await connected();
+
+  const malformed: Array<[string, unknown, () => unknown]> = [
+    ["/scan", { angle_min: -1, angle_max: 1, range_max: 12 }, () => bridge.lidar()],
+    ["/scan", { ranges: "nope", angle_min: -1, angle_max: 1, range_max: 12 }, () => bridge.lidar()],
+    ["/scan", {}, () => bridge.lidar()],
+    ["/scan", null, () => bridge.lidar()],
+    ["/odom", { twist: { twist: { linear: { x: 0 }, angular: { z: 0 } } } }, () => bridge.pose()],
+    [
+      "/odom",
+      { pose: { pose: { position: { x: 1, y: 2 }, orientation: { z: 0, w: 1 } } } },
+      () => bridge.velocity(),
+    ],
+    [
+      "/imu/data",
+      { angular_velocity: { y: 0, z: 0 }, linear_acceleration: { x: 0 } },
+      () => bridge.imu(),
+    ],
+    ["/battery_state", {}, () => bridge.battery()],
+    ["/perception/people", { people: "many" }, () => bridge.trackHumans()],
+  ];
+
+  for (const [topic, msg, read] of malformed) {
+    fake.deliver(topic, msg);
+    assert.doesNotThrow(read, `a malformed message on ${topic} threw out of the reader`);
+  }
+
+  // And the failure is observable rather than swallowed: it is the same
+  // counter the checkout's transport gate refuses on.
+  assert.ok(
+    bridge.transportProblems() >= malformed.length - 1,
+    `malformed frames were not counted: ${bridge.transportProblems()}`,
+  );
+
+  // The degraded readings are the ones a silent topic produces, which already
+  // fail closed — a blind scan rather than a clear path.
+  const scan = bridge.lidar();
+  assert.equal(scan.ranges.length, 0);
+  assert.equal(scanQuality(scan), 0);
+  assert.equal(nearestObstacle(scan), 0);
+});
+
+test("a well-formed message still gets through after a malformed one", async () => {
+  // A driver that publishes one bad frame is not a driver to give up on.
+  const { bridge, fake } = await connected();
+
+  fake.deliver("/scan", { ranges: "broken" });
+  assert.equal(bridge.lidar().ranges.length, 0);
+
+  fake.deliver("/scan", {
+    header: { stamp: { sec: 10, nanosec: 0 } },
+    ranges: new Array(30).fill(4),
+    angle_min: -1.5,
+    angle_max: 1.5,
+    range_max: 12,
+  });
+  const good = bridge.lidar();
+  assert.equal(good.ranges.length, 30);
+  assert.equal(good.stamp, "sensor");
+  assert.equal(scanQuality(good), 1);
+});
