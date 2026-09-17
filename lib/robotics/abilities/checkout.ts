@@ -214,7 +214,69 @@ export const hardwareCheckout: Ability<CheckoutInput, CheckoutReport> = {
       }
     }
 
-    // 3. How fast does the loop actually close? The governor measures this
+    // 3a. Do the robot's clocks agree with each other?
+    //
+    //     This is the failure that most often shows up as "navigation does not
+    //     work". A robot is usually several computers — a base, a sensor
+    //     controller, the machine running this — and each stamps its messages
+    //     with its own clock. When those clocks disagree, a scan arrives
+    //     describing a moment the pose estimate has not reached yet, the
+    //     transform lookup fails or silently extrapolates, and the symptom is a
+    //     map that tears, an obstacle that smears, or a robot that will not
+    //     plan. Nothing in any of that says "clock".
+    //
+    //     Two separate faults are worth telling apart: a constant offset, which
+    //     is merely wrong, and a drift, which is wrong at a rate and will be
+    //     fine this morning and broken this afternoon.
+    const skews: number[] = [];
+    for (let i = 0; i < 5; i += 1) {
+      const t = ctx.now();
+      if (ctx.robot.capabilities.includes("lidar")) skews.push(ctx.robot.lidar().t - t);
+      if (ctx.robot.capabilities.includes("imu")) skews.push(ctx.robot.imu().t - t);
+      await ctx.sleep(observeMs / 5);
+    }
+
+    if (skews.length === 0) {
+      add("clock", "warn", "No timestamped sensor to compare clocks against.");
+    } else {
+      const worst = Math.max(...skews.map(Math.abs));
+      // Drift is the change in skew across the window, which separates a clock
+      // that is offset from one that is running at a different rate.
+      const drift = Math.abs(skews[skews.length - 1] - skews[0]);
+
+      // Drift is reported ahead of offset even when both are out, because a
+      // clock running at the wrong rate is what *produces* a growing offset.
+      // Reporting the offset alone sends someone off to correct a number that
+      // will be wrong again by the time they have finished.
+      if (drift > 10) {
+        add(
+          "clock",
+          "fail",
+          `Clock offset moved ${drift.toFixed(0)} ms during a ${observeMs} ms window` +
+            (worst > 50 ? `, and is currently ${worst.toFixed(0)} ms out` : "") +
+            ". The clocks are running at different rates rather than merely disagreeing, so " +
+            "correcting the offset will not hold. This works now and stops working later, which " +
+            "is the worst way for it to fail.",
+        );
+      } else if (worst > 50) {
+        add(
+          "clock",
+          "fail",
+          `Sensor timestamps are ${worst.toFixed(0)} ms away from this machine's clock. ` +
+            "Above about 50 ms the transform between a scan and a pose is being extrapolated " +
+            "rather than looked up, and every failure that causes gets blamed on something else. " +
+            "Synchronise the clocks before trusting anything built on top of them.",
+        );
+      } else {
+        add(
+          "clock",
+          "pass",
+          `Sensor timestamps within ${worst.toFixed(0)} ms of this machine's clock, drifting ${drift.toFixed(0)} ms.`,
+        );
+      }
+    }
+
+    // 3b. How fast does the loop actually close? The governor measures this
     //    continuously and widens its separation distances when the measurement
     //    is worse than the budget, so the number is already there — what this
     //    check adds is saying it out loud before a mission rather than after.

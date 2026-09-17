@@ -443,3 +443,46 @@ test("a robot that cannot see people says so, instead of reporting an empty room
     "a robot that cannot see people hit one",
   );
 });
+
+test("checkout catches a clock that disagrees, and one that drifts", async () => {
+  // The most common real failure on a multi-computer robot, and the one that
+  // never announces itself: a scan stamped on one clock and a pose on another.
+  // The symptom is a map that tears or a planner that refuses, and nothing in
+  // either says "clock".
+  const clockCheck = async (offsetMs: number, driftPerCall = 0) => {
+    const rig = createSimRig({ scenario: "empty-hall", profile: SIMULATED_ROVER });
+    const robot = rig.runtime.rawRobot;
+    const trueLidar = robot.lidar.bind(robot);
+    const trueImu = robot.imu.bind(robot);
+
+    // Only the timestamps are disturbed. The readings are the same readings —
+    // which is the point: a skewed clock does not corrupt the data, it makes
+    // correct data arrive describing the wrong moment.
+    let calls = 0;
+    const skew = () => offsetMs + driftPerCall * calls++;
+    Object.assign(robot, {
+      lidar: () => ({ ...trueLidar(), t: trueLidar().t + skew() }),
+      imu: () => ({ ...trueImu(), t: trueImu().t + skew() }),
+    });
+
+    const result = await rig.runtime.run<CheckoutInput, CheckoutReport>("hardware.checkout", {
+      staticOnly: true,
+    });
+    return result.data?.checks.find((c) => c.name === "clock");
+  };
+
+  const healthy = await clockCheck(0);
+  assert.equal(healthy?.status, "pass", healthy?.detail);
+
+  const offset = await clockCheck(400);
+  assert.equal(offset?.status, "fail", "a 400 ms clock offset was waved through");
+  assert.match(offset?.detail ?? "", /away from this machine's clock/);
+
+  // Small enough per sample that the absolute offset stays inside the 50 ms
+  // limit, so what trips is the rate of change and not the size of it. A drift
+  // large enough to also blow the offset limit would be caught either way and
+  // would not prove the drift detection works.
+  const drifting = await clockCheck(0, 2);
+  assert.equal(drifting?.status, "fail", "a drifting clock was waved through");
+  assert.match(drifting?.detail ?? "", /different rates/);
+});
