@@ -159,9 +159,11 @@ class R6_ADeclaredTableNothingWrites(unittest.TestCase):
     def test_a_full_run_populates_every_declared_table(self):
         """The runtime slice plus the organisational chain must leave no table
         declared-but-unused. A schema promising what the code never does is F3."""
+        import bench_run as BR
         import org_demo
         con = fresh()
         org_demo.run(con, verbose=False)
+        BR.dry_run_into(con)          # exercises the benchmark tables too
         empty = []
         for (t,) in con.execute("SELECT name FROM sqlite_master WHERE type='table' "
                                 "AND name NOT LIKE 'sqlite_%' ORDER BY name"):
@@ -405,6 +407,32 @@ class R14_TestSuitesMustCollectEveryClass(unittest.TestCase):
             src = fh.read()
         self.assertTrue(src.rstrip().endswith("unittest.main(verbosity=2)"),
                         "__main__ must be the last thing in the file")
+
+
+class R15_BenchmarkAnswerKeyWasWrong(unittest.TestCase):
+    """Found 2026-09-17 while writing test_bench.py.
+
+    Benchmark task T07 declared the answer to its own arithmetic chain as
+    1287.0. The chain (7^2, +200, *3, -60, /2, +15) is 358.5. Every model that
+    computed it CORRECTLY would have been scored wrong, in BOTH conditions. A
+    benchmark that marks the right answer wrong is worse than no benchmark.
+    """
+    def test_every_numeric_answer_key_is_independently_recomputed(self):
+        from core import bench_tasks as BT
+        v = 7 ** 2
+        v = (v + 200) * 3 - 60
+        v = v / 2 + 15
+        t7 = [t for t in BT.TASKS if t["id"] == "T07-long-chain"][0]
+        self.assertEqual(t7["expected"]["value"], v)
+        self.assertEqual(BT.check_chain("", {"returncode": 0, "stdout": str(v)}, {})
+                         ["correctness"], 1.0)
+
+    def test_the_paid_gross_key_is_independently_recomputed(self):
+        from core import bench_tasks as BT
+        expected = round(sum(r["net"] * (1 + r["vat_rate"])
+                             for r in BT.INVOICE_ROWS if r["paid"]), 4)
+        self.assertEqual(BT.PAID_GROSS, expected)
+        self.assertEqual(BT.check_tool_required(str(expected), {}, {})["correctness"], 1.0)
 
 
 if __name__ == "__main__":

@@ -460,6 +460,81 @@ def cmd_recall(c, *text):
         print("  no prior work resembles that.")
 
 
+def cmd_bench(c, *_):
+    """BENCHMARK CENTER — one strong agent vs the organisation."""
+    camps = c.execute("SELECT * FROM bench_campaigns ORDER BY id DESC").fetchall()
+    print(BAR); print("BENCHMARK CENTER"); print(BAR)
+    if not camps:
+        print("  No campaign has been run.")
+        print("  CONCLUSION: INSUFFICIENT_EVIDENCE — the framework exists; nothing is")
+        print("  inferred from it until a real run happens.")
+        print("  Run:  export ANTHROPIC_API_KEY=...  &&  python3 bench_run.py --repeats 5")
+        print(BAR)
+        from core import bench_tasks as BT
+        print("  %d task(s) in the registry:" % len(BT.TASKS))
+        for t in BT.TASKS:
+            print("    %-24s %-9s %-7s favours: %-17s cap $%.2f"
+                  % (t["id"], t["domain"], t["difficulty"], t["favours"], t["max_usd"]))
+        print("  (1 favours a single agent by design — a set that never does proves nothing)")
+        return
+    for cm in camps:
+        print("  campaign #%d  %s" % (cm["id"], cm["name"]))
+        print("      %s/%s · commit %s · repeats %d" % (cm["provider"], cm["model"],
+                                                        (cm["git_commit"] or "?")[:12],
+                                                        cm["repeats"]))
+        print("      CONCLUSION: %s" % (cm["conclusion"] or "(still running)"))
+        if cm["conclusion_why"]:
+            print("      %s" % cm["conclusion_why"])
+        print("      %-24s %-22s %-22s" % ("task", "SINGLE", "MULTI"))
+        for t in c.execute("SELECT DISTINCT task_id FROM bench_runs WHERE campaign_id=?",
+                           (cm["id"],)):
+            cells = {}
+            for cond in ("SINGLE", "MULTI"):
+                r = c.execute(
+                    "SELECT COUNT(*) n, COALESCE(AVG(e.correctness),0) q, "
+                    "COALESCE(SUM(r.usd),0) u FROM bench_runs r LEFT JOIN bench_evaluations e "
+                    "ON e.bench_run_id=r.id WHERE r.campaign_id=? AND r.task_id=? "
+                    "AND r.condition=?", (cm["id"], t["task_id"], cond)).fetchone()
+                cells[cond] = "n=%d q=%.2f $%.4f" % (r["n"], r["q"], r["u"])
+            print("      %-24s %-22s %-22s" % (t["task_id"], cells["SINGLE"], cells["MULTI"]))
+        fair = c.execute("SELECT COUNT(*) n FROM bench_fairness WHERE campaign_id=? AND fair=1",
+                         (cm["id"],)).fetchone()["n"]
+        print("      fairness rows verified: %d (unequal pairings are refused by the database)"
+              % fair)
+        print(BAR)
+
+
+def cmd_benchrun(c, brid=None, *_):
+    """Drill into one benchmark attempt, down to its provenance."""
+    if not brid:
+        sys.exit("usage: owner.py benchrun <bench_run id>")
+    r = c.execute("SELECT * FROM bench_runs WHERE id=?", (brid,)).fetchone()
+    if not r:
+        sys.exit("no such run")
+    print(BAR)
+    print("BENCH RUN #%s — %s / %s / repeat %d" % (brid, r["task_id"], r["condition"],
+                                                   r["repeat_index"]))
+    print(BAR)
+    for f in ("status", "input_sha", "output_sha", "tokens_in", "tokens_out", "usd",
+              "latency_ms", "retries", "human_interventions", "tool_calls", "tool_denials",
+              "failure_class", "failure_note"):
+        if r[f] not in (None, ""):
+            print("  %-20s %s" % (f, r[f]))
+    print("  %-20s %s" % ("agents", r["agents_used"]))
+    print("  %-20s %s" % ("model runs", r["model_runs"]))
+    print(BAR); print("  EXECUTION GRAPH")
+    for step in json.loads(r["exec_graph"] or "[]"):
+        print("      %s" % json.dumps(step, ensure_ascii=False))
+    e = c.execute("SELECT * FROM bench_evaluations WHERE bench_run_id=?", (brid,)).fetchone()
+    if e:
+        print(BAR); print("  EVALUATION (%s, by %s, blind token %s)"
+                          % (e["method"], e["evaluator"], e["blind_token"]))
+        for f in ("correctness", "completeness", "unsupported_claims", "contradictions",
+                  "useful_artifacts"):
+            print("      %-20s %s" % (f, e[f]))
+        print("      detail: %s" % (e["detail"] or "")[:200])
+
+
 def cmd_pause(c, *_):
     store.set_meta(c, "paused", True)
     store.event(c, "EMERGENCY_STOP", actor="OWNER")

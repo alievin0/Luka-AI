@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 
 SCHEMA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "schema.sql")
 ORG_SCHEMA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "org_schema.sql")
+BENCH_SCHEMA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bench_schema.sql")
 DEFAULT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "civ.db")
 
 MODES = ("simulation", "live", "hybrid")
@@ -29,7 +30,7 @@ def connect(path=None):
     con = sqlite3.connect(path, isolation_level=None)
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA foreign_keys=ON")
-    for path in (SCHEMA, ORG_SCHEMA):
+    for path in (SCHEMA, ORG_SCHEMA, BENCH_SCHEMA):
         with open(path, encoding="utf-8") as fh:
             con.executescript(fh.read())
     # Organisational lifecycle is a DIFFERENT axis from runtime status:
