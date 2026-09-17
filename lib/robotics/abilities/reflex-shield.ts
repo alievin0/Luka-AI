@@ -129,7 +129,20 @@ export const reflexShield: Ability<ReflexInput, ReflexReport> = {
       // about a metre a second and the robot gives ground at a third of that.
       // Arcing out of their path is what actually opens the gap — it is also
       // what a person does when someone walks at them in a corridor.
-      const yielding = nearestHuman < yieldDistance && rearIsClear(scan);
+      // Defer to a better strategy if one is running.
+      //
+      // Reversing is the shield's own fallback and it is the weaker of the two:
+      // backing away from someone is the one escape direction that lies along
+      // their approach. `hri.yield-path` steps perpendicular instead, which
+      // opens the gap faster. When both were active they took the wheel in
+      // alternation and the robot did neither properly — measured, the failing
+      // corridor runs were exactly the ones where yielding held the wheel more
+      // than navigation did, and contact happened while it held it.
+      //
+      // So the shield keeps braking, which is its real job, and leaves evasion
+      // to whatever is doing it better.
+      const evasionElsewhere = ctx.safety.wheelHeldBy() === "yielding the path";
+      const yielding = !evasionElsewhere && nearestHuman < yieldDistance && rearIsClear(scan);
       if (yielding) {
         const away = evadeTurn(ctx, scan);
         ctx.safety.takeWheel(-0.35, away, "reflex: yielding ground");

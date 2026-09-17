@@ -25,6 +25,21 @@
 // their path — the direction that opens the gap fastest — while there is still
 // time for the movement to matter.
 //
+// ── Evidence ───────────────────────────────────────────────────────────────
+//
+//   status: SIMULATED
+//
+// Twenty corridor crossings against distracted people go from 0/20 clean to
+// 20/20, with contacts per run from 12.7 to zero. The horizon was swept on
+// those twenty seeds, so they are not independent evidence of anything; forty
+// further seeds that were never looked at during the sweep came back 40/40.
+//
+// That is a simulator agreeing with itself. It is not a claim about a corridor.
+// The people in it walk at a constant speed along straight waypoints and never
+// stop, hesitate, change their minds or step the same way the robot does — and
+// the last of those is exactly the failure mode this kind of prediction has in
+// the real world, where two parties dodging each other pick the same side.
+//
 // ── What this cannot fix ───────────────────────────────────────────────────
 //
 // Somebody who is actively following the robot. Someone in a corridor narrower
@@ -95,12 +110,12 @@ const manifest = {
       clearance: {
         type: "number" as const,
         description: "Minimum predicted closest approach, metres centre to centre.",
-        default: 0.9,
+        default: 0.8,
       },
       horizonSeconds: {
         type: "number" as const,
-        description: "How far ahead to predict, seconds.",
-        default: 4,
+        description: "How far ahead to predict, seconds. Swept; 5 is where it works.",
+        default: 5,
       },
       stepSpeed: { type: "number" as const, description: "Speed to step aside, m/s.", default: 0.8 },
     },
@@ -113,8 +128,13 @@ export const yieldPath: Ability<YieldInput, YieldReport> = {
 
   async run(input, ctx): Promise<AbilityResult<YieldReport>> {
     const periodMs = input.periodMs ?? 20;
-    const clearance = input.clearance ?? 0.9;
-    const horizon = input.horizonSeconds ?? 4;
+    const clearance = input.clearance ?? 0.8;
+    // Five seconds, and the value matters more than anything else here.
+    // Swept: a two-second horizon gets 4/20 crossings, three gets 8/20, four
+    // gets 13/20 and five gets 20/20. Beyond five it falls back again, because
+    // the robot starts dodging people who were never going to reach it.
+    // Clearance barely moves the result by comparison.
+    const horizon = input.horizonSeconds ?? 5;
     const stepSpeed = input.stepSpeed ?? 0.8;
 
     const report: YieldReport = {
