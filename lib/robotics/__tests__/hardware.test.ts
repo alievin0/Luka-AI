@@ -15,6 +15,7 @@ import {
 } from "../hal/profile.ts";
 import { Deadman } from "../hal/deadman.ts";
 import { Ros2Bridge } from "../hal/ros2-bridge.ts";
+import { scanQuality } from "../safety/governor.ts";
 import type { CheckoutInput, CheckoutReport } from "../abilities/checkout.ts";
 
 test("the shipped profiles are internally consistent", () => {
@@ -534,4 +535,38 @@ test("an undeclared battery scale is read pessimistically, not guessed", () => {
     "an unknown scale was read optimistically, which is the direction that strands the robot",
   );
   assert.equal(unknown.confident, false);
+});
+
+test("a sensor returning nothing is not the same as a clear path", () => {
+  // The sharpest version of the mistake: to every calculation downstream, a
+  // lidar that has died looks exactly like a lidar looking at an empty room.
+  // Before this was handled, an all-NaN scan produced "clear" at full speed —
+  // a robot accelerating because its primary safety sensor had just failed.
+  const rig = createSimRig({ scenario: "cluttered-office", profile: SIMULATED_ROVER });
+  const robot = rig.runtime.rawRobot;
+  const healthy = robot.lidar();
+
+  assert.ok(scanQuality(healthy) > 0.9, "the healthy scan was not mostly valid");
+
+  // Infinity is a real answer — the beam reached nothing within range — and an
+  // open field must not read as a broken sensor.
+  const openField = { ...healthy, ranges: healthy.ranges.map(() => Number.POSITIVE_INFINITY) };
+  assert.equal(scanQuality(openField), 1, "an open field was mistaken for a dead sensor");
+
+  // NaN and zero are not answers.
+  for (const dud of [NaN, 0, -1]) {
+    const dead = { ...healthy, ranges: healthy.ranges.map(() => dud) };
+    assert.equal(scanQuality(dead), 0, `a scan of ${dud} was counted as data`);
+  }
+
+  const dead = { ...healthy, ranges: healthy.ranges.map(() => NaN) };
+  Object.assign(robot, { lidar: () => dead });
+  const verdict = rig.governor.assess(robot);
+
+  assert.notEqual(verdict.level, "clear", "a blind robot was told the path was clear");
+  assert.ok(
+    verdict.speedScale * rig.governor.limits.maxLinear <= rig.governor.limits.blindSpeed + 1e-9,
+    `a blind robot was allowed ${(verdict.speedScale * rig.governor.limits.maxLinear).toFixed(2)} m/s`,
+  );
+  assert.match(verdict.reason, /beams are returning data/);
 });

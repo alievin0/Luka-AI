@@ -44,6 +44,17 @@ export type SafetyLimits = {
   obstacleClearance: number;
   /** Peak gripper force allowed for `contact`-class abilities, newtons. */
   maxContactForce: number;
+  /**
+   * Fraction of lidar beams that must be returning data, 0..1. Below this the
+   * robot is treated as blind rather than as looking at an empty room.
+   */
+  minScanQuality: number;
+  /**
+   * Speed allowed while blind, m/s. Not zero: a robot that stops dead the
+   * instant a sensor hiccups is a robot nobody can use, and it may need to move
+   * to get out of the way. Slow enough that being wrong is a bump.
+   */
+  blindSpeed: number;
 };
 
 export const DEFAULT_LIMITS: SafetyLimits = {
@@ -53,6 +64,8 @@ export const DEFAULT_LIMITS: SafetyLimits = {
   reactionTime: 0.12,
   humanSpeed: 1.6,
   uncertainty: 0.12,
+  minScanQuality: 0.5,
+  blindSpeed: 0.05,
   minSeparation: 0.55,
   obstacleClearance: 0.25,
   maxContactForce: 28,
@@ -187,11 +200,41 @@ export class SafetyGovernor implements SafetyApi {
     // does not know what a person is and does not need to — it stops for one
     // because a person is an obstacle, which is also why it cannot be fooled by
     // a classifier having a bad day.
-    const obstacle = nearestObstacle(robot.lidar());
+    const scan = robot.lidar();
+    const obstacle = nearestObstacle(scan);
     const obstacleLimit = this.obstacleSpeedLimit(obstacle);
 
-    const allowed = Math.min(humanLimit, obstacleLimit);
+    // Before trusting any of that: is the sensor reporting at all?
+    //
+    // This is the sharpest form of the mistake that runs through this whole
+    // area. A lidar returning nothing looks identical to a lidar looking at
+    // nothing, and every calculation downstream reads it as a clear path — so
+    // a robot whose primary safety sensor has just died accelerates to full
+    // speed. Measured before this existed: an all-NaN scan produced a verdict
+    // of "clear" at scale 1.00.
+    const quality = scanQuality(scan);
+    const blind = quality < this.limits.minScanQuality;
+
+    const allowed = blind
+      ? Math.min(humanLimit, obstacleLimit, this.limits.blindSpeed)
+      : Math.min(humanLimit, obstacleLimit);
     const speedScale = clamp(allowed / this.limits.maxLinear, 0, 1);
+
+    if (blind) {
+      // Say it once per verdict rather than silently crawling, because a robot
+      // that has slowed to a crawl for no visible reason is one somebody will
+      // "fix" by raising the speed limit.
+      return this.publish({
+        level: "slow",
+        speedScale: clamp(allowed / this.limits.maxLinear, 0, 1),
+        reason:
+          `only ${(quality * 100).toFixed(0)}% of lidar beams are returning data — ` +
+          `crawling at ${this.limits.blindSpeed} m/s until the sensor reports again. ` +
+          "A scan that returns nothing and a scan of an empty room are the same numbers.",
+        nearestHuman,
+        peopleSensed,
+      });
+    }
 
     if (allowed <= 1e-3) {
       const reason =
@@ -374,6 +417,33 @@ export class SafetyGovernor implements SafetyApi {
  * obstacle to a robot driving past it, and treating it as one makes the robot
  * freeze in every doorway.
  */
+/**
+ * The fraction of beams that carry an answer, 0..1.
+ *
+ * Three cases have to be told apart, and only one of them is a fault:
+ *
+ *   a finite positive range   the beam hit something and measured it
+ *   positive infinity         the beam hit nothing within range, which is a
+ *                             real answer and the correct one in open space
+ *   NaN, zero or negative     the beam returned no data at all
+ *
+ * The last case is the sensor failing to report, and it is the one that has to
+ * be distinguished from an empty room. A scan of every beam at infinity is a
+ * robot in a field. A scan of every beam at NaN is a robot that cannot see, and
+ * to every calculation downstream those look exactly alike: nothing is near.
+ */
+export function scanQuality(scan: LidarScan): number {
+  const { ranges } = scan;
+  if (ranges.length === 0) return 0;
+  let answered = 0;
+  for (const range of ranges) {
+    if (Number.isNaN(range)) continue;
+    if (range <= 0) continue;
+    answered += 1;
+  }
+  return answered / ranges.length;
+}
+
 export function nearestObstacle(scan: LidarScan, halfWidth = 0.28): number {
   const { ranges, fov, maxRange } = scan;
   if (ranges.length === 0) return maxRange;
