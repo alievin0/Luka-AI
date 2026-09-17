@@ -315,8 +315,25 @@ export type SafetyVerdict = {
   /** Multiplier applied to commanded speed, 0..1. */
   speedScale: number;
   reason: string;
-  /** Distance to the closest human, metres — Infinity when nobody is near. */
+  /**
+   * Distance to the closest human, metres.
+   *
+   * Infinity means one of two very different things, and `peopleSensed` is how
+   * you tell them apart: nobody is near, or nothing on this robot can see
+   * people at all.
+   */
   nearestHuman: number;
+  /**
+   * Whether person detection is a live channel on this robot.
+   *
+   * False on most real hardware. The platforms that could publish person tracks
+   * ship with that pipeline disabled, so a robot reports an empty room and a
+   * blind robot reports an empty room, and only this flag distinguishes them.
+   * When it is false the separation model contributes nothing and the geometric
+   * term is the only thing governing speed — which works, and is worth knowing
+   * rather than discovering.
+   */
+  peopleSensed?: boolean;
 };
 
 export type SafetyApi = {

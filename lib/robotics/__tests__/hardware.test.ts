@@ -411,3 +411,35 @@ test("a command issued once and then waited on is caught", async () => {
   // worse than useless.
   assert.match(deadman.state().reason, /0\.30 m\/s/);
 });
+
+test("a robot that cannot see people says so, instead of reporting an empty room", async () => {
+  // The number is the same either way — an infinite distance to the nearest
+  // person. What differs is whether that means nobody is there or nothing is
+  // looking, and on real hardware it is usually the second: the platforms that
+  // could publish person tracks ship with that pipeline switched off.
+  const seeing = createSimRig({ scenario: "busy-corridor", profile: SIMULATED_ROVER });
+  const seeingVerdict = seeing.governor.assess(seeing.runtime.rawRobot);
+  assert.equal(seeingVerdict.peopleSensed, true);
+
+  const blind = createSimRig({
+    scenario: "busy-corridor",
+    capabilities: ["drive", "lidar", "imu", "battery"],
+  });
+  const blindVerdict = blind.governor.assess(blind.runtime.rawRobot);
+  assert.equal(
+    blindVerdict.peopleSensed,
+    false,
+    "a robot with no detector claimed it was sensing people",
+  );
+  assert.equal(blindVerdict.nearestHuman, Number.POSITIVE_INFINITY);
+
+  // And the point of knowing: the robot is not therefore unsafe. Geometry is
+  // still governing, and it stops for a person because a person is an obstacle.
+  const trip = await blind.runtime.run("navigate.to", { x: 14, y: 3, timeoutMs: 90_000 });
+  assert.equal(trip.ok, true, `the blind robot could not cross: ${trip.summary}`);
+  assert.equal(
+    blind.world.robot("luka-1").collisions,
+    0,
+    "a robot that cannot see people hit one",
+  );
+});

@@ -137,6 +137,10 @@ export class SimRobotAdapter implements RobotIO {
   }
 
   detectObjects(): DetectedObject[] {
+    // A robot with no camera does not quietly get perception anyway. The
+    // simulator being more capable than the hardware it stands in for is how a
+    // stack passes in simulation and fails on the machine.
+    if (!this.capabilities.includes("camera")) return [];
     const robot = this.self;
     const out: DetectedObject[] = [];
     for (const object of this.world.objects) {
@@ -163,6 +167,10 @@ export class SimRobotAdapter implements RobotIO {
   }
 
   trackHumans(): HumanTrack[] {
+    // Person tracking is a camera and a neural pipeline, and most real robots
+    // ship without the second even when they have the first. A profile that
+    // does not declare a camera gets no tracks here either.
+    if (!this.capabilities.includes("camera")) return [];
     const robot = this.self;
     return this.world.humans
       .map((human) => {

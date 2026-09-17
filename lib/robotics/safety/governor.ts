@@ -177,8 +177,16 @@ export class SafetyGovernor implements SafetyApi {
       });
     }
 
+    const peopleSensed = this.tracksPeople(robot);
     const nearestHuman = this.nearestHumanDistance(robot);
-    const humanLimit = this.allowedSpeed(nearestHuman);
+    const humanLimit = peopleSensed ? this.allowedSpeed(nearestHuman) : Number.POSITIVE_INFINITY;
+    // The term that carries the load when nothing is detecting people, which on
+    // real hardware is the normal case: the platforms that could publish person
+    // tracks ship with that pipeline turned off. This is geometry on raw range
+    // returns, with the stopping-distance equation inverted in closed form. It
+    // does not know what a person is and does not need to — it stops for one
+    // because a person is an obstacle, which is also why it cannot be fooled by
+    // a classifier having a bad day.
     const obstacle = nearestObstacle(robot.lidar());
     const obstacleLimit = this.obstacleSpeedLimit(obstacle);
 
@@ -190,7 +198,7 @@ export class SafetyGovernor implements SafetyApi {
         humanLimit <= obstacleLimit
           ? `person ${nearestHuman.toFixed(2)} m away — holding`
           : `obstacle ${obstacle.toFixed(2)} m ahead — holding`;
-      return this.publish({ level: "stop", speedScale: 0, reason, nearestHuman });
+      return this.publish({ level: "stop", speedScale: 0, reason, nearestHuman, peopleSensed });
     }
 
     if (speedScale < 0.98) {
@@ -198,7 +206,7 @@ export class SafetyGovernor implements SafetyApi {
         humanLimit <= obstacleLimit
           ? `slowed to ${allowed.toFixed(2)} m/s for a person at ${nearestHuman.toFixed(2)} m`
           : `slowed to ${allowed.toFixed(2)} m/s for geometry at ${obstacle.toFixed(2)} m`;
-      return this.publish({ level: "slow", speedScale, reason, nearestHuman });
+      return this.publish({ level: "slow", speedScale, reason, nearestHuman, peopleSensed });
     }
 
     return this.publish({
@@ -206,6 +214,7 @@ export class SafetyGovernor implements SafetyApi {
       speedScale: 1,
       reason: "clear",
       nearestHuman,
+      peopleSensed,
     });
   }
 
@@ -331,6 +340,19 @@ export class SafetyGovernor implements SafetyApi {
       if (human.distance < nearest) nearest = human.distance;
     }
     return nearest;
+  }
+
+  /**
+   * Whether person tracking is a real channel on this robot.
+   *
+   * This matters more than it looks. When there is no detector, the nearest
+   * person is reported as infinitely far away — which is the same answer an
+   * empty room gives. A blind robot and a clear one are indistinguishable from
+   * that number alone, so the separation term has to be treated as absent
+   * rather than as satisfied.
+   */
+  private tracksPeople(robot: RobotIO): boolean {
+    return robot.capabilities.includes("camera");
   }
 
   private publish(verdict: SafetyVerdict): SafetyVerdict {
