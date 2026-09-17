@@ -335,15 +335,49 @@ The tests are behavioural, not smoke tests. They assert things like:
 مقفّل. إعادة التشغيل قرار منفصل، وبينرفض والعجلات لسا بتدور. ما في «بيرجع لحاله»
 — لأن معناها إنو الروبوت بيبلّش يتحرّك ومحدا واقف يتفرّج.
 
-**٣. الفحص قبل التشغيل (`hardware.checkout`).** بيفحص بترتيب مقصود: الملف، ثم
-ادعاءات العتاد، ثم حياة الليدار، ثم الـIMU، ثم البطارية، ثم التأخير، ثم زر
-الطوارئ، ثم القيادة، ثم الفرامل، ثم قاطع الأوامر الميتة — وهاد الأخير **بينقاس
-مو بينقال**: بيحرّك الروبوت، بيتخلّى عن الأمر، وبيسجّل شو صار.
+**٣. الفحص قبل التشغيل (`hardware.checkout`).** إحدى عشرة بوابة بترتيب مقصود —
+ما بيتحرّك شي قبل ما يثبت اللي رح يوقفه:
+
+الملف · وضعية التشغيل · ادعاءات العتاد · حياة الليدار · الـIMU · البطارية ·
+**تطابق الساعات** · التأخير · الوصلة · زر الطوارئ · القيادة · الفرامل ·
+**قاطع الأوامر الميتة**
+
+آخر وحدة **بتنقاس مو بتنقال**: بتحرّك الروبوت، بتتخلّى عن الأمر، وبتسجّل شو صار.
+وبوابة الساعة موجودة لأن أكتر عطل بينحكى عنه كـ«التنقل ما بيشتغل» بيطلع ساعات
+مو متزامنة — والفحص بيفرّق بين إزاحة ثابتة (غلط) وزحف (غلط بمعدّل، بيشتغل الصبح
+وبيوقف بعد الضهر).
 
 > A profile describes the machine including what it does not have, a deadman
 > makes velocity commands expire and never resume on their own, and the checkout
 > refuses to clear the robot when any of it fails. The unknown platform gets a
 > crawl profile, not a permissive default.
+
+## الغياب لازم يبان — the failure mode that runs through all of this
+
+أكتر شي تكرّر لما نقلت هالنواة باتجاه عتاد حقيقي مو غلطة بالحساب. الحساب صحيح.
+المشكلة إنه **القناة الناقصة أو المجهولة كانت بتنقرا كقيمة منيحة**، وهاد أسوأ من
+الخطأ لأنه ما بيصرّخ.
+
+أربع حالات، كلها كانت موجودة وكلها انصلحت:
+
+| القناة | الغياب كان بينقرا كـ | ليش خطر |
+|---|---|---|
+| تتبّع الأشخاص | «ما في حدا قريب» (مسافة لا نهائية) | غرفة فاضية وروبوت أعمى بيعطوا نفس الرقم بالضبط |
+| وحدة البطارية | «٠٫٨ = ٨٠٪» بالتخمين | سوّاقة بتنشر ٠–١٠٠ وبطارية شبه فاضية بتنقرا ممتلئة |
+| أمر السرعة | «لسا مطلوب» للأبد | ماتت الوصلة أو العملية، والروبوت بيكمّل على آخر أمر |
+| ساعات الروبوت | «متزامنة» | مسح بيوصل بيوصف لحظة ما وصلها تقدير الموقع بعد |
+
+الحل بكل حالة نفس الشكل: **خلّي الغياب قيمة صريحة، وفسّر الغامض بالاتجاه اللي
+بيأذي أقل.** `peopleSensed: false` مو نفس الشي يلي «ما في حدا». البطارية المجهولة
+بتنقرا بأسوأ احتمال وبتنحطّ عليها `confident: false`. الأمر بينتهي وبيتقفّل.
+والساعة بتنقاس وبتنرفض إذا بتزحف.
+
+> The same bug kept appearing in different clothes: a channel that was missing
+> or ambiguous read as a good value. An undetected person reads as no person. An
+> unknown battery unit reads as the flattering interpretation. An unrenewed
+> command reads as still wanted. Unsynchronised clocks read as synchronised. In
+> every case the fix is the same shape — make the absence an explicit value, and
+> resolve the ambiguity in the direction that costs least when wrong.
 
 ## عقل الذبابة — the fly's circuit, and the honest answer about cats
 
