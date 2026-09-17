@@ -1,6 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import {
+  detectSupport, listen, speak, whenVoicesReady,
+  VOICE_ERRORS, type VoiceSupport, type ListenHandle,
+} from "@/lib/desk/voice";
 
 /**
  * The operator's console.
@@ -42,6 +46,14 @@ export default function DeskConsole() {
   const [escalations, setEscalations] = useState<Escalation[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
 
+  // Voice is the browser's own speech engine, not the phone channel.
+  const [voice, setVoice] = useState<VoiceSupport | null>(null);
+  const [speakReplies, setSpeakReplies] = useState(false);
+  const [listening, setListening] = useState(false);
+  const [speaking, setSpeaking] = useState(false);
+  const [voiceNote, setVoiceNote] = useState<string | null>(null);
+  const micRef = useRef<ListenHandle | null>(null);
+
   const scrollRef = useRef<HTMLDivElement>(null);
   const summary = businesses.find((b) => b.id === businessId);
 
@@ -74,6 +86,41 @@ export default function DeskConsole() {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [turns, busy]);
 
+  // Voices load asynchronously, so the list is empty on the first read.
+  useEffect(() => {
+    setVoice(detectSupport());
+    return whenVoicesReady(() => setVoice(detectSupport()));
+  }, []);
+
+  function say(text: string) {
+    speak(text, {
+      onStart: () => setSpeaking(true),
+      onEnd: () => setSpeaking(false),
+      onUnavailable: () =>
+        setVoiceNote("ما في صوت عربي مثبّت على جهازك — نزّل صوت عربي من إعدادات النظام."),
+    });
+  }
+
+  function toggleMic() {
+    if (listening) {
+      micRef.current?.stop();
+      micRef.current = null;
+      setListening(false);
+      return;
+    }
+    setVoiceNote(null);
+    setListening(true);
+    micRef.current = listen({
+      lang: "ar-JO",
+      onResult: (text) => { setListening(false); send(text); },
+      onError: (reason) => {
+        setListening(false);
+        setVoiceNote(VOICE_ERRORS[reason] ?? `تعذّر التعرّف على الصوت (${reason}).`);
+      },
+      onEnd: () => setListening(false),
+    });
+  }
+
   function reset() {
     setTurns([]);
     setEscalations([]);
@@ -99,6 +146,7 @@ export default function DeskConsole() {
       if (!res.ok) throw new Error(data?.error || `فشل الطلب (${res.status})`);
 
       setTurns((prev) => [...prev, { role: "assistant", content: data.reply }]);
+      if (speakReplies && data.reply) say(data.reply);
       if (data.escalation) setEscalations((prev) => [data.escalation, ...prev]);
       if (Array.isArray(data.bookings)) setBookings(data.bookings);
     } catch (err) {
@@ -122,6 +170,14 @@ export default function DeskConsole() {
             </p>
           </div>
 
+          <a
+            href="/world"
+            title="شوف الوكلاء وهم يشتغلوا"
+            className="rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-600 transition hover:bg-slate-100"
+          >
+            🌐 العالم
+          </a>
+
           <select
             id="tenant-select"
             value={businessId}
@@ -132,6 +188,26 @@ export default function DeskConsole() {
               <option key={b.id} value={b.id}>{b.name}</option>
             ))}
           </select>
+          {voice?.canSpeak && (
+            <button
+              type="button"
+              onClick={() => {
+                const next = !speakReplies;
+                setSpeakReplies(next);
+                if (!next) window.speechSynthesis?.cancel();
+              }}
+              aria-pressed={speakReplies}
+              title={speakReplies ? "إيقاف الصوت" : "خلّيه يحكي الرد"}
+              className={
+                "rounded-xl border px-3 py-2 text-sm transition " +
+                (speakReplies
+                  ? "border-brand-600 bg-brand-50 text-brand-700"
+                  : "border-slate-300 text-slate-600 hover:bg-slate-100")
+              }
+            >
+              {speaking ? "🔊 عم يحكي…" : speakReplies ? "🔊 الصوت شغّال" : "🔈 شغّل الصوت"}
+            </button>
+          )}
           <button
             type="button"
             onClick={reset}
@@ -240,6 +316,23 @@ export default function DeskConsole() {
               disabled={busy}
               className="flex-1 rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-100"
             />
+            {voice?.canListen && (
+              <button
+                type="button"
+                onClick={toggleMic}
+                disabled={busy}
+                aria-pressed={listening}
+                title={listening ? "وقّف التسجيل" : "احكي بدل ما تكتب"}
+                className={
+                  "rounded-xl border px-4 py-3 text-lg transition disabled:opacity-50 " +
+                  (listening
+                    ? "animate-pulse border-red-400 bg-red-50"
+                    : "border-slate-300 hover:bg-slate-100")
+                }
+              >
+                {listening ? "⏹" : "🎙"}
+              </button>
+            )}
             <button
               type="submit"
               disabled={busy || !input.trim()}
@@ -247,7 +340,19 @@ export default function DeskConsole() {
             >
               إرسال
             </button>
+            {listening && (
+              <span className="shrink-0 text-xs text-red-600">🔴 عم بسمعك…</span>
+            )}
           </form>
+
+          {(voiceNote || voice) && (
+            <p className="border-t border-slate-100 px-3 py-1.5 text-center text-[11px] text-slate-400">
+              {voiceNote ??
+                (voice?.canListen
+                  ? "🎙 صوت عبر المتصفح — مش خط تلفون. الرد على المكالمات بدو مزوّد اتصالات وما انبنى بعد."
+                  : "التعرّف على الصوت مش مدعوم بهالمتصفح — جرّب Safari أو Chrome.")}
+            </p>
+          )}
         </main>
 
         <aside className="hidden w-80 shrink-0 flex-col gap-4 overflow-y-auto lg:flex">
