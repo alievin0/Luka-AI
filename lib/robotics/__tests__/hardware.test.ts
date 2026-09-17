@@ -14,6 +14,7 @@ import {
   type RobotProfile,
 } from "../hal/profile.ts";
 import { Deadman } from "../hal/deadman.ts";
+import { Ros2Bridge } from "../hal/ros2-bridge.ts";
 import type { CheckoutInput, CheckoutReport } from "../abilities/checkout.ts";
 
 test("the shipped profiles are internally consistent", () => {
@@ -485,4 +486,52 @@ test("checkout catches a clock that disagrees, and one that drifts", async () =>
   const drifting = await clockCheck(0, 2);
   assert.equal(drifting?.status, "fail", "a drifting clock was waved through");
   assert.match(drifting?.detail ?? "", /different rates/);
+});
+
+test("an undeclared battery scale is read pessimistically, not guessed", () => {
+  // The trap this guards against, stated plainly: a driver publishing 0 to 100
+  // reports a nearly flat battery as 0.8. The obvious heuristic — anything at
+  // or below one must already be a fraction — reads that as 80% and sends the
+  // robot off across the building. The heuristic is right almost always and
+  // wrong exactly in the case that strands it.
+  const readings: Array<{ percentage: number; current: number; voltage: number; capacity: number }> =
+    [{ percentage: 0.8, current: 1, voltage: 24, capacity: 10 }];
+
+  const build = (batteryScale?: "fraction" | "percent" | "unknown") =>
+    new Ros2Bridge({
+      robotId: "r",
+      url: "ws://localhost:9090",
+      batteryScale,
+      socketFactory: () => ({ send() {}, close() {} }) as never,
+    });
+
+  // Reach past the socket: this test is about interpreting a value, not about
+  // transport.
+  const readBattery = (scale?: "fraction" | "percent" | "unknown") => {
+    const bridge = build(scale) as unknown as {
+      read(topic: string): unknown;
+      battery(): { charge: number; confident?: boolean };
+    };
+    bridge.read = () => readings[0];
+    return bridge.battery();
+  };
+
+  // Declared as a fraction: 0.8 means 80%, and that is believed.
+  const asFraction = readBattery("fraction");
+  assert.equal(Math.round(asFraction.charge * 100), 80);
+  assert.equal(asFraction.confident, true);
+
+  // Declared as a percentage: 0.8 means 0.8%, which is nearly flat.
+  const asPercent = readBattery("percent");
+  assert.ok(asPercent.charge < 0.01, `read ${asPercent.charge} for 0.8 on a percentage driver`);
+  assert.equal(asPercent.confident, true);
+
+  // Undeclared: take the reading that does not strand the robot, and say the
+  // figure is not trustworthy.
+  const unknown = readBattery();
+  assert.ok(
+    unknown.charge <= asPercent.charge + 1e-9,
+    "an unknown scale was read optimistically, which is the direction that strands the robot",
+  );
+  assert.equal(unknown.confident, false);
 });

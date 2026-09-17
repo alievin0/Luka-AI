@@ -133,6 +133,9 @@ export class SimRobotAdapter implements RobotIO {
       charge: clamp(this.world.noisy(robot.charge, 0.002), 0, 1),
       drawWatts: this.world.noisy(watts, 0.4),
       capacityWh: robot.capacityWh,
+      // The simulator's units are its own, so they are known by construction.
+      // On hardware this is true only once somebody has read the topic.
+      confident: true,
     };
   }
 

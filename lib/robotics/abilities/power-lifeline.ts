@@ -86,9 +86,35 @@ export const powerLifeline: Ability<LifelineInput, LifelineReport> = {
     const hardFloor = input.hardFloor ?? 0.08;
     const periodMs = input.periodMs ?? 500;
     const autoReturn = input.autoReturn ?? true;
+    /**
+     * Extra multiple on the reserve, applied when the charge reading's units
+     * were never established. One means the reading is trusted as given.
+     */
+    let uncertaintyMargin = 1;
 
     const battery0 = ctx.robot.battery();
     const capacityWh = battery0.capacityWh;
+
+    // This ability's entire job is deciding when there is not enough charge
+    // left to get home. A charge reading whose units nobody established cannot
+    // support that decision: the same raw number is either eighty per cent or
+    // four fifths of one, and the ability would answer confidently either way.
+    //
+    // It still runs — refusing outright would leave a robot with no energy
+    // discipline at all, which is worse — but it says so, and the margin it
+    // keeps is widened, because the failure it is guarding against is being
+    // stranded.
+    const trustworthy = battery0.confident !== false;
+    if (!trustworthy) {
+      uncertaintyMargin = 1.5;
+      ctx.emit({
+        kind: "warn",
+        message:
+          "Battery units are not established, so the charge reading cannot be fully trusted. " +
+          "Reading it pessimistically and keeping a wider reserve. Read the battery topic once " +
+          "and record whether it publishes 0-1 or 0-100.",
+      });
+    }
 
     let lastPose = ctx.robot.pose();
     let lastCharge = battery0.charge;
@@ -141,7 +167,7 @@ export const powerLifeline: Ability<LifelineInput, LifelineReport> = {
       // Getting home costs the straight line times however much this robot
       // actually wanders, plus a fixed allowance for docking manoeuvres.
       const returnCostWh = homeDistance * whPerMetre * detourFactor + 0.4;
-      const margin = remainingWh - returnCostWh * (1 + reserveFactor);
+      const margin = remainingWh - returnCostWh * (1 + reserveFactor) * uncertaintyMargin;
 
       if (samples % 10 === 0) {
         ctx.emit({

@@ -88,6 +88,12 @@ export type Ros2BridgeOptions = {
   throttleMs?: number;
   /** Supply a WebSocket implementation when the runtime has no global one. */
   socketFactory?: (url: string) => WebSocketLike;
+  /**
+   * Units the battery driver publishes charge in. Take this from the robot's
+   * profile; read the topic once and record what you saw rather than assuming.
+   * Left unset, charge is read pessimistically and marked unconfident.
+   */
+  batteryScale?: "fraction" | "percent" | "unknown";
 };
 
 export type WebSocketLike = {
@@ -112,6 +118,9 @@ export class Ros2Bridge implements RobotIO {
   private readonly cache = new Map<string, Cached<unknown>>();
   private readonly mailbox = new Map<string, unknown[]>();
 
+  /** Units the battery driver publishes in. Declared, never inferred. */
+  private readonly batteryScale?: "fraction" | "percent" | "unknown";
+
   constructor(options: Ros2BridgeOptions) {
     this.id = options.robotId;
     this.url = options.url;
@@ -130,6 +139,7 @@ export class Ros2Bridge implements RobotIO {
     this.compression = options.compression ?? "cbor";
     this.throttleMs = options.throttleMs ?? 20;
     this.socketFactory = options.socketFactory;
+    this.batteryScale = options.batteryScale;
   }
 
   async connect(): Promise<void> {
@@ -293,11 +303,30 @@ export class Ros2Bridge implements RobotIO {
     const msg = this.read<{ percentage: number; current: number; voltage: number; capacity: number }>(
       this.topics.battery,
     );
-    if (!msg) return { charge: 0, drawWatts: 0, capacityWh: 1 };
+    if (!msg) return { charge: 0, drawWatts: 0, capacityWh: 1, confident: false };
+
+    // The units are declared, not guessed. The obvious heuristic — anything
+    // above one must be a percentage — is right most of the time and wrong
+    // exactly when it matters: a battery at 0.8% on a percentage driver reads
+    // as 0.8, which the heuristic calls a fraction and reports as 80%. The
+    // robot then sets off across the building believing it is nearly full.
+    const scale = this.batteryScale ?? "unknown";
+    const raw = msg.percentage;
+    const charge =
+      scale === "percent"
+        ? raw / 100
+        : scale === "fraction"
+          ? raw
+          // Unknown: take the pessimistic reading of the two. Being wrong this
+          // way sends the robot home early; being wrong the other way leaves it
+          // somewhere with a flat battery.
+          : Math.min(raw, raw / 100);
+
     return {
-      charge: clamp(msg.percentage > 1 ? msg.percentage / 100 : msg.percentage, 0, 1),
+      charge: clamp(charge, 0, 1),
       drawWatts: Math.abs(msg.current * msg.voltage),
       capacityWh: msg.capacity * msg.voltage,
+      confident: scale !== "unknown",
     };
   }
 

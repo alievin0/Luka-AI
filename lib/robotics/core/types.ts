@@ -245,6 +245,21 @@ export type BatteryState = {
   /** Instantaneous draw in watts. */
   drawWatts: number;
   capacityWh: number;
+  /**
+   * Whether the charge figure can be believed.
+   *
+   * False when the driver's units were never established. The ROS battery
+   * message specifies a 0-to-1 fraction and a great many drivers publish 0 to
+   * 100 instead, and the two are indistinguishable from a single reading: a raw
+   * 0.8 is either eighty per cent or four fifths of one per cent. Guessing from
+   * the magnitude gets the dangerous case exactly backwards — a nearly flat
+   * battery on a percentage driver reads as nearly full.
+   *
+   * When this is false, `charge` has been interpreted pessimistically, so an
+   * ability can keep working without being quietly wrong in the direction that
+   * strands the robot.
+   */
+  confident?: boolean;
 };
 
 export type GripperState = {
