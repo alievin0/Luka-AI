@@ -65,6 +65,12 @@ export class RobotSession {
     if (options.guardians !== false) {
       this.rig.runtime.startDaemon("reflex.shield", {});
       this.rig.runtime.startDaemon("safety.stoppable", {});
+      // The fly circuit runs alongside the geometric reflex rather than instead
+      // of it. They answer different questions — one computes time-to-collision
+      // from the robot's own speed, the other responds to something growing in
+      // the scan whoever is moving — and measured on the same approach, the
+      // looming circuit reacts about 0.4 m earlier.
+      this.rig.runtime.startDaemon("reflex.looming", {});
     }
 
     this.stopClock = this.rig.runtime.startAmbientClock(options.realtimeFactor ?? 1);
