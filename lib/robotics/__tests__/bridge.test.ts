@@ -333,3 +333,89 @@ test("a command with nowhere to go is not reported as delivered", async () => {
   assert.equal(fake.sent.length, 1, "a connected bridge dropped a stop");
   assert.equal(connecting.transportProblems(), 0);
 });
+
+test("sensor time comes from the robot's clock, not from this one", async () => {
+  // The bug this pins was invisible to a green test suite, which is the reason
+  // it is worth pinning.
+  //
+  // The bridge never read `header.stamp`, so every sensor timestamp was
+  // Date.now() taken as the reader was called. hardware.checkout's clock gate
+  // compares that against this machine's clock — this machine's clock on both
+  // sides — and so measured zero skew on a robot five minutes out and reported
+  // the clocks as fine. The gate's own tests passed the whole time, because
+  // they injected skew into the simulator directly and never went near the
+  // hardware path.
+  const { bridge, fake } = await connected();
+
+  const robotBehindBySeconds = 300;
+  const robotSec = Math.floor(Date.now() / 1000) - robotBehindBySeconds;
+
+  fake.deliver("/imu/data", {
+    header: { stamp: { sec: robotSec, nanosec: 0 } },
+    orientation: { x: 0, y: 0, z: 0, w: 1 },
+    angular_velocity: { y: 0, z: 0 },
+    linear_acceleration: { x: 0 },
+  });
+
+  const imu = bridge.imu();
+  assert.equal(imu.stamp, "sensor");
+  const skewSeconds = (Date.now() - imu.t) / 1000;
+  assert.ok(
+    Math.abs(skewSeconds - robotBehindBySeconds) < 5,
+    `a ${robotBehindBySeconds} s clock offset came through as ${skewSeconds.toFixed(1)} s`,
+  );
+
+  // Nanoseconds are not ignored.
+  fake.deliver("/imu/data", {
+    header: { stamp: { sec: 1000, nanosec: 500_000_000 } },
+    orientation: { x: 0, y: 0, z: 0, w: 1 },
+    angular_velocity: { y: 0, z: 0 },
+    linear_acceleration: { x: 0 },
+  });
+  assert.equal(bridge.imu().t, 1_000_500);
+});
+
+test("an unstamped reading says so rather than borrowing this machine's clock", async () => {
+  // Plenty of drivers publish without a header. Silently falling back to
+  // arrival time would put the clock question beyond asking while appearing to
+  // answer it, so the fallback is flagged and the checkout refuses on it.
+  const { bridge, fake } = await connected();
+
+  fake.deliver("/imu/data", {
+    orientation: { x: 0, y: 0, z: 0, w: 1 },
+    angular_velocity: { y: 0, z: 0 },
+    linear_acceleration: { x: 0 },
+  });
+  assert.equal(bridge.imu().stamp, "arrival");
+
+  fake.deliver("/scan", {
+    ranges: new Array(20).fill(3),
+    angle_min: -1.5,
+    angle_max: 1.5,
+    range_max: 12,
+  });
+  assert.equal(bridge.lidar().stamp, "arrival");
+});
+
+test("a driver republishing one frame repeats its stamp", async () => {
+  // This is what makes a frozen sensor detectable. With arrival-time stamping
+  // the timestamp advanced on every read, so a driver stuck on one frame
+  // looked alive — and whether the check caught it depended on whether two
+  // reads happened to straddle a millisecond, which is worse than broken.
+  const { bridge, fake } = await connected();
+  const frozen = {
+    header: { stamp: { sec: 5000, nanosec: 0 } },
+    ranges: new Array(20).fill(3),
+    angle_min: -1.5,
+    angle_max: 1.5,
+    range_max: 12,
+  };
+
+  fake.deliver("/scan", frozen);
+  const first = bridge.lidar();
+  fake.deliver("/scan", frozen);
+  const second = bridge.lidar();
+
+  assert.equal(first.t, second.t, "a repeated frame produced a moving timestamp");
+  assert.equal(first.t, 5_000_000);
+});

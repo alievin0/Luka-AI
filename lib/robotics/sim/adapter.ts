@@ -122,6 +122,7 @@ export class SimRobotAdapter implements RobotIO {
       accel: this.world.noisy(robot.commandedLinear - robot.linear, 0.02),
       yawRate: this.world.noisy(robot.angular, 0.01),
       t: this.world.timeMs,
+      stamp: "sensor" as const,
     };
   }
 

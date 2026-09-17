@@ -204,8 +204,25 @@ export type LidarScan = {
   ranges: number[];
   fov: number;
   maxRange: number;
+  /** Timestamp in ms. See `stamp` for whose clock this is on. */
   t: number;
+  stamp?: StampSource;
 };
+
+/**
+ * Where a sensor timestamp came from.
+ *
+ * `sensor` — the robot stamped it, so it can be compared against this
+ *   machine's clock to find out whether the two agree.
+ * `arrival` — nobody stamped it, so this is when the message got here. It
+ *   still detects a silent topic, and it cannot detect a clock disagreement at
+ *   all, because it is this machine's clock on both sides of the comparison.
+ *
+ * The distinction has to be visible. A checkout that compares arrival time
+ * against local time measures zero skew on a robot five minutes out and
+ * reports the clocks as fine.
+ */
+export type StampSource = "sensor" | "arrival";
 
 export type ImuSample = {
   /** Body tilt from vertical, radians. */
@@ -215,7 +232,9 @@ export type ImuSample = {
   /** Forward acceleration, m/s². */
   accel: number;
   yawRate: number;
+  /** Timestamp in ms. See `stamp` for whose clock this is on. */
   t: number;
+  stamp?: StampSource;
 };
 
 export type DetectedObject = {

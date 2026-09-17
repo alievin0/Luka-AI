@@ -143,6 +143,7 @@ export class Ros2Bridge implements RobotIO {
     accel: Number.NaN,
     yawRate: Number.NaN,
     t: 0,
+    stamp: "arrival",
   };
   private readonly onProblem?: (message: string) => void;
 
@@ -341,7 +342,8 @@ export class Ros2Bridge implements RobotIO {
       angle_max: number;
       range_max: number;
     }>(this.topics.scan);
-    if (!msg) return { ranges: [], fov: 0, maxRange: 0, t: Date.now() };
+    if (!msg) return { ranges: [], fov: 0, maxRange: 0, t: 0, stamp: "arrival" };
+    const stamped = this.stampOf(msg);
     return {
       // Two very different things arrive looking similar here, and collapsing
       // them loses the only evidence that the sensor has failed.
@@ -357,9 +359,13 @@ export class Ros2Bridge implements RobotIO {
         if (r === null || Number.isNaN(r)) return Number.NaN;
         return Number.isFinite(r) ? r : msg.range_max;
       }),
+      stamp: stamped === null ? "arrival" : "sensor",
       fov: msg.angle_max - msg.angle_min,
       maxRange: msg.range_max,
-      t: Date.now(),
+      // The scanner's own clock where it gave one. A driver republishing an
+      // identical frame then repeats its stamp too, which is what makes a
+      // frozen sensor detectable at all.
+      t: stamped ?? Date.now(),
     };
   }
 
@@ -382,12 +388,16 @@ export class Ros2Bridge implements RobotIO {
     const { x, y, z, w } = msg.orientation;
     // Pitch from the quaternion, clamped because asin hates rounding error.
     const sinPitch = clamp(2 * (w * y - z * x), -1, 1);
+    const stamped = this.stampOf(msg);
     this.lastImu = {
       tilt: Math.asin(sinPitch),
       tiltRate: msg.angular_velocity.y,
       accel: msg.linear_acceleration.x,
       yawRate: msg.angular_velocity.z,
-      t: Date.now(),
+      // The robot's own clock where it gave one. Arrival time otherwise, and
+      // flagged, because the two answer different questions.
+      t: stamped ?? Date.now(),
+      stamp: stamped === null ? "arrival" : "sensor",
     };
     return this.lastImu;
   }
@@ -546,6 +556,24 @@ export class Ros2Bridge implements RobotIO {
   /** Whether there is currently a connection to send on. */
   isConnected(): boolean {
     return this.socket !== null;
+  }
+
+  /**
+   * The robot's own timestamp for a message, in ms, or null when it did not
+   * send one.
+   *
+   * ROS puts this in `header.stamp` as separate seconds and nanoseconds. It is
+   * the only thing in a message that is on the *robot's* clock rather than
+   * this one, which makes it the only thing that can answer whether the two
+   * clocks agree. Falling back to arrival time silently would make that
+   * question unanswerable while appearing to answer it.
+   */
+  private stampOf(msg: unknown): number | null {
+    const header = (msg as { header?: { stamp?: { sec?: number; nanosec?: number } } })?.header;
+    const stamp = header?.stamp;
+    if (!stamp || typeof stamp.sec !== "number") return null;
+    const nanos = typeof stamp.nanosec === "number" ? stamp.nanosec : 0;
+    return stamp.sec * 1000 + nanos / 1e6;
   }
 
   private read<T>(topic: string): T | null {

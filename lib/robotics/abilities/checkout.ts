@@ -254,14 +254,35 @@ export const hardwareCheckout: Ability<CheckoutInput, CheckoutReport> = {
     //     is merely wrong, and a drift, which is wrong at a rate and will be
     //     fine this morning and broken this afternoon.
     const skews: number[] = [];
+    let unstamped = 0;
     for (let i = 0; i < 5; i += 1) {
       const t = ctx.now();
-      if (ctx.robot.capabilities.includes("lidar")) skews.push(ctx.robot.lidar().t - t);
-      if (ctx.robot.capabilities.includes("imu")) skews.push(ctx.robot.imu().t - t);
+      for (const sample of [
+        ctx.robot.capabilities.includes("lidar") ? ctx.robot.lidar() : null,
+        ctx.robot.capabilities.includes("imu") ? ctx.robot.imu() : null,
+      ]) {
+        if (!sample) continue;
+        // A reading the robot did not stamp carries this machine's own clock,
+        // so comparing it against this machine's clock measures zero by
+        // construction. That is not agreement, it is the question going
+        // unasked — and it is exactly how this gate passed a robot five
+        // minutes out while its own tests were green.
+        if (sample.stamp === "arrival") unstamped += 1;
+        else skews.push(sample.t - t);
+      }
       await ctx.sleep(observeMs / 5);
     }
 
-    if (skews.length === 0) {
+    if (unstamped > 0) {
+      add(
+        "clock",
+        "fail",
+        `${unstamped} reading(s) arrived with no timestamp from the robot, so there is nothing to ` +
+          "compare this machine's clock against. Arrival time is this machine's clock on both " +
+          "sides of the comparison and would report perfect agreement no matter how far out the " +
+          "robot is. Publish header stamps before trusting anything built on sensor time.",
+      );
+    } else if (skews.length === 0) {
       add("clock", "warn", "No timestamped sensor to compare clocks against.");
     } else {
       const worst = Math.max(...skews.map(Math.abs));
