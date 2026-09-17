@@ -1,0 +1,298 @@
+#!/usr/bin/env python3
+"""REGRESSION SUITE — one named test per defect ever found in this project.
+
+Each test names where the defect was discovered. If a test here fails, a bug we
+already paid for has come back. Run with:  python3 test_regressions.py
+
+R1–R3  defects found while building civ/ (the tests caught them before shipping)
+R4–R9  findings from civ/01-AUDIT.md — the world/ defects civ/ must never repeat
+R10    the world/ defects found by running it, still covered by world/test_world.py
+"""
+import os
+import re
+import sqlite3
+import subprocess
+import sys
+import tempfile
+import time
+import unittest
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+REPO = os.path.dirname(HERE)
+sys.path.insert(0, HERE)
+from core import provider as P          # noqa: E402
+from core import runtime, store         # noqa: E402
+import slice as vslice                  # noqa: E402
+
+
+def fresh(mode="simulation"):
+    con = store.connect(os.path.join(tempfile.mkdtemp(), "r.db"))
+    store.found(con, mode=mode)
+    vslice.register_crew(con)
+    return con
+
+
+# ── R1–R3: defects found while building civ/ ─────────────────────────
+class R1_ModePurityWasNeverEnforced(unittest.TestCase):
+    """Found 2026-09-17 while writing L4.
+
+    set_meta stores JSON, so world_meta.mode held '"simulation"' WITH QUOTES while
+    the trigger compared it to an unquoted 'simulation'. The law never fired once.
+    It looked present in the schema and was absent in behaviour.
+    """
+    def test_stored_mode_is_still_json_quoted(self):
+        con = fresh("simulation")
+        raw = con.execute("SELECT value FROM world_meta WHERE key='mode'").fetchone()[0]
+        self.assertEqual(raw, '"simulation"',
+                         "storage format changed; re-check the trigger's json_extract")
+
+    def test_the_trigger_reads_through_json_extract(self):
+        with open(os.path.join(HERE, "core", "schema.sql"), encoding="utf-8") as fh:
+            sql = fh.read()
+        self.assertIn("json_extract(value,'$') FROM world_meta WHERE key='mode'", sql,
+                      "the trigger must not compare the raw JSON value")
+
+    def test_and_therefore_actually_fires(self):
+        con = fresh("simulation")
+        with self.assertRaises(sqlite3.IntegrityError) as e:
+            con.execute("INSERT INTO runs(principal_id,source,provider,model,prompt_sha,status,"
+                        "started_at) VALUES('AGT-000002','model','claude','m','s','OK',?)",
+                        (store.now(),))
+        self.assertIn("LAW 2", str(e.exception))
+
+
+class R2_ShortLeaseCouldNotExpire(unittest.TestCase):
+    """Found 2026-09-17 while writing L7.
+
+    Timestamps were truncated to whole seconds, so a lease granted at T expiring
+    at T+1 still compared as valid after sleeping 1.2s. Short leases were immortal,
+    which silently disables the crash-recovery path.
+    """
+    def test_timestamps_carry_sub_second_precision(self):
+        t = store.now()
+        self.assertRegex(t, r"\d{2}:\d{2}:\d{2}\.\d{6}",
+                         "now() lost microseconds; short leases become un-expirable")
+
+    def test_a_one_second_lease_really_expires(self):
+        con = fresh()
+        tid = runtime.enqueue(con, "x", "build", "AGT-000001", required_caps=["READ_REPO"])
+        lease = runtime.claim(con, "AGT-000002", lease_seconds=1)
+        self.assertTrue(runtime.lease_valid(con, lease["lease_id"]))
+        time.sleep(1.2)
+        self.assertFalse(runtime.lease_valid(con, lease["lease_id"]))
+        self.assertEqual(runtime.reap_expired(con), 1)
+        self.assertEqual(con.execute("SELECT status FROM tasks WHERE id=?",
+                                     (tid,)).fetchone()["status"], "QUEUED")
+
+
+class R3_LawWasOverBroad(unittest.TestCase):
+    """Found 2026-09-17 when L1 broke after R1 was fixed.
+
+    Mode purity initially blocked ANY model-sourced run in a simulation world,
+    including a NOT_CONFIGURED attempt that produced nothing. Recording a refusal
+    IS the honesty, so the law must govern produced content only.
+    """
+    def test_not_configured_is_recordable_in_a_simulation_world(self):
+        con = fresh("simulation")
+        rid, res = runtime.invoke(con, P.NotConfigured("no key"), "AGT-000002", "s", "p")
+        self.assertEqual(res.status, "NOT_CONFIGURED")
+        row = con.execute("SELECT source, status FROM runs WHERE id=?", (rid,)).fetchone()
+        self.assertEqual((row["source"], row["status"]), ("model", "NOT_CONFIGURED"))
+
+    def test_but_a_successful_model_run_is_still_blocked(self):
+        con = fresh("simulation")
+        with self.assertRaises(sqlite3.IntegrityError):
+            con.execute("INSERT INTO runs(principal_id,source,provider,model,prompt_sha,status,"
+                        "started_at) VALUES('AGT-000002','model','claude','m','s','STARTED',?)",
+                        (store.now(),))
+
+
+# ── R4–R9: the audit findings civ/ must never repeat ─────────────────
+class R4_ProvenanceWasComputedThenDiscarded(unittest.TestCase):
+    """AUDIT F1 — world/engine.py took `src` from mind.think(), used it for one
+    counter, and dropped it before persistence. organs had no source column, so
+    lexicon text and model text were indistinguishable forever."""
+    def test_artifact_cannot_exist_without_a_run(self):
+        con = fresh()
+        with self.assertRaises(sqlite3.IntegrityError):
+            con.execute("INSERT INTO artifacts(run_id,principal_id,kind,name,sha,source,"
+                        "created_at) VALUES(NULL,'AGT-000002','code','x','s','mock',?)",
+                        (store.now(),))
+
+    def test_artifact_source_cannot_differ_from_its_run(self):
+        con = fresh()
+        rid = con.execute("INSERT INTO runs(principal_id,source,provider,model,prompt_sha,"
+                          "status,started_at) VALUES('AGT-000002','mock','mock','m','s','OK',?)",
+                          (store.now(),)).lastrowid
+        with self.assertRaises(sqlite3.IntegrityError) as e:
+            con.execute("INSERT INTO artifacts(run_id,principal_id,kind,name,sha,source,"
+                        "created_at) VALUES(?,'AGT-000002','code','x','s','model',?)",
+                        (rid, store.now()))
+        self.assertIn("LAW 1", str(e.exception))
+
+    def test_every_artifact_in_a_real_slice_carries_its_source(self):
+        con = fresh()
+        out = vslice.run_slice(con, P.MockProvider(), verbose=False)
+        for a in con.execute("SELECT * FROM artifacts"):
+            self.assertIn(a["source"], ("model", "mock", "lexicon", "human"))
+            self.assertIsNotNone(a["run_id"])
+
+
+class R5_WorldDidNotRecordItsMode(unittest.TestCase):
+    """AUDIT F2 — world/ persisted only day/founded/seed/size/treasury, so an
+    offline world and a live world were structurally identical files."""
+    def test_mode_is_persisted_and_survives_reopen(self):
+        path = os.path.join(tempfile.mkdtemp(), "m.db")
+        con = store.connect(path); store.found(con, mode="hybrid"); con.close()
+        self.assertEqual(store.meta(store.connect(path), "mode"), "hybrid")
+
+    def test_founding_twice_is_refused(self):
+        con = fresh()
+        with self.assertRaises(RuntimeError):
+            store.found(con, mode="live")
+
+
+class R6_ADeclaredTableNothingWrites(unittest.TestCase):
+    """AUDIT F3 — world/ declared a memories table, indexed it, and never wrote a
+    single row. A schema that promises a capability the code does not use is a lie
+    told in SQL."""
+    def test_a_full_slice_populates_every_declared_table(self):
+        con = fresh()
+        vslice.run_slice(con, P.MockProvider(), verbose=False)
+        empty = []
+        for (t,) in con.execute("SELECT name FROM sqlite_master WHERE type='table' "
+                                "AND name NOT LIKE 'sqlite_%' ORDER BY name"):
+            if con.execute("SELECT COUNT(*) FROM %s" % t).fetchone()[0] == 0:
+                empty.append(t)
+        self.assertEqual(empty, [],
+                         "declared but never written: %s — either use them or remove them"
+                         % empty)
+
+
+class R7_DistinctnessWasUnevaluable(unittest.TestCase):
+    """AUDIT F4 — world/ had 1000 rows and 21 distinct (house, role) pairs, and all
+    five columns the distinctness invariant needs were absent, so the invariant
+    could not even be checked."""
+    def test_the_five_columns_exist(self):
+        con = fresh()
+        cols = {r[1] for r in con.execute("PRAGMA table_info(principals)")}
+        for need in ("tools", "permissions", "memory_scope",
+                     "success_metrics", "escalation_rules"):
+            self.assertIn(need, cols)
+
+    def test_a_materially_identical_agent_cannot_be_inserted(self):
+        con = fresh()
+        r = con.execute("SELECT * FROM principals WHERE id='AGT-000003'").fetchone()
+        with self.assertRaises(sqlite3.IntegrityError):
+            con.execute("INSERT INTO principals(id,name,role,division,department,tier,mission,"
+                        "tools,permissions,memory_scope,success_metrics,escalation_rules,"
+                        "created_at) VALUES('AGT-CLONE','C','C',?,?,?,?,?,?,?,?,?,?)",
+                        (r["division"], r["department"], r["tier"], r["mission"], r["tools"],
+                         r["permissions"], r["memory_scope"], r["success_metrics"],
+                         r["escalation_rules"], store.now()))
+
+    def test_every_registered_agent_is_actually_distinct(self):
+        con = fresh()
+        n = con.execute("SELECT COUNT(*) c FROM principals").fetchone()["c"]
+        d = con.execute("SELECT COUNT(*) c FROM (SELECT DISTINCT tools,permissions,"
+                        "memory_scope,success_metrics,escalation_rules FROM principals)"
+                        ).fetchone()["c"]
+        self.assertEqual(n, d, "%d agents collapse into %d real kinds" % (n, d))
+
+
+class R8_HistoryWasMutable(unittest.TestCase):
+    """AUDIT F5 — proved by deleting an events row with one statement (11040→11039)."""
+    def test_delete_is_refused(self):
+        con = fresh()
+        with self.assertRaises(sqlite3.IntegrityError):
+            con.execute("DELETE FROM events")
+
+    def test_update_is_refused(self):
+        con = fresh()
+        with self.assertRaises(sqlite3.IntegrityError):
+            con.execute("UPDATE events SET kind='X'")
+
+    def test_the_chain_detects_tampering_if_a_trigger_were_dropped(self):
+        con = fresh()
+        for i in range(6):
+            store.event(con, "T", payload={"i": i})
+        self.assertTrue(store.verify_chain(con)[0])
+        con.execute("DROP TRIGGER law_events_no_update")       # simulate the law removed
+        con.execute("UPDATE events SET kind='TAMPERED' WHERE id=2")
+        ok, bad = store.verify_chain(con)
+        self.assertFalse(ok, "the hash chain must catch what the trigger no longer blocks")
+        self.assertEqual(bad, 2)
+
+
+class R9_LivePathWasSilentlyUnverified(unittest.TestCase):
+    """AUDIT F7 — world/mind.py had _claude()/_ollama() that no test ever reached, and
+    the system was described as having a live mode when it had live code."""
+    def test_the_live_conformance_test_exists_and_is_gated_on_a_real_key(self):
+        with open(os.path.join(HERE, "test_civ.py"), encoding="utf-8") as fh:
+            src = fh.read()
+        self.assertIn("test_claude_conforms_live", src)
+        self.assertIn("skipUnless(os.environ.get(\"ANTHROPIC_API_KEY\")", src)
+        self.assertIn("UNVERIFIED", src, "the skip message must say the path is unverified")
+
+    def test_the_skip_is_loud_in_the_runner_output(self):
+        env = dict(os.environ); env.pop("ANTHROPIC_API_KEY", None)
+        r = subprocess.run([sys.executable, "test_civ.py"], cwd=HERE, env=env,
+                           capture_output=True, text=True, timeout=180)
+        self.assertIn("L10-LIVE SKIPPED", r.stdout + r.stderr,
+                      "a skipped live test must announce itself, never pass quietly")
+
+    def test_an_unavailable_provider_yields_no_text(self):
+        for prov in (P.NotConfigured(), P.ClaudeProvider(model="m", key=None)):
+            r = prov.complete("s", "p")
+            self.assertEqual(r.status, "NOT_CONFIGURED")
+            self.assertEqual(r.text, "")
+
+
+# ── R10: the world/ defects stay covered ─────────────────────────────
+class R10_WorldEngineDefectsStayCovered(unittest.TestCase):
+    """The three defects found by running world/ keep their tests."""
+    def test_world_suite_still_covers_them(self):
+        with open(os.path.join(REPO, "world", "test_world.py"), encoding="utf-8") as fh:
+            src = fh.read()
+        for name in ("test_the_wound_belongs_to_its_own_idea",
+                     "test_an_idea_is_nominated_once",
+                     "test_no_incomplete_body_stands_before_the_king"):
+            self.assertIn(name, src, "world/ regression test %s was removed" % name)
+
+    def test_world_suite_passes(self):
+        r = subprocess.run([sys.executable, "test_world.py"],
+                           cwd=os.path.join(REPO, "world"),
+                           capture_output=True, text=True, timeout=300)
+        self.assertIn("OK", r.stderr, r.stderr[-400:])
+
+
+# ── the laws must not change meaning silently ────────────────────────
+class LawsAreFrozen(unittest.TestCase):
+    """PHASE 1 requirement: do not silently change the semantics of existing laws."""
+    EXPECTED = {
+        "law_mode_purity", "law_mode_purity_live", "law_split_brain_insert",
+        "law_split_brain_update", "law_provenance_matches", "law_no_unbacked_fact_insert",
+        "law_no_unbacked_fact_update", "law_independent_review",
+        "law_events_no_delete", "law_events_no_update",
+    }
+
+    def test_every_law_is_installed(self):
+        con = fresh()
+        got = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='trigger'")}
+        self.assertEqual(self.EXPECTED - got, set(), "law(s) missing from the schema")
+
+    def test_the_distinctness_index_is_installed(self):
+        con = fresh()
+        idx = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='index'")}
+        self.assertIn("law_distinctness", idx)
+
+    def test_adding_a_law_requires_updating_this_list(self):
+        with open(os.path.join(HERE, "core", "schema.sql"), encoding="utf-8") as fh:
+            sql = fh.read()
+        declared = set(re.findall(r"CREATE TRIGGER (law_\w+)", sql))
+        self.assertEqual(declared, self.EXPECTED,
+                         "schema laws and the frozen list disagree — update BASELINE.md too")
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

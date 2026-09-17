@@ -279,6 +279,29 @@ def run_slice(con, prov, verbose=True):
                  "Built by Builder, executed by an independent Verifier "
                  "(evidence #%s), judged by Critic." % ev_id,
                  event_id=eid, project_id=pid, artifact_id=aid)
+    # Mock content must never become project progress by default. Raising this
+    # is what stops the simulation from quietly accruing into a track record.
+    if out.get("artifact_source") != "model":
+        ap = con.execute(
+            "INSERT INTO approvals(at,question,why,options,evidence_id,project_id) "
+            "VALUES(?,?,?,?,?,?)",
+            (now(),
+             "Accept artifact #%d as project milestone despite %s content?"
+             % (aid, out["artifact_source"].upper()),
+             "It was verified to execute (evidence #%s), but its content was not "
+             "produced by a model. Accepting it records simulated work as progress."
+             % ev_id,
+             json.dumps(["APPROVE", "REJECT", "NEED_EVIDENCE"]), ev_id, pid)).lastrowid
+        store.event(con, "DECISION_REQUESTED", actor="AGT-000005",
+                    subject="approval:%d" % ap, payload={"artifact": aid})
+        store.signal(con, "HIGH", "A decision needs you: artifact #%d has %s content"
+                     % (aid, out["artifact_source"].upper()),
+                     "Run: python3 owner.py decide %d APPROVE|REJECT" % ap,
+                     project_id=pid, artifact_id=aid)
+        out["approval_id"] = ap
+        say("  APPROVAL #%d raised — mock content will not count as progress "
+            "without you" % ap)
+
     out["status"] = "COMPLETE"
     say("  SIGNAL written for the owner")
     return out

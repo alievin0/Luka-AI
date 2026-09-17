@@ -204,6 +204,39 @@ def cmd_show(c, kind=None, ident=None, *_):
         print("  event %-5d %-24s %s" % (e["id"], e["kind"], e["actor"] or ""))
 
 
+def cmd_decisions(c, *_):
+    rows = c.execute("SELECT * FROM approvals WHERE decision IS NULL ORDER BY id").fetchall()
+    if not rows:
+        print("nothing is waiting on you."); return
+    print(BAR); print("DECISIONS THAT NEED YOU"); print(BAR)
+    for a in rows:
+        print("  #%d  %s" % (a["id"], a["question"]))
+        print("      why: %s" % a["why"])
+        print("      options: %s" % ", ".join(json.loads(a["options"])))
+        if a["evidence_id"]:
+            e = c.execute("SELECT * FROM evidence WHERE id=?", (a["evidence_id"],)).fetchone()
+            print("      evidence #%d: %s" % (e["id"], e["external_provenance"]))
+        print("      answer: python3 owner.py decide %d APPROVE|REJECT|NEED_EVIDENCE" % a["id"])
+
+
+def cmd_decide(c, ident=None, verdict=None, *_):
+    if not ident or not verdict:
+        sys.exit("usage: owner.py decide <id> APPROVE|REJECT|NEED_EVIDENCE|PAUSE|REDIRECT")
+    verdict = verdict.upper()
+    a = c.execute("SELECT * FROM approvals WHERE id=?", (ident,)).fetchone()
+    if not a:
+        sys.exit("no such decision")
+    c.execute("UPDATE approvals SET decision=?, decided_at=? WHERE id=?",
+              (verdict, store.now(), ident))
+    store.event(c, "OWNER_DECIDED", actor="OWNER", subject="approval:%s" % ident,
+                payload={"decision": verdict})
+    if verdict == "REJECT" and a["project_id"]:
+        c.execute("UPDATE projects SET stage='RESEARCH' WHERE id=?", (a["project_id"],))
+        print("rejected; project %d returned to RESEARCH." % a["project_id"])
+    else:
+        print("recorded: %s" % verdict)
+
+
 def cmd_pause(c, *_):
     store.set_meta(c, "paused", True)
     store.event(c, "EMERGENCY_STOP", actor="OWNER")
