@@ -88,8 +88,44 @@ export const balanceRecover: Ability<BalanceInput, BalanceReport> = {
 
     ctx.robot.setLights("balance", "#f97316");
 
+    // A stalled IMU reads as perfectly upright, and this ability would then
+    // report a triumphant recovery of a robot lying on the floor. Measured
+    // before this check existed: tilted 90 degrees, flat on the ground, and the
+    // summary said "caught it with the ankle strategy, peak lean 0.0 degrees".
+    //
+    // The timestamp is the tell. A driver that has stopped republishes its last
+    // sample, or its initialisation values, and the numbers look entirely
+    // plausible — level, still, fine. Only the clock gives it away.
+    let lastImuStamp = ctx.robot.imu().t;
+    let stalledTicks = 0;
+
     while (!ctx.signal.aborted) {
       const imu = ctx.robot.imu();
+
+      if (imu.t === lastImuStamp) {
+        stalledTicks += 1;
+        // Several ticks with no new sample is not a slow sensor, it is a stopped
+        // one. Balance cannot be assessed without it, and claiming otherwise is
+        // worse than failing.
+        if (stalledTicks > 10) {
+          ctx.robot.stop();
+          ctx.emit({
+            kind: "warn",
+            message: "IMU is not producing new samples — refusing to judge balance from a stale reading.",
+          });
+          return {
+            ...finish(false, "precondition"),
+            summary:
+              `The IMU has not produced a new sample in ${stalledTicks} control ticks, so the ` +
+              "tilt reading is stale. A stalled IMU reads as perfectly upright, which is why this " +
+              "refuses rather than reporting a recovery it cannot see.",
+          };
+        }
+      } else {
+        stalledTicks = 0;
+        lastImuStamp = imu.t;
+      }
+
       const capture = imu.tilt + imu.tiltRate / omega0;
 
       peakTilt = Math.max(peakTilt, Math.abs(imu.tilt));

@@ -570,3 +570,28 @@ test("a sensor returning nothing is not the same as a clear path", () => {
   );
   assert.match(verdict.reason, /beams are returning data/);
 });
+
+test("balance refuses to judge a fall it cannot see", async () => {
+  // A stalled IMU republishes its last sample, or its initialisation values,
+  // and those look entirely plausible: level, still, fine. Before this check,
+  // a robot lying flat on the floor at 90 degrees got the summary "caught it
+  // with the ankle strategy, peak lean 0.0 degrees".
+  const rig = createSimRig({ scenario: "empty-hall", profile: SIMULATED_ROVER });
+  const robot = rig.runtime.rawRobot;
+
+  rig.world.applyTiltImpulse("luka-1", 2.2);
+  for (let i = 0; i < 120; i += 1) rig.world.step(0.02);
+  assert.ok(
+    Math.abs(rig.world.robot("luka-1").tilt) > 1,
+    "the robot did not actually fall, so this proves nothing",
+  );
+
+  // Freeze the IMU at its initialisation values, timestamp included.
+  const stamp = robot.imu().t;
+  Object.assign(robot, { imu: () => ({ tilt: 0, tiltRate: 0, accel: 0, yawRate: 0, t: stamp }) });
+
+  const result = await rig.runtime.run("balance.recover", { timeoutMs: 4000 });
+  assert.equal(result.ok, false, "claimed a recovery while lying on the floor");
+  assert.equal(result.failure, "precondition");
+  assert.match(result.summary, /not produced a new sample/);
+});
