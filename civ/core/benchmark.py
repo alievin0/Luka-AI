@@ -67,10 +67,20 @@ def open_campaign(con, name, provider, model, repeats):
     return cid
 
 
-def task_input(task):
-    """The EXACT text both conditions receive. Built once, hashed, reused."""
+def task_input(task, repo_root=None):
+    """The EXACT text both conditions receive. Built once, hashed, reused.
+
+    R17. A task that declares fixture_via_tool gets the PATH, never the contents.
+    Inlining the fixture made T05 ("the answer is only in the file") answerable
+    with zero tool calls — and the single agent duly scored 1.0 having made none.
+    A tool-use task whose data is in the prompt measures arithmetic, not tool use.
+    """
     body = task["description"]
-    if task["fixture"]:
+    if task.get("fixture_via_tool"):
+        path = BT.fixture_path(task, repo_root) if repo_root else "<fixture path>"
+        body += ("\n\nThe data is NOT reproduced here. Read it with your authorized "
+                 "read tool at this exact path:\n" + path)
+    elif task["fixture"]:
         body += "\n\nFIXTURE:\n" + json.dumps(task["fixture"], ensure_ascii=False, indent=2)
     return body
 

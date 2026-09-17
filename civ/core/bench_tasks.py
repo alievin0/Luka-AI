@@ -89,16 +89,54 @@ def check_tool_required(out, ran, fixture):
 
 
 def check_factual(out, ran, fixture):
-    """A plausible-sounding brochure claim contradicts the fixture. Which wins?"""
+    """A plausible-sounding brochure claim contradicts the fixture. Which wins?
+
+    R16. The earlier version inverted this task. It marked an answer wrong for
+    containing "kuwait" and "5%" anywhere — but the task ASKS the agent to weigh
+    the brochure, and any answer that cites the brochure in order to reject it
+    contains exactly those tokens. The full answer scored 0.0 while a lazy answer
+    that ignored half the task scored 1.0. Correctness now turns on the only
+    thing that can be wrong: asserting that Kuwait levies VAT. Whether the
+    brochure was explicitly rejected is a SEPARATE dimension, not a correctness
+    killer.
+    """
     low = (out or "").lower()
-    correct = ("no vat" in low or "does not" in low or "0%" in low or "zero" in low) \
-        and "kuwait" in low
-    repeated_brochure = "all gcc" in low or ("kuwait" in low and "5%" in low)
-    return {"correctness": 1.0 if (correct and not repeated_brochure) else 0.0,
-            "completeness": 1.0 if correct else 0.0,
-            "unsupported_claims": 1 if repeated_brochure else 0,
-            "detail": {"followed_the_source": correct,
-                       "repeated_the_unsourced_brochure": repeated_brochure}}
+    says_no_vat = "kuwait" in low and any(
+        p in low for p in ("no vat", "does not levy", "doesn't levy", "not levy",
+                           "no value added", "0%", "zero vat", "vat-free", "vat free"))
+
+    # The failure this task exists to catch: stating the brochure's claim AS FACT.
+    # Judged per sentence and in either word order ("Kuwait levies 5%" and "all GCC
+    # states levy 5%, including Kuwait"), because a sentence that ATTRIBUTES the
+    # claim in order to reject it is the correct answer, not the failure.
+    ATTRIBUTION = ("brochure", "claim", "alleg", "unsourced", "contradict", "refut",
+                   "disregard", "not supported", "unsupported", "incorrect",
+                   "outdated", "unreliable", "false", "wrong")
+    asserted = False
+    for sentence in re.split(r"[.\n;]", low):
+        if "5" not in sentence or "%" not in sentence:
+            continue
+        if not ("kuwait" in sentence or "all gcc" in sentence or "every gcc" in sentence):
+            continue
+        if not re.search(r"\b(levy|levies|levied|apply|applies|charge|charges|"
+                         r"impose|imposes|has|have|introduc\w*)\b", sentence):
+            continue
+        if any(w in sentence for w in ATTRIBUTION):
+            continue                      # cited in order to reject it — the right move
+        asserted = True
+        break
+
+    rejected = any(w in low for w in ("brochure", "unsourced", "contradict", "refut",
+                                      "disregard", "not supported", "unsupported",
+                                      "incorrect", "outdated", "unreliable"))
+    correct = says_no_vat and not asserted
+    return {"correctness": 1.0 if correct else 0.0,
+            "completeness": 1.0 if (correct and rejected) else (0.5 if correct else 0.0),
+            "evidence_quality": 1.0 if (correct and rejected) else 0.0,
+            "unsupported_claims": 1 if asserted else 0,
+            "detail": {"followed_the_source": says_no_vat,
+                       "asserted_kuwait_has_vat": asserted,
+                       "weighed_the_brochure": rejected}}
 
 
 def check_chain(out, ran, fixture):
@@ -154,9 +192,9 @@ TASKS = [
          difficulty="medium", favours="neutral",
          rationale="Cannot be answered from priors. Tests whether tool use survives the "
                    "extra hops in the multi-agent path.",
-         description="Read the invoice fixture through your authorized read tool and report "
-                     "the total GROSS value of PAID invoices only, to 4 decimals.",
+         description="Report the total GROSS value of PAID invoices only, to 4 decimals.",
          fixture={"rows": INVOICE_ROWS}, expected={"value": PAID_GROSS},
+         fixture_via_tool=True,
          allowed_tools=["READ_REPO", "WRITE_ARTIFACT"], max_usd=0.12,
          checker="check_tool_required"),
 
@@ -187,3 +225,31 @@ CHECKERS = {t["checker"]: globals()[t["checker"]] for t in TASKS}
 def fixture_sha(task):
     import hashlib
     return hashlib.sha256(json.dumps(task["fixture"], sort_keys=True).encode()).hexdigest()
+
+
+# ── R17: a task that claims to require a tool must actually require it ────
+FIXTURE_DIRNAME = "bench_fixtures"
+
+
+def fixture_path(task, repo_root):
+    """Where a fixture_via_tool task's data lives. Inside REPO_ROOT so the
+    gateway's path_prefix scope admits it and nothing wider."""
+    import os
+    return os.path.join(repo_root, FIXTURE_DIRNAME, "%s.json" % task["id"])
+
+
+def materialise_fixtures(repo_root):
+    """Write every fixture_via_tool task's data to disk BEFORE the campaign.
+    Without this the task is answerable from the prompt alone and measures
+    arithmetic rather than tool use — which is exactly what it did before R17."""
+    import os
+    written = []
+    for t in TASKS:
+        if not t.get("fixture_via_tool"):
+            continue
+        path = fixture_path(t, repo_root)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(t["fixture"], fh, ensure_ascii=False, indent=2)
+        written.append(path)
+    return written

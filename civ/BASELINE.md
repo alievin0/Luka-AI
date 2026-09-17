@@ -134,7 +134,7 @@ progress.**
 | **G7** Security isolation — *containment* | **PASS** | `test_security.py`, 18 tests, run against `CompromisedProvider`: a model that obeys **every** injected instruction. Every pass is the gateway holding, not a model declining. Two real holes were found and closed by this benchmark (R11, R12). |
 | **G7** Security isolation — *OS sandbox* | **NOT IMPLEMENTED** | Execution is a subprocess under the **same user**. No container, no seccomp, no uid separation. `test_the_sandbox_is_honestly_labelled` asserts this in code so the limitation cannot drift out of the docs. |
 | **G8** Owner observability | **PASS** | 15 `owner.py` commands, every one reading real state; drill-down to artifact, run, evidence, event |
-| **G9** Multi-agent benchmark | **NOT IMPLEMENTED** | No benchmark exists. Whether the organization beats one strong agent is **unknown**, and that is the question most likely to sink this design. |
+| **G9** Multi-agent benchmark | **RUN · NOT MET** | Campaign #1 run by the owner 2026-09-17 on `claude-sonnet-5`: 70 runs, 7 tasks × 5 repeats × 2 conditions, **$0.91** total. Conclusion **`INSUFFICIENT_EVIDENCE`** — 2 tasks decided, 3 required; sign-test p = 0.5. The organization is **not** cleared to scale. Two defects in the benchmark itself were found by running it (R16, R17). See «Campaign #1» below. |
 | **G10** Cost measurement | **PASS** (mechanism) | Per-run tokens, USD, latency recorded; daily ceiling blocks new leases. **No real cost observed** — mock runs cost $0. |
 | **G11** Failure recovery | **PASS** | Expired lease requeues its task; work under a dead lease is REFUSED (L7) |
 | **G12** Pause-all | **PASS** | Blocks leases, model calls and tool calls; enforced in scheduler **and** gateway (L9) |
@@ -214,3 +214,85 @@ exercised**; only the model's willingness was not.
   likely to sink the design.
 - **`LocalProvider`.** Never executed against a real local server.
 - **An OS-level sandbox.** Still a subprocess under the same user.
+
+
+---
+
+## Campaign #1 — the first real benchmark, and what it actually showed
+
+Run by the owner, 2026-09-17, `claude-sonnet-5`, 70 runs, **$0.91** total.
+(My pre-run estimate was $3–6. It was high by roughly 5×.)
+
+**Conclusion: `INSUFFICIENT_EVIDENCE`. 2 tasks decided, 3 required. p = 0.5.**
+Under the pre-registered rule this does **not** clear the organization to scale,
+and the first real team stays blocked. The rule was fixed before the run and is
+not being renegotiated after seeing the numbers.
+
+### Where multi-agent genuinely won
+
+| Task | Single | Multi |
+|---|---|---|
+| T02 five independent constraints (neutral) | 0.76 | **1.00** |
+| T04 self-contradicting spec (multi_plausible) | 0.80 | **1.00** |
+
+T04 is the real one: the Critic role caught a contradiction the solo agent
+implemented past. That is the organization doing the exact thing it was designed
+to do, on the hard task, repeatably across five runs.
+
+### What it cost to get there
+
+| | Single | Multi | Ratio |
+|---|---|---|---|
+| Total spend | $0.2377 | $0.6712 | **2.8×** |
+| T01 (trivial task, identical answer) | $0.0055 | $0.0362 | **6.6×** |
+| T04 latency | 9.3 s | 25.3 s | **2.7×** |
+| Quality per dollar | higher on **7 of 7** | — | — |
+
+The single agent wins quality-per-dollar on **every task, including the two it
+lost on correctness**. T01 was written to make coordination overhead visible;
+its own rationale says "if it does not cost the multi condition, suspect the
+harness." It cost 6.6× for a byte-identical answer. The harness is not suspect.
+
+### The benchmark found two defects in itself
+
+Both were confirmed by reading the data, not guessed:
+
+- **R16 — T06's checker was inverted.** Correctness read 0.0 in all ten cells
+  while completeness read 1.0, which means the models answered *correctly* and
+  the checker discarded it. The rule punished any answer containing "kuwait"
+  and "5%" — which is every answer that cites the vendor brochure **in order to
+  reject it**, precisely what the task asks for. The full answer scored 0.0; a
+  lazy answer that ignored half the task scored 1.0. T06 was one of only two
+  tasks labelled `multi_plausible`, so the benchmark's own best case for the
+  organization measured nothing.
+- **R17 — T05 did not require the tool it is named for.** `task_input` pasted
+  the whole fixture into the prompt, so "the answer is only in the file" was
+  answerable from the prompt. The single agent scored 1.0 having made **zero
+  tool calls**. The fixture is now written to disk and the prompt carries the
+  path.
+
+**Neither defect was hiding a multi-agent win.** T06's two conditions both had
+`correct=True`; with the checker fixed both score 1.0 and it stays a **tie**.
+Fixing the bugs does not move the count from 2 decided to 3. The conclusion is
+unchanged by the repairs, which is the only reason it is honest to report them
+together.
+
+### The finding that matters most for the next run
+
+**The task set has a ceiling.** Five of seven tasks tied, and four of those were
+both conditions at 1.00 — a task both conditions ace cannot discriminate between
+them, no matter how many repeats are bought. The fifth tie was the broken T06.
+This is a defect in **my benchmark design**, not a result about agents: the
+tasks do not sit in the difficulty band where a difference could appear.
+
+Re-running the same seven tasks for more repeats would be buying noise. The
+honest next step is to recalibrate difficulty so tasks land where they can
+discriminate, pre-register again, and run **once** — not to re-run until the
+number turns.
+
+### What campaign #1 does NOT license
+
+- It does **not** show multi-agent is worse. Two real wins on the harder tasks.
+- It does **not** show multi-agent is better. The pre-registered bar was missed.
+- It does **not** carry forward as a baseline: R16 and R17 changed T05 and T06,
+  so those cells are void and `input_sha` for T05 has changed.

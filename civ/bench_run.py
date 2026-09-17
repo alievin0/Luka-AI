@@ -114,7 +114,7 @@ def act(con, gw, agent, req, graph):
 
 
 def run_condition(con, gw, prov, task, condition, campaign, repeat, order):
-    text = B.task_input(task)
+    text = B.task_input(task, vslice.REPO_ROOT)
     input_sha = sha(text)
     brid = B.start_run(con, campaign, task, condition, repeat, order, input_sha)
     t0 = time.time()
@@ -228,12 +228,13 @@ def dry_run_into(con, repeats=1, tasks=None):
     vslice.register_crew(con)
     con.execute("UPDATE principals SET lifecycle_state='ACTIVE'")
     B.register_tasks(con)
+    BT.materialise_fixtures(vslice.REPO_ROOT)   # R17: the tool must have data to read
     picked = [t for t in BT.TASKS if not tasks or t["id"] in set(tasks)][:2]
     cid = B.open_campaign(con, "dry", "mock", "mock-1", repeats)
     for t in picked:
         bench_crew(con, t)
         ctx = {"tools_sha": sha(sorted(t["allowed_tools"])),
-               "input_sha": sha(B.task_input(t)), "budget": t["max_usd"]}
+               "input_sha": sha(B.task_input(t, vslice.REPO_ROOT)), "budget": t["max_usd"]}
         B.assert_fairness(con, cid, t, ctx, ctx)
     order = 0
     for t in picked:
@@ -292,6 +293,7 @@ def main(argv=None):
     vslice.register_crew(con)
     con.execute("UPDATE principals SET lifecycle_state='ACTIVE'")
     B.register_tasks(con)
+    BT.materialise_fixtures(vslice.REPO_ROOT)   # R17: the tool must have data to read
 
     tasks = [t for t in BT.TASKS
              if not a.tasks or t["id"] in set(a.tasks.split(","))]
@@ -309,7 +311,7 @@ def main(argv=None):
     for t in tasks:
         bench_crew(con, t)
         ctx = {"tools_sha": sha(sorted(t["allowed_tools"])),
-               "input_sha": sha(B.task_input(t)), "budget": t["max_usd"]}
+               "input_sha": sha(B.task_input(t, vslice.REPO_ROOT)), "budget": t["max_usd"]}
         B.assert_fairness(con, cid, t, ctx, ctx)     # the trigger refuses inequality
 
     for order, (t, rep, cond) in enumerate(plan):

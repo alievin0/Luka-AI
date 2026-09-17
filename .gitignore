@@ -40,3 +40,8 @@ civ/civ.db-*
 civ/artifacts/*
 !civ/artifacts/.gitkeep
 civ/**/__pycache__/
+
+# benchmark fixtures materialised at run time (R17)
+/bench_fixtures/
+civ/bench_report.json
+civ/*.db

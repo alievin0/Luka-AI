@@ -435,5 +435,80 @@ class R15_BenchmarkAnswerKeyWasWrong(unittest.TestCase):
         self.assertEqual(BT.check_tool_required(str(expected), {}, {})["correctness"], 1.0)
 
 
+from core import bench_tasks as BT            # noqa: E402
+from core import benchmark as B               # noqa: E402
+
+
+class R16_InvertedFactualChecker(unittest.TestCase):
+    """Found by the FIRST REAL BENCHMARK CAMPAIGN, 2026-09-17.
+
+    T06 scored correctness 0.0 in all ten cells — both conditions, every repeat —
+    while completeness read 1.0, which meant the models had actually answered
+    correctly and the checker was throwing the result away. The rule
+    `repeated_brochure = "kuwait" in low and "5%" in low` fired on any answer that
+    cited the brochure in order to REJECT it, which is precisely what the task
+    asks for. The benchmark's own best case for multi-agent measured nothing, and
+    it cost real money to learn that."""
+
+    def test_full_answer_is_not_punished_for_naming_the_claim_it_rejects(self):
+        good = ("Based only on the note, Kuwait does not levy VAT in 2026. The vendor "
+                "brochure claiming all GCC states now levy 5% VAT is unsourced and is "
+                "contradicted by the note, so it should be disregarded.")
+        m = BT.check_factual(good, {}, {})
+        self.assertEqual(m["correctness"], 1.0)
+        self.assertEqual(m["unsupported_claims"], 0)
+        self.assertTrue(m["detail"]["weighed_the_brochure"])
+
+    def test_asserting_kuwait_has_vat_is_still_wrong(self):
+        bad = "Kuwait levies 5% VAT in 2026, in line with the rest of the GCC."
+        m = BT.check_factual(bad, {}, {})
+        self.assertEqual(m["correctness"], 0.0)
+        self.assertEqual(m["unsupported_claims"], 1)
+
+    def test_the_full_answer_outranks_the_lazy_one(self):
+        """Before R16 the ordering was inverted: ignoring half the task scored
+        HIGHER than doing all of it."""
+        full = ("Kuwait does not levy VAT per the note; the brochure's 5% claim for all "
+                "GCC states is unsourced and contradicted.")
+        lazy = "Kuwait does not levy VAT."
+        f, l = BT.check_factual(full, {}, {}), BT.check_factual(lazy, {}, {})
+        self.assertEqual(f["correctness"], l["correctness"])
+        self.assertGreater(f["completeness"], l["completeness"])
+
+
+class R17_ToolTaskAnswerableWithoutTheTool(unittest.TestCase):
+    """Found by the FIRST REAL BENCHMARK CAMPAIGN, 2026-09-17.
+
+    T05 is titled "the answer is only in the file" and its rationale claims it
+    "cannot be answered from priors". The single agent scored 1.0 on it having
+    made ZERO tool calls — because task_input pasted the whole fixture into the
+    prompt. The task measured arithmetic and was labelled tool-use."""
+
+    def test_tool_task_prompt_does_not_contain_the_answer_data(self):
+        t = [x for x in BT.TASKS if x["id"] == "T05-tool-required"][0]
+        self.assertTrue(t.get("fixture_via_tool"), "T05 must fetch its fixture via the tool")
+        text = B.task_input(t, "/repo")
+        for row in BT.INVOICE_ROWS:
+            self.assertNotIn(row["id"], text,
+                             "the fixture leaked into the prompt; the tool is not required")
+        self.assertNotIn("999.99", text)
+        self.assertIn("/repo", text, "the prompt must point at the fixture path")
+
+    def test_fixture_is_written_where_the_gateway_scope_admits_it(self):
+        import tempfile, os, json as _j
+        with tempfile.TemporaryDirectory() as root:
+            written = BT.materialise_fixtures(root)
+            self.assertTrue(written, "no fixture materialised")
+            for path in written:
+                self.assertTrue(os.path.exists(path))
+                self.assertTrue(os.path.abspath(path).startswith(os.path.abspath(root)))
+                _j.load(open(path))
+
+    def test_both_conditions_still_receive_identical_input(self):
+        """R17 must not become a fairness hole: the path is the same for both."""
+        for t in BT.TASKS:
+            self.assertEqual(B.task_input(t, "/repo"), B.task_input(t, "/repo"))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
