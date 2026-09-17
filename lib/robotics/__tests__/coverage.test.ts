@@ -9,6 +9,7 @@ import assert from "node:assert/strict";
 
 import { scanCoverage, nearestObstacle, scanQuality } from "../safety/governor.ts";
 import { createSimRig } from "../index.ts";
+import { lookFirst } from "../abilities/look-first.ts";
 import type { LidarScan } from "../core/types.ts";
 
 const FOV = Math.PI * 1.5;
@@ -151,4 +152,30 @@ test("the governor slows for what it cannot see, and only for that", () => {
     "a robot with a blind wedge was allowed the same speed as one that can see",
   );
   assert.ok(speedOf(blind) > 0, "it should be slowed, not stopped — degradation is not a halt");
+});
+
+// ── The idea that was measured and not shipped ─────────────────────────────
+//
+// `sense.look-first` is kept in the tree as a negative result and is
+// deliberately not in the registry. These tests hold the reasons in place so
+// the write-up cannot quietly stop being true.
+
+test("look-first is not registered, because measuring it said not to", () => {
+  // Collisions fell from 23 to 2 and from 604 to 101, and arrival fell from
+  // 20/20 to 0/20 on two geometries that used to get through. A robot that
+  // stops colliding by not going anywhere has been switched off, not made safe.
+  const rig = createSimRig({ scenario: "empty-hall", seed: 1 });
+  assert.equal(
+    rig.registry.get("sense.look-first"),
+    undefined,
+    "look-first was registered — if the measurements changed, change the file's header too",
+  );
+});
+
+test("look-first still declares itself an idea rather than a result", () => {
+  assert.equal(lookFirst.manifest.proof?.status, "IDEA");
+  assert.ok(
+    lookFirst.manifest.proof?.failureModes.length ?? 0 > 0,
+    "a capability with no known failure modes is a capability nobody has run",
+  );
 });
