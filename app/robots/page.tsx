@@ -1,134 +1,124 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AbilityForm } from "./_components/AbilityForm.tsx";
+import { drawScene, drawSparkline } from "./_lib/scene.ts";
+import {
+  DEFAULT_LAYERS,
+  emptyScene,
+  type AbilityCard,
+  type DemoCard,
+  type Frame,
+  type Layers,
+  type LogEntry,
+  type OccupancyMap,
+  type Outcome,
+  type ScenarioCard,
+  type WorldSetup,
+} from "./_lib/types.ts";
 
-type Bilingual = { en: string; ar: string };
-
-type AbilityCard = {
-  id: string;
-  name: Bilingual;
-  summary: Bilingual;
-  rationale: string;
-  risk: "passive" | "motion" | "contact" | "critical";
-  requires: string[];
-  tags: string[];
-  daemon: boolean;
+const RISK_STYLE: Record<AbilityCard["risk"], string> = {
+  passive: "bg-slate-100 text-slate-600 ring-slate-200",
+  motion: "bg-sky-50 text-sky-700 ring-sky-200",
+  contact: "bg-amber-50 text-amber-700 ring-amber-200",
+  critical: "bg-rose-50 text-rose-700 ring-rose-200",
 };
 
-type DemoCard = {
-  name: string;
-  title: Bilingual;
-  blurb: string;
-  abilities: string[];
-};
-
-type Obstacle =
-  | { id: string; kind: "circle"; at: { x: number; y: number }; radius: number }
-  | { id: string; kind: "box"; at: { x: number; y: number }; width: number; height: number };
-
-type WorldSetup = {
-  width: number;
-  height: number;
-  dock: { x: number; y: number };
-  obstacles: Obstacle[];
-};
-
-type Frame = {
-  t: number;
-  robots: Array<{
-    id: string;
-    x: number;
-    y: number;
-    theta: number;
-    tilt: number;
-    charge: number;
-    lights: { pattern: string; color: string };
-    holding: string | null;
-    speed: number;
-    utterance: string | null;
-  }>;
-  humans: Array<{ id: string; x: number; y: number; attentive: boolean }>;
-  objects: Array<{ id: string; label: string; x: number; y: number; held: boolean; damaged: boolean }>;
-  safety: { level: "clear" | "slow" | "stop"; reason: string; speedScale: number };
-};
-
-type LogEntry = {
-  t: number;
-  kind: string;
-  message?: string;
-  ar?: string;
-  reason?: string;
-  summary?: string;
-  payload?: string;
-  channel?: string;
-  level?: string;
-  name?: string;
-  value?: number;
-  unit?: string;
-  ok?: boolean;
-};
-
-type Outcome = {
-  ok: boolean;
-  summary: string;
-  details?: string[];
-  metrics?: Record<string, number>;
-};
-
-const RISK_STYLES: Record<AbilityCard["risk"], string> = {
-  passive: "bg-slate-100 text-slate-600",
-  motion: "bg-brand-50 text-brand-700",
-  contact: "bg-amber-50 text-amber-700",
-  critical: "bg-rose-50 text-rose-700",
-};
-
-const RISK_LABELS: Record<AbilityCard["risk"], string> = {
-  passive: "قراءة فقط",
+const RISK_LABEL: Record<AbilityCard["risk"], string> = {
+  passive: "قراءة",
   motion: "حركة",
   contact: "تلامس",
   critical: "طوارئ",
 };
 
+const LOG_FILTERS = [
+  { key: "status", label: "الحالة" },
+  { key: "safety", label: "الأمان" },
+  { key: "warn", label: "تحذيرات" },
+  { key: "metric", label: "قياسات" },
+  { key: "signal", label: "إشارات" },
+] as const;
+
+const HISTORY_LENGTH = 220;
+
 export default function RobotsPage() {
   const [abilities, setAbilities] = useState<AbilityCard[]>([]);
   const [demos, setDemos] = useState<DemoCard[]>([]);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [scenarios, setScenarios] = useState<ScenarioCard[]>([]);
+  const [catalogueError, setCatalogueError] = useState<string | null>(null);
+
+  const [tab, setTab] = useState<"demos" | "abilities">("demos");
+  const [query, setQuery] = useState("");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [scenario, setScenario] = useState("cluttered-office");
+  const [seed, setSeed] = useState("");
+
   const [running, setRunning] = useState<string | null>(null);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [speed, setSpeed] = useState(8);
+  const [layers, setLayers] = useState<Layers>(DEFAULT_LAYERS);
+  const [hidden, setHidden] = useState<Set<string>>(() => new Set());
+  const [hud, setHud] = useState<{ frame: Frame | null }>({ frame: null });
 
-  const setupRef = useRef<WorldSetup | null>(null);
-  const frameRef = useRef<Frame | null>(null);
-  const trailRef = useRef<Array<{ x: number; y: number }>>([]);
+  const sceneRef = useRef(emptyScene());
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const speedChartRef = useRef<HTMLCanvasElement | null>(null);
+  const safetyChartRef = useRef<HTMLCanvasElement | null>(null);
+  const chargeChartRef = useRef<HTMLCanvasElement | null>(null);
   const logRef = useRef<HTMLDivElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const layersRef = useRef(layers);
+  layersRef.current = layers;
 
   useEffect(() => {
     fetch("/api/robots")
-      .then((r) => r.json())
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((data) => {
         setAbilities(data.abilities ?? []);
         setDemos(data.demos ?? []);
+        setScenarios(data.scenarios ?? []);
       })
-      .catch(() => undefined);
+      .catch((error: Error) => setCatalogueError(error.message));
   }, []);
 
-  useEffect(() => {
-    logRef.current?.scrollTo({ top: logRef.current.scrollHeight, behavior: "smooth" });
-  }, [logs]);
-
-  // One render loop for the life of the page; frames arrive whenever they arrive.
+  // One render loop for the page's lifetime. Frames land in a ref, so a 16 Hz
+  // stream never triggers a React render.
   useEffect(() => {
     let raf = 0;
-    const draw = () => {
-      paint(canvasRef.current, setupRef.current, frameRef.current, trailRef.current);
-      raf = requestAnimationFrame(draw);
+    let lastHud = 0;
+    const loop = (now: number) => {
+      const scene = sceneRef.current;
+      drawScene(canvasRef.current, scene, layersRef.current);
+      drawSparkline(speedChartRef.current, scene.history.speed, {
+        color: "#38bdf8",
+        min: 0,
+        max: 1.3,
+      });
+      drawSparkline(safetyChartRef.current, scene.history.safety, {
+        color: "#34d399",
+        min: 0,
+        max: 1,
+      });
+      drawSparkline(chargeChartRef.current, scene.history.charge, {
+        color: "#fbbf24",
+        min: 0,
+        max: 1,
+      });
+      // The numeric read-out only needs to be legible, not smooth.
+      if (now - lastHud > 250) {
+        lastHud = now;
+        setHud({ frame: scene.frame });
+      }
+      raf = requestAnimationFrame(loop);
     };
-    raf = requestAnimationFrame(draw);
+    raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
   }, []);
+
+  useEffect(() => {
+    logRef.current?.scrollTo({ top: logRef.current.scrollHeight });
+  }, [logs]);
 
   const stop = useCallback(() => {
     abortRef.current?.abort();
@@ -145,8 +135,7 @@ export default function RobotsPage() {
       setRunning(label);
       setLogs([]);
       setOutcome(null);
-      trailRef.current = [];
-      frameRef.current = null;
+      sceneRef.current = emptyScene();
 
       try {
         const response = await fetch("/api/robots", {
@@ -155,11 +144,25 @@ export default function RobotsPage() {
           body: JSON.stringify({ ...body, speed }),
           signal: controller.signal,
         });
-        if (!response.body) throw new Error("no stream");
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        if (!response.body) throw new Error("لا يوجد بث من الخادم");
 
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
+        let pending: LogEntry[] = [];
+        let flushedAt = 0;
+
+        const flush = (force = false) => {
+          const now = Date.now();
+          if (!force && (pending.length === 0 || now - flushedAt < 120)) return;
+          flushedAt = now;
+          const batch = pending;
+          pending = [];
+          if (batch.length > 0) {
+            setLogs((prev) => [...prev, ...batch].slice(-400));
+          }
+        };
 
         while (true) {
           const { done, value } = await reader.read();
@@ -170,34 +173,17 @@ export default function RobotsPage() {
           buffer = chunks.pop() ?? "";
 
           for (const chunk of chunks) {
-            const eventLine = chunk.split("\n").find((l) => l.startsWith("event: "));
-            const dataLine = chunk.split("\n").find((l) => l.startsWith("data: "));
-            if (!eventLine || !dataLine) continue;
-            const name = eventLine.slice(7).trim();
-            const payload = JSON.parse(dataLine.slice(6));
-
-            if (name === "setup") {
-              setupRef.current = payload as WorldSetup;
-              trailRef.current = [];
-            } else if (name === "frame") {
-              const frame = payload as Frame;
-              frameRef.current = frame;
-              const lead = frame.robots[0];
-              if (lead) {
-                const trail = trailRef.current;
-                const last = trail[trail.length - 1];
-                if (!last || Math.hypot(lead.x - last.x, lead.y - last.y) > 0.08) {
-                  trail.push({ x: lead.x, y: lead.y });
-                  if (trail.length > 900) trail.shift();
-                }
-              }
-            } else if (name === "log") {
-              setLogs((prev) => [...prev.slice(-260), payload as LogEntry]);
-            } else if (name === "done") {
-              setOutcome(payload as Outcome);
-            }
+            const lines = chunk.split("\n");
+            const name = lines.find((l) => l.startsWith("event: "))?.slice(7).trim();
+            const data = lines.find((l) => l.startsWith("data: "))?.slice(6);
+            if (!name || !data) continue;
+            const payload = JSON.parse(data);
+            applyEvent(sceneRef.current, name, payload, (entry) => pending.push(entry));
+            if (name === "done") setOutcome(payload as Outcome);
           }
+          flush();
         }
+        flush(true);
       } catch (error) {
         if ((error as Error).name !== "AbortError") {
           setOutcome({ ok: false, summary: (error as Error).message });
@@ -210,234 +196,524 @@ export default function RobotsPage() {
     [speed],
   );
 
-  const selectedAbility = abilities.find((a) => a.id === selected) ?? null;
+  const filteredAbilities = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    if (!needle) return abilities;
+    return abilities.filter((a) =>
+      [a.id, a.name.en, a.name.ar, a.summary.ar, a.summary.en, ...a.tags]
+        .join(" ")
+        .toLowerCase()
+        .includes(needle),
+    );
+  }, [abilities, query]);
+
+  const selected = abilities.find((a) => a.id === selectedId) ?? null;
+  const visibleLogs = logs.filter((entry) => !hidden.has(entry.kind));
+  const frame = hud.frame;
+  const lead = frame?.robots[0];
 
   return (
-    <main className="min-h-screen bg-slate-50">
+    <main className="min-h-screen bg-slate-50 pb-10">
       <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto max-w-7xl px-5 py-5">
-          <h1 className="text-2xl font-bold text-slate-900">
-            🤖 قدرات لوكا الروبوتية
-          </h1>
-          <p className="mt-1 text-sm text-slate-600">
-            قدرات مبرمجة وجاهزة للاستخدام: كل وحدة فيها بتشتغل على محاكي حقيقي فيه
-            فيزياء وناس وبطارية — وبتشتغل نفسها على روبوت حقيقي عبر ROS 2.
-          </p>
+        <div className="mx-auto flex max-w-[1500px] flex-wrap items-end justify-between gap-4 px-5 py-5">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+              🤖 قدرات لوكا الروبوتية
+            </h1>
+            <p className="mt-1 max-w-3xl text-sm leading-relaxed text-slate-600">
+              قدرات مبرمجة ومختبَرة، كل وحدة بتشتغل على محاكي فيه فيزياء حقيقية —
+              ناس بتمشي، بطارية بتخلص، أغراض بتنكسر إذا عصرتها زيادة. ونفس الكود
+              بيشتغل على روبوت حقيقي عبر ROS 2.
+            </p>
+          </div>
+          <dl className="flex gap-5 text-sm">
+            <Stat label="قدرة" value={abilities.length} />
+            <Stat label="عالم" value={scenarios.length} />
+            <Stat label="عرض" value={demos.length} />
+          </dl>
         </div>
       </header>
 
-      <div className="mx-auto grid max-w-7xl gap-5 px-5 py-6 lg:grid-cols-[minmax(0,1fr)_380px]">
-        <section className="space-y-4">
+      {catalogueError && (
+        <div className="mx-auto mt-4 max-w-[1500px] px-5">
+          <p className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            ما قدرت أجيب القدرات من الخادم ({catalogueError}). تأكد إنو السيرفر شغّال.
+          </p>
+        </div>
+      )}
+
+      <div className="mx-auto grid max-w-[1500px] gap-5 px-5 py-5 xl:grid-cols-[minmax(0,1fr)_400px]">
+        <section className="min-w-0 space-y-4">
           <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-            <canvas
-              ref={canvasRef}
-              width={1200}
-              height={760}
-              className="block w-full bg-slate-900"
-            />
-            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-4 py-3 text-sm">
-              <Legend frame={frameRef.current} running={running} />
-              <label className="flex items-center gap-2 text-slate-600">
-                السرعة
-                <input
-                  type="range"
-                  min={1}
-                  max={24}
-                  value={speed}
-                  onChange={(e) => setSpeed(Number(e.target.value))}
-                  className="accent-brand-600"
-                />
-                <span className="w-10 tabular-nums text-slate-500">{speed}×</span>
-              </label>
+            <div className="relative">
+              <canvas
+                ref={canvasRef}
+                className="block h-[min(60vh,560px)] w-full bg-slate-950"
+              />
+              <div className="pointer-events-none absolute right-3 top-3 flex flex-wrap gap-1.5">
+                <Chip>⏱ {((frame?.t ?? 0) / 1000).toFixed(1)}s</Chip>
+                {lead && <Chip>🔋 {(lead.charge * 100).toFixed(0)}%</Chip>}
+                {lead && <Chip>🏃 {lead.speed.toFixed(2)} m/s</Chip>}
+                {frame && frame.arm.force > 0.4 && (
+                  <Chip>✊ {frame.arm.force.toFixed(1)} N</Chip>
+                )}
+                {lead?.holding && <Chip>📦 {lead.holding}</Chip>}
+              </div>
+              {frame?.safety && (
+                <div className="pointer-events-none absolute bottom-3 right-3 max-w-[70%]">
+                  <span
+                    className={`inline-block rounded-lg px-2.5 py-1 text-xs backdrop-blur ${
+                      frame.safety.level === "clear"
+                        ? "bg-emerald-500/15 text-emerald-300"
+                        : frame.safety.level === "slow"
+                          ? "bg-amber-500/15 text-amber-300"
+                          : "bg-rose-500/15 text-rose-300"
+                    }`}
+                    dir="ltr"
+                  >
+                    🛡 {frame.safety.reason}
+                  </span>
+                </div>
+              )}
+              {running && (
+                <div className="pointer-events-none absolute left-3 top-3">
+                  <span className="inline-flex items-center gap-2 rounded-lg bg-brand-500/20 px-2.5 py-1 text-xs text-brand-200">
+                    <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-brand-300" />
+                    {running}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-4 py-2.5">
+              <div className="flex flex-wrap gap-1.5">
+                {(Object.keys(DEFAULT_LAYERS) as Array<keyof Layers>).map((layer) => (
+                  <button
+                    key={layer}
+                    type="button"
+                    aria-pressed={layers[layer]}
+                    onClick={() => setLayers((l) => ({ ...l, [layer]: !l[layer] }))}
+                    className={`rounded-full px-2.5 py-1 text-xs ring-1 transition ${
+                      layers[layer]
+                        ? "bg-slate-900 text-white ring-slate-900"
+                        : "bg-white text-slate-500 ring-slate-200 hover:bg-slate-50"
+                    }`}
+                  >
+                    {LAYER_LABELS[layer]}
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex items-center gap-3">
+                <label className="flex items-center gap-2 text-xs text-slate-600">
+                  السرعة
+                  <input
+                    type="range"
+                    min={1}
+                    max={24}
+                    value={speed}
+                    onChange={(e) => setSpeed(Number(e.target.value))}
+                    className="accent-brand-600"
+                    aria-label="سرعة التشغيل"
+                  />
+                  <span className="w-8 tabular-nums text-slate-500">{speed}×</span>
+                </label>
+                {running && (
+                  <button
+                    type="button"
+                    onClick={stop}
+                    className="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-rose-700"
+                  >
+                    إيقاف
+                  </button>
+                )}
+              </div>
             </div>
           </div>
 
-          {outcome && (
-            <div
-              className={`rounded-2xl border p-4 ${
-                outcome.ok
-                  ? "border-emerald-200 bg-emerald-50"
-                  : "border-rose-200 bg-rose-50"
-              }`}
-            >
-              <div className="flex items-start gap-2">
-                <span className="text-lg">{outcome.ok ? "✅" : "⚠️"}</span>
-                <div className="min-w-0">
-                  <p className="font-medium text-slate-900">{outcome.summary}</p>
-                  {outcome.details && outcome.details.length > 0 && (
-                    <ul className="mt-2 space-y-1 text-sm text-slate-700">
-                      {outcome.details.map((d, i) => (
-                        <li key={i}>• {d}</li>
-                      ))}
-                    </ul>
-                  )}
-                  {outcome.metrics && Object.keys(outcome.metrics).length > 0 && (
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {Object.entries(outcome.metrics).map(([key, value]) => (
-                        <span
-                          key={key}
-                          className="rounded-full bg-white/70 px-2.5 py-1 font-mono text-xs text-slate-700"
-                        >
-                          {key} = {formatNumber(value)}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
+          <div className="grid gap-3 sm:grid-cols-3">
+            <Sparkline
+              title="السرعة"
+              unit="m/s"
+              value={lead?.speed}
+              canvasRef={speedChartRef}
+            />
+            <Sparkline
+              title="سقف الأمان"
+              unit="×"
+              value={frame?.safety.speedScale}
+              canvasRef={safetyChartRef}
+            />
+            <Sparkline
+              title="البطارية"
+              unit=""
+              value={lead?.charge}
+              format={(v) => `${(v * 100).toFixed(0)}%`}
+              canvasRef={chargeChartRef}
+            />
+          </div>
+
+          {outcome && <OutcomeCard outcome={outcome} />}
 
           <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-            <div className="border-b border-slate-200 px-4 py-2 text-sm font-medium text-slate-700">
-              ما بيحكيه الروبوت وهو بيشتغل
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-4 py-2">
+              <span className="text-sm font-medium text-slate-700">
+                ما بيحكيه الروبوت وهو بيشتغل
+              </span>
+              <div className="flex flex-wrap gap-1">
+                {LOG_FILTERS.map((filter) => (
+                  <button
+                    key={filter.key}
+                    type="button"
+                    aria-pressed={!hidden.has(filter.key)}
+                    onClick={() =>
+                      setHidden((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(filter.key)) next.delete(filter.key);
+                        else next.add(filter.key);
+                        return next;
+                      })
+                    }
+                    className={`rounded-full px-2 py-0.5 text-[11px] ring-1 transition ${
+                      hidden.has(filter.key)
+                        ? "bg-white text-slate-400 ring-slate-200"
+                        : "bg-slate-100 text-slate-700 ring-slate-200"
+                    }`}
+                  >
+                    {filter.label}
+                  </button>
+                ))}
+              </div>
             </div>
             <div
               ref={logRef}
-              className="scroll-area h-52 overflow-y-auto px-4 py-3 font-mono text-xs leading-relaxed"
+              className="scroll-area h-56 overflow-y-auto px-4 py-2.5 font-mono text-[11px] leading-relaxed"
             >
-              {logs.length === 0 && (
-                <p className="text-slate-400">اختر عرضاً أو قدرة وشغّلها…</p>
+              {visibleLogs.length === 0 ? (
+                <p className="py-6 text-center text-slate-400">
+                  {running ? "…" : "شغّل عرضاً أو قدرة لتشوف التفاصيل"}
+                </p>
+              ) : (
+                visibleLogs.map((entry, i) => <LogLine key={i} entry={entry} />)
               )}
-              {logs.map((entry, i) => (
-                <LogLine key={i} entry={entry} />
-              ))}
             </div>
           </div>
         </section>
 
-        <aside className="space-y-4">
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-            <h2 className="mb-3 text-sm font-semibold text-slate-900">عروض جاهزة</h2>
-            <div className="space-y-2">
-              {demos.map((demo) => (
+        <aside className="min-w-0 space-y-4">
+          <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div className="flex border-b border-slate-200" role="tablist">
+              {(["demos", "abilities"] as const).map((key) => (
                 <button
-                  key={demo.name}
-                  disabled={running !== null}
-                  onClick={() => run({ demo: demo.name }, demo.name)}
-                  className="w-full rounded-xl border border-slate-200 p-3 text-right transition hover:border-brand-300 hover:bg-brand-50 disabled:opacity-50"
+                  key={key}
+                  role="tab"
+                  aria-selected={tab === key}
+                  onClick={() => setTab(key)}
+                  className={`flex-1 px-4 py-2.5 text-sm font-medium transition ${
+                    tab === key
+                      ? "border-b-2 border-brand-600 text-brand-700"
+                      : "text-slate-500 hover:text-slate-700"
+                  }`}
                 >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-medium text-slate-900">{demo.title.ar}</span>
-                    {running === demo.name && (
-                      <span className="text-xs text-brand-600">عم يشتغل…</span>
-                    )}
-                  </div>
-                  <p className="mt-1 text-xs leading-relaxed text-slate-600">{demo.blurb}</p>
-                  <div className="mt-2 flex flex-wrap gap-1">
-                    {demo.abilities.map((id) => (
-                      <span
-                        key={id}
-                        className="rounded-full bg-slate-100 px-2 py-0.5 font-mono text-[10px] text-slate-600"
-                      >
-                        {id}
-                      </span>
-                    ))}
-                  </div>
+                  {key === "demos" ? `عروض (${demos.length})` : `قدرات (${abilities.length})`}
                 </button>
               ))}
             </div>
-            {running && (
-              <button
-                onClick={stop}
-                className="mt-3 w-full rounded-lg bg-rose-600 px-3 py-2 text-sm font-medium text-white hover:bg-rose-700"
-              >
-                إيقاف
-              </button>
+
+            {tab === "demos" ? (
+              <div className="max-h-[520px] space-y-2 overflow-y-auto p-3 scroll-area">
+                {demos.map((demo) => (
+                  <button
+                    key={demo.name}
+                    type="button"
+                    disabled={running !== null}
+                    onClick={() => run({ demo: demo.name }, demo.title.ar)}
+                    className="w-full rounded-xl border border-slate-200 p-3 text-right transition hover:border-brand-300 hover:bg-brand-50/60 focus:outline-none focus:ring-2 focus:ring-brand-200 disabled:opacity-50"
+                  >
+                    <span className="block font-medium text-slate-900">{demo.title.ar}</span>
+                    <p className="mt-1 text-xs leading-relaxed text-slate-600">{demo.blurb}</p>
+                    <span className="mt-2 flex flex-wrap gap-1">
+                      {demo.abilities.map((id) => (
+                        <code
+                          key={id}
+                          dir="ltr"
+                          className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-600"
+                        >
+                          {id}
+                        </code>
+                      ))}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="p-3">
+                <input
+                  type="search"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="دوّر بالقدرات…"
+                  className="mb-2 w-full rounded-lg border border-slate-200 px-3 py-1.5 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100"
+                />
+                <div className="max-h-[440px] space-y-1 overflow-y-auto scroll-area">
+                  {filteredAbilities.map((ability) => (
+                    <button
+                      key={ability.id}
+                      type="button"
+                      onClick={() =>
+                        setSelectedId(selectedId === ability.id ? null : ability.id)
+                      }
+                      aria-expanded={selectedId === ability.id}
+                      className={`w-full rounded-lg border p-2.5 text-right transition focus:outline-none focus:ring-2 focus:ring-brand-200 ${
+                        selectedId === ability.id
+                          ? "border-brand-300 bg-brand-50"
+                          : "border-slate-200 hover:bg-slate-50"
+                      }`}
+                    >
+                      <span className="flex items-center justify-between gap-2">
+                        <span className="text-sm font-medium text-slate-900">
+                          {ability.name.ar}
+                        </span>
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-[10px] ring-1 ${RISK_STYLE[ability.risk]}`}
+                        >
+                          {RISK_LABEL[ability.risk]}
+                        </span>
+                      </span>
+                      <code dir="ltr" className="mt-0.5 block text-[11px] text-slate-500">
+                        {ability.id}
+                        {ability.daemon && " · daemon"}
+                      </code>
+                    </button>
+                  ))}
+                  {filteredAbilities.length === 0 && (
+                    <p className="py-6 text-center text-sm text-slate-400">ما في نتيجة</p>
+                  )}
+                </div>
+              </div>
             )}
           </div>
 
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-            <h2 className="mb-3 text-sm font-semibold text-slate-900">
-              القدرات ({abilities.length})
-            </h2>
-            <div className="space-y-1.5">
-              {abilities.map((ability) => (
-                <button
-                  key={ability.id}
-                  onClick={() => setSelected(selected === ability.id ? null : ability.id)}
-                  className={`w-full rounded-lg border p-2.5 text-right transition ${
-                    selected === ability.id
-                      ? "border-brand-300 bg-brand-50"
-                      : "border-slate-200 hover:bg-slate-50"
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-sm font-medium text-slate-900">
-                      {ability.name.ar}
-                    </span>
-                    <span
-                      className={`rounded-full px-2 py-0.5 text-[10px] ${RISK_STYLES[ability.risk]}`}
-                    >
-                      {RISK_LABELS[ability.risk]}
-                    </span>
-                  </div>
-                  <code className="mt-0.5 block text-[11px] text-slate-500">{ability.id}</code>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {selectedAbility && (
+          {selected && (
             <div className="rounded-2xl border border-brand-200 bg-white p-4 shadow-sm">
-              <h3 className="font-semibold text-slate-900">{selectedAbility.name.ar}</h3>
+              <h3 className="font-semibold text-slate-900">{selected.name.ar}</h3>
               <p className="mt-1 text-sm leading-relaxed text-slate-700">
-                {selectedAbility.summary.ar}
+                {selected.summary.ar}
               </p>
-              <p className="mt-3 border-t border-slate-100 pt-3 text-xs leading-relaxed text-slate-500" dir="ltr">
-                {selectedAbility.rationale}
-              </p>
+              <details className="mt-3 border-t border-slate-100 pt-3">
+                <summary className="cursor-pointer text-xs font-medium text-slate-600">
+                  ليش موجودة هالقدرة؟
+                </summary>
+                <p
+                  className="mt-2 text-xs leading-relaxed text-slate-500"
+                  dir="ltr"
+                >
+                  {selected.rationale}
+                </p>
+              </details>
+
               <div className="mt-3 flex flex-wrap gap-1">
-                {selectedAbility.requires.map((r) => (
-                  <span
+                {selected.requires.map((r) => (
+                  <code
                     key={r}
-                    className="rounded-full bg-slate-100 px-2 py-0.5 font-mono text-[10px] text-slate-600"
+                    dir="ltr"
+                    className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-600"
                   >
                     {r}
-                  </span>
+                  </code>
                 ))}
+              </div>
+
+              <div className="mt-4 grid grid-cols-2 gap-2">
+                <label className="block">
+                  <span className="mb-1 block text-xs text-slate-600">العالم</span>
+                  <select
+                    value={scenario}
+                    onChange={(e) => setScenario(e.target.value)}
+                    className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100"
+                  >
+                    {scenarios.map((s) => (
+                      <option key={s.name} value={s.name}>
+                        {s.title.ar}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-xs text-slate-600">البذرة (اختياري)</span>
+                  <input
+                    dir="ltr"
+                    inputMode="numeric"
+                    value={seed}
+                    onChange={(e) => setSeed(e.target.value)}
+                    placeholder="مثلاً 42"
+                    className="w-full rounded-lg border border-slate-200 px-2 py-1.5 font-mono text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100"
+                  />
+                </label>
+              </div>
+
+              <div className="mt-3">
+                <AbilityForm
+                  ability={selected}
+                  disabled={running !== null}
+                  onRun={(input) =>
+                    run(
+                      {
+                        ability: selected.id,
+                        input,
+                        scenario,
+                        seed: seed.trim() ? Number(seed) : undefined,
+                      },
+                      selected.name.ar,
+                    )
+                  }
+                />
               </div>
             </div>
           )}
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <h2 className="mb-2 text-sm font-semibold text-slate-900">شو بتشوف بالشاشة</h2>
+            <ul className="space-y-1.5 text-xs leading-relaxed text-slate-600">
+              <Legend colour="#38bdf8" label="الخريطة اللي الروبوت بناها لحاله" />
+              <Legend colour="rgba(250,204,21,0.75)" label="شعاع الليزر — شو عم يشوف هلق" />
+              <Legend colour="rgba(248,113,113,0.5)" label="مظروف الأمان: المسافة اللازمة ليوقف بأمان على سرعته الحالية" />
+              <Legend colour="#f87171" label="الناس، وحوالين كل واحد دائرة ٥٥ سم — هون بتتلامس الأجسام، ممنوع الروبوت يقرب أكتر" />
+              <Legend colour="#a78bfa" label="علامات: الهدف، والحدود اللي رايح يستكشفها" />
+              <Legend colour="#fbbf24" label="أغراض — بتصير بنفسجية لما يمسكها، وحمرا إذا تضرّرت" />
+            </ul>
+            <p className="mt-3 border-t border-slate-100 pt-3 text-xs leading-relaxed text-slate-500">
+              حارس الأمان بيشتغل فوق كل شي: بيحسب المسافة اللازمة ليوقف الروبوت
+              بأمان وبيحدّ سرعته حسبها — وما في قدرة بتقدر تتجاوزه إلا قدرات
+              الطوارئ.
+            </p>
+          </div>
         </aside>
       </div>
     </main>
   );
 }
 
-function Legend({ frame, running }: { frame: Frame | null; running: string | null }) {
-  const lead = frame?.robots[0];
+const LAYER_LABELS: Record<keyof Layers, string> = {
+  map: "الخريطة",
+  lidar: "الليزر",
+  envelope: "مظروف الأمان",
+  trail: "المسار",
+  labels: "الأسماء",
+};
+
+function Legend({ colour, label }: { colour: string; label: string }) {
   return (
-    <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600">
-      <span className="tabular-nums">⏱ {((frame?.t ?? 0) / 1000).toFixed(1)}s</span>
-      {lead && (
-        <>
-          <span className="tabular-nums">🔋 {(lead.charge * 100).toFixed(0)}%</span>
-          <span className="tabular-nums">🏃 {lead.speed.toFixed(2)} m/s</span>
-          {lead.holding && <span>✊ {lead.holding}</span>}
-        </>
-      )}
-      {frame?.safety && (
-        <span
-          className={
-            frame.safety.level === "clear"
-              ? "text-emerald-600"
-              : frame.safety.level === "slow"
-                ? "text-amber-600"
-                : "text-rose-600"
-          }
-        >
-          🛡 {frame.safety.reason}
+    <li className="flex items-start gap-2">
+      <span
+        aria-hidden
+        className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full"
+        style={{ backgroundColor: colour }}
+      />
+      <span>{label}</span>
+    </li>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="text-center">
+      <dt className="text-xs text-slate-500">{label}</dt>
+      <dd className="text-lg font-semibold tabular-nums text-slate-900">{value}</dd>
+    </div>
+  );
+}
+
+function Chip({ children }: { children: React.ReactNode }) {
+  return (
+    <span
+      dir="ltr"
+      className="rounded-lg bg-slate-900/70 px-2 py-1 text-xs tabular-nums text-slate-200 backdrop-blur"
+    >
+      {children}
+    </span>
+  );
+}
+
+function Sparkline({
+  title,
+  unit,
+  value,
+  format,
+  canvasRef,
+}: {
+  title: string;
+  unit: string;
+  value: number | undefined;
+  format?: (v: number) => string;
+  canvasRef: React.MutableRefObject<HTMLCanvasElement | null>;
+}) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+      <div className="flex items-baseline justify-between">
+        <span className="text-xs text-slate-500">{title}</span>
+        <span dir="ltr" className="font-mono text-sm tabular-nums text-slate-800">
+          {value === undefined
+            ? "—"
+            : format
+              ? format(value)
+              : `${value.toFixed(2)}${unit}`}
         </span>
-      )}
-      {running && <span className="text-brand-600">▶ {running}</span>}
+      </div>
+      <canvas ref={canvasRef} className="mt-2 block h-8 w-full" />
+    </div>
+  );
+}
+
+function OutcomeCard({ outcome }: { outcome: Outcome }) {
+  return (
+    <div
+      className={`rounded-2xl border p-4 shadow-sm ${
+        outcome.ok ? "border-emerald-200 bg-emerald-50" : "border-rose-200 bg-rose-50"
+      }`}
+    >
+      <div className="flex items-start gap-2.5">
+        <span className="text-lg leading-none">{outcome.ok ? "✅" : "⚠️"}</span>
+        <div className="min-w-0 flex-1">
+          <p dir="auto" className="font-medium leading-relaxed text-slate-900">
+            {outcome.summary}
+          </p>
+          {outcome.details && outcome.details.length > 0 && (
+            <ul className="mt-2 space-y-1 text-sm text-slate-700">
+              {outcome.details.map((detail, i) => (
+                <li key={i} className="flex gap-1.5" dir="auto">
+                  <span className="text-slate-400">•</span>
+                  <span>{detail}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          {outcome.metrics && Object.keys(outcome.metrics).length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {Object.entries(outcome.metrics).map(([key, value]) => (
+                <span
+                  key={key}
+                  dir="ltr"
+                  className="rounded-lg bg-white/80 px-2 py-1 font-mono text-[11px] text-slate-700 ring-1 ring-black/5"
+                >
+                  {key} = {formatNumber(value)}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
 
 function LogLine({ entry }: { entry: LogEntry }) {
   const time = `${(entry.t / 1000).toFixed(1)}s`;
-  const base = "flex gap-2 py-0.5";
+  const stamp = (
+    <span className="w-11 shrink-0 text-slate-400" dir="ltr">
+      {time}
+    </span>
+  );
 
   if (entry.kind === "safety") {
     const tone =
@@ -447,59 +723,57 @@ function LogLine({ entry }: { entry: LogEntry }) {
           ? "text-amber-600"
           : "text-rose-600";
     return (
-      <div className={base} dir="ltr">
-        <span className="w-12 shrink-0 text-slate-400">{time}</span>
+      <p className="flex gap-2 py-0.5" dir="ltr">
+        {stamp}
         <span className={tone}>[safety] {entry.reason}</span>
-      </div>
+      </p>
     );
   }
   if (entry.kind === "warn") {
     return (
-      <div className={base} dir="ltr">
-        <span className="w-12 shrink-0 text-slate-400">{time}</span>
+      <p className="flex gap-2 py-0.5" dir="ltr">
+        {stamp}
         <span className="text-amber-700">! {entry.message}</span>
-      </div>
+      </p>
     );
   }
   if (entry.kind === "result") {
     return (
-      <div className={base} dir="ltr">
-        <span className="w-12 shrink-0 text-slate-400">{time}</span>
+      <p className="flex gap-2 py-0.5" dir="ltr">
+        {stamp}
         <span className={entry.ok ? "text-emerald-700" : "text-rose-700"}>
           {entry.ok ? "✓" : "✗"} {entry.summary}
         </span>
-      </div>
+      </p>
     );
   }
   if (entry.kind === "metric") {
     return (
-      <div className={base} dir="ltr">
-        <span className="w-12 shrink-0 text-slate-400">{time}</span>
+      <p className="flex gap-2 py-0.5" dir="ltr">
+        {stamp}
         <span className="text-slate-500">
           {entry.name} = {formatNumber(entry.value ?? 0)}
           {entry.unit ?? ""}
         </span>
-      </div>
+      </p>
     );
   }
   if (entry.kind === "signal") {
     return (
-      <div className={base} dir="ltr">
-        <span className="w-12 shrink-0 text-slate-400">{time}</span>
-        <span className="text-brand-600">
+      <p className="flex gap-2 py-0.5" dir="ltr">
+        {stamp}
+        <span className="text-sky-600">
           ({entry.channel}) {entry.payload}
         </span>
-      </div>
+      </p>
     );
   }
   if (entry.kind === "status") {
     return (
-      <div className={base}>
-        <span className="w-12 shrink-0 text-slate-400" dir="ltr">
-          {time}
-        </span>
+      <p className="flex gap-2 py-0.5">
+        {stamp}
         <span className="text-slate-700">{entry.ar ?? entry.message}</span>
-      </div>
+      </p>
     );
   }
   return null;
@@ -512,174 +786,66 @@ function formatNumber(value: number): string {
   return value.toFixed(3);
 }
 
-/** Draws the world. Pure function of the latest frame — no state of its own. */
-function paint(
-  canvas: HTMLCanvasElement | null,
-  setup: WorldSetup | null,
-  frame: Frame | null,
-  trail: Array<{ x: number; y: number }>,
+/** Fold one SSE event into the scene held outside React. */
+function applyEvent(
+  scene: ReturnType<typeof emptyScene>,
+  name: string,
+  payload: unknown,
+  pushLog: (entry: LogEntry) => void,
 ): void {
-  if (!canvas) return;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return;
-
-  const { width, height } = canvas;
-  ctx.clearRect(0, 0, width, height);
-  ctx.fillStyle = "#0f172a";
-  ctx.fillRect(0, 0, width, height);
-
-  if (!setup) {
-    ctx.fillStyle = "#475569";
-    ctx.font = "16px ui-sans-serif, system-ui";
-    ctx.textAlign = "center";
-    ctx.fillText("اختر عرضاً من اليمين لتشغيله", width / 2, height / 2);
+  if (name === "setup") {
+    scene.setup = payload as WorldSetup;
+    scene.trail = [];
+    scene.marks = [];
+    scene.map = null;
+    scene.history = { speed: [], safety: [], charge: [] };
     return;
   }
 
-  const pad = 24;
-  const scale = Math.min(
-    (width - pad * 2) / setup.width,
-    (height - pad * 2) / setup.height,
-  );
-  const offsetX = (width - setup.width * scale) / 2;
-  const offsetY = (height - setup.height * scale) / 2;
-  // Screen y grows downward; the world's does not.
-  const sx = (x: number) => offsetX + x * scale;
-  const sy = (y: number) => offsetY + (setup.height - y) * scale;
-
-  // Floor and grid.
-  ctx.fillStyle = "#111c33";
-  ctx.fillRect(offsetX, offsetY, setup.width * scale, setup.height * scale);
-  ctx.strokeStyle = "rgba(148,163,184,0.10)";
-  ctx.lineWidth = 1;
-  for (let x = 0; x <= setup.width; x += 1) {
-    ctx.beginPath();
-    ctx.moveTo(sx(x), sy(0));
-    ctx.lineTo(sx(x), sy(setup.height));
-    ctx.stroke();
-  }
-  for (let y = 0; y <= setup.height; y += 1) {
-    ctx.beginPath();
-    ctx.moveTo(sx(0), sy(y));
-    ctx.lineTo(sx(setup.width), sy(y));
-    ctx.stroke();
+  if (name === "map") {
+    const meta = payload as OccupancyMap;
+    scene.map = { meta, decoded: decodeBase64(meta.cells) };
+    return;
   }
 
-  // Dock.
-  ctx.strokeStyle = "#22c55e";
-  ctx.lineWidth = 2;
-  ctx.strokeRect(sx(setup.dock.x) - 14, sy(setup.dock.y) - 14, 28, 28);
-  ctx.fillStyle = "#22c55e";
-  ctx.font = "11px ui-monospace, monospace";
-  ctx.textAlign = "center";
-  ctx.fillText("dock", sx(setup.dock.x), sy(setup.dock.y) + 28);
+  if (name === "frame") {
+    const frame = payload as Frame;
+    scene.frame = frame;
 
-  // Obstacles.
-  ctx.fillStyle = "#334155";
-  for (const obstacle of setup.obstacles) {
-    if (obstacle.kind === "circle") {
-      ctx.beginPath();
-      ctx.arc(sx(obstacle.at.x), sy(obstacle.at.y), obstacle.radius * scale, 0, Math.PI * 2);
-      ctx.fill();
-    } else {
-      ctx.fillRect(
-        sx(obstacle.at.x - obstacle.width / 2),
-        sy(obstacle.at.y + obstacle.height / 2),
-        obstacle.width * scale,
-        obstacle.height * scale,
-      );
+    const lead = frame.robots[0];
+    if (lead) {
+      const last = scene.trail[scene.trail.length - 1];
+      if (!last || Math.hypot(lead.x - last.x, lead.y - last.y) > 0.07) {
+        scene.trail.push({ x: lead.x, y: lead.y });
+        if (scene.trail.length > 1200) scene.trail.shift();
+      }
+      push(scene.history.speed, Math.abs(lead.speed));
+      push(scene.history.charge, lead.charge);
     }
+    push(scene.history.safety, frame.safety.speedScale);
+    return;
   }
 
-  // Where the robot has been.
-  if (trail.length > 1) {
-    ctx.strokeStyle = "rgba(56,189,248,0.45)";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(sx(trail[0].x), sy(trail[0].y));
-    for (const point of trail) ctx.lineTo(sx(point.x), sy(point.y));
-    ctx.stroke();
-  }
-
-  if (!frame) return;
-
-  // Objects.
-  for (const object of frame.objects) {
-    ctx.fillStyle = object.damaged ? "#f43f5e" : object.held ? "#a855f7" : "#fbbf24";
-    ctx.beginPath();
-    ctx.arc(sx(object.x), sy(object.y), 6, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = "#94a3b8";
-    ctx.font = "10px ui-monospace, monospace";
-    ctx.fillText(object.label, sx(object.x), sy(object.y) - 10);
-  }
-
-  // People.
-  for (const human of frame.humans) {
-    ctx.fillStyle = human.attentive ? "rgba(248,113,113,0.95)" : "rgba(248,113,113,0.6)";
-    ctx.beginPath();
-    ctx.arc(sx(human.x), sy(human.y), 0.25 * scale, 0, Math.PI * 2);
-    ctx.fill();
-    // The separation envelope the safety governor protects.
-    ctx.strokeStyle = "rgba(248,113,113,0.25)";
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.arc(sx(human.x), sy(human.y), 0.35 * scale, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.fillStyle = "#fca5a5";
-    ctx.font = "10px ui-sans-serif, system-ui";
-    ctx.fillText(human.id, sx(human.x), sy(human.y) - 0.35 * scale - 4);
-  }
-
-  // Robots.
-  for (const robot of frame.robots) {
-    const radius = 0.28 * scale;
-    ctx.save();
-    ctx.translate(sx(robot.x), sy(robot.y));
-
-    ctx.fillStyle = robot.lights.color;
-    ctx.globalAlpha = 0.22;
-    ctx.beginPath();
-    ctx.arc(0, 0, radius * 1.9, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.globalAlpha = 1;
-
-    ctx.fillStyle = "#e2e8f0";
-    ctx.beginPath();
-    ctx.arc(0, 0, radius, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Heading, and a lean bar when the robot is tilting.
-    ctx.rotate(-robot.theta);
-    ctx.strokeStyle = robot.lights.color;
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(0, 0);
-    ctx.lineTo(radius * 1.6, 0);
-    ctx.stroke();
-    ctx.restore();
-
-    if (Math.abs(robot.tilt) > 0.02) {
-      ctx.strokeStyle = Math.abs(robot.tilt) > 0.2 ? "#ef4444" : "#f59e0b";
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.moveTo(sx(robot.x), sy(robot.y));
-      ctx.lineTo(
-        sx(robot.x) + Math.sin(robot.tilt) * radius * 2.4,
-        sy(robot.y) - Math.cos(robot.tilt) * radius * 2.4,
-      );
-      ctx.stroke();
+  if (name === "log") {
+    const entry = payload as LogEntry;
+    if (entry.kind === "mark" && entry.at && entry.label) {
+      // Keep the most recent few; a long exploration emits a lot of these.
+      scene.marks = [...scene.marks.slice(-5), { label: entry.label, at: entry.at, t: entry.t }];
+      return;
     }
-
-    ctx.fillStyle = "#cbd5e1";
-    ctx.font = "11px ui-monospace, monospace";
-    ctx.textAlign = "center";
-    ctx.fillText(robot.id, sx(robot.x), sy(robot.y) + radius + 14);
-
-    if (robot.utterance) {
-      ctx.fillStyle = "rgba(226,232,240,0.85)";
-      ctx.font = "11px ui-sans-serif, system-ui";
-      ctx.fillText(robot.utterance.slice(0, 56), sx(robot.x), sy(robot.y) - radius - 10);
-    }
+    if (entry.kind === "pose") return;
+    pushLog(entry);
   }
+}
+
+function push(series: number[], value: number): void {
+  series.push(value);
+  if (series.length > HISTORY_LENGTH) series.shift();
+}
+
+function decodeBase64(value: string): Uint8Array {
+  const binary = atob(value);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return bytes;
 }

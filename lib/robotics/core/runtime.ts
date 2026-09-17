@@ -311,7 +311,12 @@ export class RobotRuntime {
   /** One control period: step physics (which wakes sleepers), then re-assess. */
   private advance(): void {
     if (!this.world) return;
+    const before = this.world.timeMs;
     this.world.step(this.tickSeconds);
+    // The control period is the floor on how fast the robot can react to
+    // anything. Telling the governor keeps its separation model honest instead
+    // of trusting a constant somebody typed once.
+    this.governor.observeLatency((this.world.timeMs - before) / 1000);
     this.governor.assess(this.robot);
   }
 

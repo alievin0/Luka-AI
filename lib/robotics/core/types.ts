@@ -313,6 +313,15 @@ export type SafetyApi = {
   /** Hard ceiling on gripper force, newtons. */
   contactForceLimit(): number;
   /**
+   * The sense-to-act latency the separation model is currently using, seconds.
+   * Measured, not assumed — a policy on the far side of a network can add more
+   * than the whole latency budget, and abilities reasoning about stopping
+   * distance need the real figure.
+   */
+  effectiveReactionTime(): number;
+  /** Report a measured sense-to-act latency, seconds. */
+  observeLatency(seconds: number): void;
+  /**
    * Take the base away from whatever else is driving it. Reflexes use this so a
    * deliberative ability cannot overwrite an evasive manoeuvre.
    */

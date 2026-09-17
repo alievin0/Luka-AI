@@ -79,6 +79,13 @@ export type Ros2BridgeOptions = {
   topics?: Partial<Ros2Topics>;
   /** Anything older than this is treated as no reading at all, ms. */
   maxStalenessMs?: number;
+  /**
+   * Wire format for subscriptions. `cbor` is the right default for anything
+   * carrying arrays; `none` (JSON) is useful only when debugging by eye.
+   */
+  compression?: "none" | "cbor" | "cbor-raw" | "png";
+  /** Server-side throttle per subscription, ms between messages. */
+  throttleMs?: number;
   /** Supply a WebSocket implementation when the runtime has no global one. */
   socketFactory?: (url: string) => WebSocketLike;
 };
@@ -99,6 +106,8 @@ export class Ros2Bridge implements RobotIO {
   private socket: WebSocketLike | null = null;
   private readonly url: string;
   private readonly maxStalenessMs: number;
+  private readonly compression: "none" | "cbor" | "cbor-raw" | "png";
+  private readonly throttleMs: number;
   private readonly socketFactory?: (url: string) => WebSocketLike;
   private readonly cache = new Map<string, Cached<unknown>>();
   private readonly mailbox = new Map<string, unknown[]>();
@@ -118,6 +127,8 @@ export class Ros2Bridge implements RobotIO {
     ];
     this.topics = { ...DEFAULT_TOPICS, ...options.topics };
     this.maxStalenessMs = options.maxStalenessMs ?? 500;
+    this.compression = options.compression ?? "cbor";
+    this.throttleMs = options.throttleMs ?? 20;
     this.socketFactory = options.socketFactory;
   }
 
@@ -148,6 +159,11 @@ export class Ros2Bridge implements RobotIO {
       }
     });
 
+    // CBOR rather than the default JSON. rosbridge's reputation for choking on
+    // high-rate topics is mostly the JSON tax: a lidar scan is a thousand
+    // floats, and spelling each one out in decimal costs several times what the
+    // binary costs to send and to parse. CBOR packs homogeneous arrays, and it
+    // is a per-subscription flag, not a different bridge.
     for (const topic of [
       this.topics.odom,
       this.topics.scan,
@@ -160,7 +176,16 @@ export class Ros2Bridge implements RobotIO {
       this.topics.mesh,
       this.topics.diagnostics,
     ]) {
-      this.publish({ op: "subscribe", topic, throttle_rate: 20 });
+      this.publish({
+        op: "subscribe",
+        topic,
+        compression: this.compression,
+        // Throttle at the source to the rate the control loop can actually use.
+        // Consuming a 100 Hz topic to run a 20 Hz loop wastes the link and adds
+        // queueing latency, which the safety model then has to pay for.
+        throttle_rate: this.throttleMs,
+        queue_length: 1,
+      });
     }
   }
 
@@ -175,6 +200,23 @@ export class Ros2Bridge implements RobotIO {
     const out: Record<string, number> = {};
     for (const [topic, entry] of this.cache) out[topic] = now - entry.at;
     return out;
+  }
+
+  /**
+   * Feed the observed staleness into the safety model.
+   *
+   * The separation model's reaction time is not a constant on real hardware —
+   * it is however long the slowest thing in the chain took. Calling this every
+   * control cycle is what keeps the protective distance honest when the link
+   * degrades.
+   */
+  reportLatencyTo(governor: { observeLatency(seconds: number): void }): void {
+    const ages = this.staleness();
+    const worst = Math.max(
+      ages[this.topics.odom] ?? 0,
+      ages[this.topics.scan] ?? 0,
+    );
+    if (Number.isFinite(worst)) governor.observeLatency(worst / 1000);
   }
 
   /** True when every channel an ability depends on is fresh enough to trust. */

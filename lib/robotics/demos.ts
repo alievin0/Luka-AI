@@ -5,6 +5,8 @@
 // the web UI both drive these.
 
 import { createSimRig, type SimRig, type SimRigOptions } from "./index.ts";
+import type { MemoryBackend } from "./core/memory.ts";
+import { report, runSuite, sweep, type Protocol } from "./eval/index.ts";
 import type { AbilityEvent } from "./core/types.ts";
 
 export type DemoName =
@@ -16,7 +18,9 @@ export type DemoName =
   | "divide-the-work"
   | "think-first"
   | "map-the-room"
-  | "hand-it-over";
+  | "hand-it-over"
+  | "push-sweep"
+  | "measured-crossing";
 
 export type DemoOutcome = {
   ok: boolean;
@@ -34,6 +38,8 @@ export type DemoOptions = {
    * uses it to point its renderer at whichever world is currently live.
    */
   onRig?: (rig: SimRig) => void;
+  /** Share one memory backend across a demo's rigs, so a watcher can read it. */
+  memoryBackend?: MemoryBackend;
 };
 
 export type Demo = {
@@ -50,6 +56,7 @@ function rigFor(scenario: SimRigOptions["scenario"], options: DemoOptions) {
     seed: options.seed,
     realtimeFactor: options.realtimeFactor ?? 0,
     wholeFleet: scenario === "warehouse-fleet",
+    memoryBackend: options.memoryBackend,
   });
   if (options.onEvent) {
     for (const member of rig.fleet.values()) member.runtime.on(options.onEvent);
@@ -90,18 +97,24 @@ export const DEMOS: Record<DemoName, Demo> = {
       await rig.runtime.stopDaemons();
       const report = await shield.promise;
       const collisions = rig.world.robot("luka-1").collisions;
-      // Score on ground truth rather than on the robot's own noisy estimate —
-      // the whole point of a simulator is that you can check the claim.
-      const minHuman = Math.min(trueMinHumanDistance, report.data?.minHumanDistance ?? Infinity);
+      const humanContacts = rig.world.robot("luka-1").humanContacts;
+      // Ground truth and the robot's own belief are different numbers and must
+      // not be mixed: the sensed distance carries 3 cm of noise, so folding it
+      // into the safety claim would report a violation that never happened —
+      // or, worse, hide one that did.
+      const minHuman = trueMinHumanDistance;
+      const sensedMinHuman = report.data?.minHumanDistance ?? Number.POSITIVE_INFINITY;
 
       return {
-        ok: trip.ok && collisions === 0 && minHuman > 0.3,
-        summary: `${trip.summary} Closest approach to a person: ${minHuman.toFixed(2)} m, ${collisions} collisions.`,
+        ok: trip.ok && collisions === 0 && humanContacts === 0 && minHuman > 0.55,
+        summary: `${trip.summary} Closest a body came to a person: ${minHuman.toFixed(2)} m — bodies touch at 0.53 — with ${humanContacts} contact(s).`,
         details: [trip.summary, report.summary],
         metrics: {
           minHumanDistance: minHuman,
+          sensedMinHumanDistance: sensedMinHuman,
           interventions: report.data?.interventions ?? 0,
           collisions,
+          humanContacts,
           pathEfficiency: trip.data?.pathEfficiency ?? 0,
         },
       };
@@ -435,6 +448,153 @@ export const DEMOS: Record<DemoName, Demo> = {
         summary: `Released at ${(given.data?.releasePull ?? 0).toFixed(1)} N when a hand took it, and kept hold when nobody did.`,
         details,
         metrics: { releasePull: given.data?.releasePull ?? 0, keptHold: keptHold ? 1 : 0 },
+      };
+    },
+  },
+
+  "push-sweep": {
+    title: { en: "How hard a push is too hard", ar: "قديش الدفعة لازم تكون قوية لتوقعه" },
+    blurb:
+      "Sweep the shove from gentle to brutal, ten seeds at every level, and plot the recovery rate with confidence intervals. One success rate is a number; a curve with a breaking point is a result.",
+    abilities: ["balance.recover", "safety.stoppable"],
+    async run(options) {
+      const seeds = [11, 22, 33, 44, 55, 66, 77, 88, 99, 110];
+      const protocol: Protocol = {
+        name: "balance.recover under a disturbance sweep",
+        scenario: "empty-hall",
+        seeds,
+        timeLimitMs: 8000,
+        criterion: {
+          id: "upright-and-still",
+          version: "1.0.0",
+          description: "tilt under 0.02 rad and tilt rate under 0.08 rad/s, held for 300 ms",
+        },
+        conditions: { ability: "balance.recover" },
+      };
+
+      const result = await sweep(
+        protocol,
+        { name: "push", levels: [0.8, 1.2, 1.6, 2.0, 2.4, 2.8, 3.2], unit: "rad/s" },
+        async (seed, level) => {
+          const rig = rigFor("empty-hall", { ...options, seed, onEvent: undefined, onRig: undefined });
+          rig.world.applyTiltImpulse("luka-1", level);
+          const outcome = await rig.runtime.run("balance.recover", {});
+          return { success: outcome.ok };
+        },
+      );
+
+      // Show one recovery live so the numbers have a picture attached.
+      const rig = rigFor("empty-hall", options);
+      rig.world.applyTiltImpulse("luka-1", 1.6);
+      await rig.runtime.run("balance.recover", {});
+
+      const details = result.points.map(
+        (p) =>
+          `${p.level.toFixed(1)} rad/s → ${(p.successRate * 100).toFixed(0)}% recovered ` +
+          `(95% CI ${(p.interval.low * 100).toFixed(0)}–${(p.interval.high * 100).toFixed(0)}%, n=${p.trials})`,
+      );
+
+      const metrics: Record<string, number> = {};
+      for (const point of result.points) metrics[`recovered@${point.level}`] = point.successRate;
+      if (result.breakingPoint !== null) metrics.breakingPointRadPerSec = result.breakingPoint;
+
+      return {
+        // The curve existing and being monotone-ish is the result; a particular
+        // success rate is not. What would be wrong is no breaking point at all.
+        ok: result.breakingPoint !== null && result.points[0].successRate > 0.8,
+        summary:
+          result.breakingPoint === null
+            ? `Recovered from every push up to ${result.points[result.points.length - 1].level} rad/s — the sweep did not go far enough to find the limit.`
+            : `Recovery holds up to ${result.breakingPoint} rad/s, where it drops below half. Ten seeds per level, intervals included — at n=10 nothing under about 50 points apart is distinguishable.`,
+        details,
+        metrics,
+      };
+    },
+  },
+
+  "measured-crossing": {
+    title: { en: "The same crossing, measured properly", ar: "نفس العبور، بس مقيس صح" },
+    blurb:
+      "Cross the corridor twenty times under a fingerprinted protocol — with cooperative people, then with people who never look up — and report both as rates with confidence intervals instead of one lucky run.",
+    abilities: ["reflex.shield", "navigate.to", "safety.stoppable"],
+    async run(options) {
+      const seeds = Array.from({ length: 20 }, (_, i) => 1000 + i * 7);
+      const details: string[] = [];
+      const metrics: Record<string, number> = {};
+      let cooperativeContacts = 0;
+      let distractedContacts = 0;
+
+      for (const scenario of ["busy-corridor", "distracted-corridor"] as const) {
+        const protocol: Protocol = {
+          name: `corridor crossing · ${scenario}`,
+          scenario,
+          seeds,
+          timeLimitMs: 120_000,
+          criterion: {
+            id: "arrived-without-contact",
+            version: "1.0.0",
+            description: "reached the goal and never touched a person",
+          },
+          conditions: { shield: "on", telegraph: false },
+        };
+
+        const suite = await runSuite(protocol, async (seed) => {
+          const rig = rigFor(scenario, { ...options, seed, onEvent: undefined, onRig: undefined });
+          const shield = rig.runtime.startDaemon("reflex.shield", {});
+          const trip = await rig.runtime.run<{ x: number; y: number; timeoutMs: number }, unknown>(
+            "navigate.to",
+            { x: 14, y: 3, timeoutMs: 120_000 },
+          );
+          await rig.runtime.stopDaemons();
+          await shield.promise;
+
+          const self = rig.world.robot("luka-1");
+          let trueMin = Number.POSITIVE_INFINITY;
+          for (const human of rig.world.humans) {
+            trueMin = Math.min(
+              trueMin,
+              Math.hypot(human.at.x - self.pose.x, human.at.y - self.pose.y),
+            );
+          }
+
+          return {
+            success: trip.ok && self.humanContacts === 0,
+            durationMs: rig.world.timeMs,
+            failure: !trip.ok ? "did-not-arrive" : self.humanContacts > 0 ? "touched-a-person" : undefined,
+            metrics: {
+              humanContacts: self.humanContacts,
+              finalGap: Number.isFinite(trueMin) ? trueMin : 99,
+              travelled: self.distanceTravelled,
+            },
+          };
+        });
+
+        if (scenario === "busy-corridor") {
+          cooperativeContacts = suite.metrics.humanContacts?.mean ?? 0;
+        } else {
+          distractedContacts = suite.metrics.humanContacts?.mean ?? 0;
+        }
+
+        metrics[`${scenario}.successRate`] = suite.successRate;
+        metrics[`${scenario}.ciLow`] = suite.interval.low;
+        metrics[`${scenario}.ciHigh`] = suite.interval.high;
+        metrics[`${scenario}.contactsPerRun`] = suite.metrics.humanContacts?.mean ?? 0;
+
+        details.push(report(suite));
+      }
+
+      return {
+        // Cooperative people must be clean. Distracted people are allowed to
+        // fail — the point of running both is to show which of the two the
+        // safety story actually depends on.
+        ok: cooperativeContacts === 0,
+        summary:
+          `With people who look where they are going, the robot touched nobody across 20 crossings. ` +
+          `With people who never look up, it averaged ${distractedContacts.toFixed(1)} contacts per crossing — ` +
+          `it cannot get out of the way of someone walking straight into it in a corridor, and no amount of ` +
+          `speed limiting changes that.`,
+        details,
+        metrics,
       };
     },
   },

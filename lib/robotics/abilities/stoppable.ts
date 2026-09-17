@@ -1,0 +1,226 @@
+// ── safety.stoppable · هل بقدر أوقف؟ ────────────────────────────────────────
+// The question underneath every other safety question.
+//
+// A speed limiter answers "how fast may I go". It does not answer the prior
+// question: if everything latched right now, would this robot actually come to
+// rest without falling over or hitting something? Those are different
+// questions, and a robot can be comfortably inside its speed limit and still be
+// in a state it cannot stop out of.
+//
+// This matters most where the rest of the safety stack is quiet. `critical`
+// abilities bypass the governor by design — that is what makes them able to
+// catch a fall — and nothing else checks whether the bypass is survivable. This
+// daemon does, and it publishes a continuous margin rather than a boolean, so
+// the number is visible while it is still comfortable.
+
+import { clamp } from "../core/math.ts";
+import { nearestObstacle } from "../safety/governor.ts";
+import type { Ability, AbilityResult } from "../core/types.ts";
+
+export type StoppableInput = {
+  comHeight?: number;
+  footHalf?: number;
+  /** Deceleration the brakes can deliver, m/s². */
+  maxDecel?: number;
+  /** Warn when the headroom falls below this many seconds. */
+  warnSeconds?: number;
+  /** Escalate after the robot has been unstoppable for this long, ms. */
+  escalateAfterMs?: number;
+  periodMs?: number;
+};
+
+export type StoppableReport = {
+  /** Worst balance margin seen, radians. Negative means it could not have stopped upright. */
+  minBalanceMarginRad: number;
+  /** Worst space margin seen, metres. Negative means it could not have stopped in time. */
+  minSpaceMarginM: number;
+  /** Worst headroom seen, seconds of travel before stopping becomes impossible. */
+  minHeadroomSeconds: number;
+  /** Fraction of the run spent in a state it could not have stopped out of. */
+  unstoppableFraction: number;
+  ticks: number;
+  escalated: boolean;
+  /** Which margin bound it, most of the time. */
+  limitedBy: "balance" | "space" | "nothing";
+};
+
+const GRAVITY = 9.81;
+
+export const safetyStoppable: Ability<StoppableInput, StoppableReport> = {
+  manifest: {
+    id: "safety.stoppable",
+    version: "1.0.0",
+    name: { en: "Stoppability Monitor", ar: "مراقب القدرة على التوقف" },
+    summary: {
+      en: "Continuously answers whether the robot could come to rest right now without falling or hitting anything, and publishes the margin rather than a yes/no.",
+      ar: "بيجاوب باستمرار: لو وقف الروبوت هلق، بيوصل لوضع ثابت بدون ما يوقع أو يصطدم؟ وبينشر الهامش مو بس جواب نعم/لا.",
+    },
+    rationale:
+      "Speed limits answer how fast, not whether stopping is still possible — and those " +
+      "come apart exactly where it matters. A robot carrying speed toward a wall, or " +
+      "already leaning, can be inside every limit it has and still be committed. " +
+      "Emergency behaviours make this sharper: they are allowed to override the speed " +
+      "limiter, which is the right design, and it means nothing else is checking " +
+      "whether the state they drive into is one the robot can stop out of. Publishing " +
+      "the margin continuously turns that from something discovered after an incident " +
+      "into a number on a dashboard.",
+    tags: ["safety", "daemon", "diagnostics"],
+    risk: "passive",
+    requires: ["imu", "lidar"],
+    typicalDurationMs: 0,
+    daemon: true,
+    inputSchema: {
+      type: "object",
+      properties: {
+        comHeight: { type: "number", description: "Centre-of-mass height, m.", default: 0.55 },
+        footHalf: { type: "number", description: "Support half-length, m.", default: 0.11 },
+        maxDecel: { type: "number", description: "Available braking, m/s².", default: 1.2 },
+        warnSeconds: { type: "number", description: "Warn below this headroom, s.", default: 0.4 },
+        escalateAfterMs: {
+          type: "number",
+          description: "Stop the mission after this long unstoppable.",
+          default: 1500,
+        },
+        periodMs: { type: "number", description: "Check interval, ms.", default: 50 },
+      },
+      required: [],
+    },
+  },
+
+  async run(input, ctx): Promise<AbilityResult<StoppableReport>> {
+    const comHeight = input.comHeight ?? 0.55;
+    const footHalf = input.footHalf ?? 0.11;
+    const maxDecel = input.maxDecel ?? 1.2;
+    const warnSeconds = input.warnSeconds ?? 0.4;
+    const escalateAfterMs = input.escalateAfterMs ?? 1500;
+    const periodMs = input.periodMs ?? 50;
+
+    const omega0 = Math.sqrt(GRAVITY / comHeight);
+    const supportAngle = Math.asin(clamp(footHalf / comHeight, 0, 1));
+    // How much base acceleration the ankle alone can counteract. Braking harder
+    // than this throws the body forward faster than the ankle can answer, and
+    // the difference has to come out of the balance margin.
+    const ankleAuthority = (GRAVITY * footHalf) / comHeight;
+
+    const report: StoppableReport = {
+      minBalanceMarginRad: Number.POSITIVE_INFINITY,
+      minSpaceMarginM: Number.POSITIVE_INFINITY,
+      minHeadroomSeconds: Number.POSITIVE_INFINITY,
+      unstoppableFraction: 0,
+      ticks: 0,
+      escalated: false,
+      limitedBy: "nothing",
+    };
+
+    let unstoppableTicks = 0;
+    let unstoppableSince: number | null = null;
+    let balanceBound = 0;
+    let spaceBound = 0;
+    let warned = false;
+
+    while (!ctx.signal.aborted) {
+      report.ticks += 1;
+
+      const imu = ctx.robot.imu();
+      const speed = Math.abs(ctx.robot.velocity().linear);
+      const clearance = nearestObstacle(ctx.robot.lidar());
+
+      // Balance: the capture point now, plus whatever the stop itself would add.
+      const capture = Math.abs(imu.tilt + imu.tiltRate / omega0);
+      const excessDecel = Math.max(maxDecel - ankleAuthority, 0);
+      const stopSeconds = speed / maxDecel;
+      const leanFromBraking = (0.5 * excessDecel * stopSeconds * stopSeconds) / comHeight;
+      const balanceMargin = supportAngle - (capture + leanFromBraking);
+
+      // Space: how far it would travel before resting, against what is ahead.
+      const stopDistance =
+        speed * ctx.safety.effectiveReactionTime() + (speed * speed) / (2 * maxDecel);
+      const spaceMargin = clearance - stopDistance;
+
+      // Headroom: how much longer it could keep going before the stop stops
+      // being possible. Seconds is the unit an operator can act on.
+      const headroom = speed > 0.02 ? spaceMargin / speed : Number.POSITIVE_INFINITY;
+
+      report.minBalanceMarginRad = Math.min(report.minBalanceMarginRad, balanceMargin);
+      report.minSpaceMarginM = Math.min(report.minSpaceMarginM, spaceMargin);
+      if (Number.isFinite(headroom)) {
+        report.minHeadroomSeconds = Math.min(report.minHeadroomSeconds, headroom);
+      }
+      if (balanceMargin < spaceMargin) balanceBound += 1;
+      else spaceBound += 1;
+
+      const stoppable = balanceMargin > 0 && spaceMargin > 0;
+      if (!stoppable) {
+        unstoppableTicks += 1;
+        unstoppableSince ??= ctx.now();
+
+        if (ctx.now() - unstoppableSince > escalateAfterMs && !report.escalated) {
+          report.escalated = true;
+          ctx.emit({
+            kind: "warn",
+            message: `Committed: no stop from here leaves the robot upright and clear (balance ${balanceMargin.toFixed(3)} rad, space ${spaceMargin.toFixed(2)} m).`,
+          });
+          ctx.escalate("stoppability monitor: the robot cannot stop safely from this state");
+        }
+      } else {
+        unstoppableSince = null;
+      }
+
+      if (Number.isFinite(headroom) && headroom < warnSeconds && !warned) {
+        warned = true;
+        ctx.emit({
+          kind: "warn",
+          message: `Stopping headroom down to ${headroom.toFixed(2)} s — ${clearance.toFixed(2)} m ahead and ${stopDistance.toFixed(2)} m needed to stop.`,
+        });
+      } else if (Number.isFinite(headroom) && headroom > warnSeconds * 2) {
+        warned = false;
+      }
+
+      if (report.ticks % 20 === 0) {
+        ctx.emit({
+          kind: "metric",
+          name: "stoppable.headroom",
+          value: Number.isFinite(headroom) ? Number(headroom.toFixed(3)) : 99,
+          unit: "s",
+        });
+      }
+
+      await ctx.sleep(periodMs);
+    }
+
+    report.unstoppableFraction = report.ticks > 0 ? unstoppableTicks / report.ticks : 0;
+    report.limitedBy =
+      balanceBound === 0 && spaceBound === 0
+        ? "nothing"
+        : balanceBound > spaceBound
+          ? "balance"
+          : "space";
+
+    ctx.emit({
+      kind: "metric",
+      name: "stoppable.unstoppableFraction",
+      value: report.unstoppableFraction,
+    });
+
+    return {
+      ok: !report.escalated && report.unstoppableFraction < 0.02,
+      summary:
+        report.unstoppableFraction === 0
+          ? `Could have stopped safely at every one of ${report.ticks} checks — tightest margin ${fmt(report.minHeadroomSeconds)} s, bounded by ${report.limitedBy}.`
+          : `Spent ${(report.unstoppableFraction * 100).toFixed(1)}% of the run in states it could not have stopped out of (worst balance ${report.minBalanceMarginRad.toFixed(3)} rad, worst space ${report.minSpaceMarginM.toFixed(2)} m).`,
+      data: report,
+      metrics: {
+        minHeadroomSeconds: Number.isFinite(report.minHeadroomSeconds)
+          ? report.minHeadroomSeconds
+          : 99,
+        minBalanceMarginRad: report.minBalanceMarginRad,
+        minSpaceMarginM: report.minSpaceMarginM,
+        unstoppableFraction: report.unstoppableFraction,
+      },
+    };
+  },
+};
+
+function fmt(value: number): string {
+  return Number.isFinite(value) ? value.toFixed(2) : "∞";
+}

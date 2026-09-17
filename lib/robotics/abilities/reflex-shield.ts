@@ -64,8 +64,8 @@ const manifest = {
       },
       yieldDistance: {
         type: "number" as const,
-        description: "Back away when someone comes closer than this, metres.",
-        default: 0.45,
+        description: "Back away when someone comes closer than this, metres (centre to centre).",
+        default: 1.05,
       },
     },
     required: [],
@@ -79,7 +79,7 @@ export const reflexShield: Ability<ReflexInput, ReflexReport> = {
     const periodMs = input.periodMs ?? 20;
     const brakeTtc = input.brakeTtc ?? 0.45;
     const budget = input.interventionBudget ?? 12;
-    const yieldDistance = input.yieldDistance ?? 0.45;
+    const yieldDistance = input.yieldDistance ?? 1.05;
 
     const report: ReflexReport = {
       interventions: 0,
@@ -125,10 +125,15 @@ export const reflexShield: Ability<ReflexInput, ReflexReport> = {
       // only be resolved by the robot: standing still is not a safe state when
       // the gap is still closing. Reversing always increases separation, so the
       // shield yields ground rather than waiting to be walked into.
+      // Reversing alone loses a race against a walking person: they close at
+      // about a metre a second and the robot gives ground at a third of that.
+      // Arcing out of their path is what actually opens the gap — it is also
+      // what a person does when someone walks at them in a corridor.
       const yielding = nearestHuman < yieldDistance && rearIsClear(scan);
       if (yielding) {
-        ctx.safety.takeWheel(-0.22, 0, "reflex: yielding ground");
-        ctx.robot.drive(-0.22, 0);
+        const away = evadeTurn(ctx, scan);
+        ctx.safety.takeWheel(-0.35, away, "reflex: yielding ground");
+        ctx.robot.drive(-0.35, away);
         ctx.robot.setLights("yielding", "#f59e0b");
       }
 
@@ -230,6 +235,25 @@ function closingTtc(
   const closing = Math.max(robotClosing, 0) + Math.max(humanClosing, 0);
   const gap = clamp(distanceToHuman - 0.3, 0, Number.POSITIVE_INFINITY);
   return closing > 0.02 ? gap / closing : Number.POSITIVE_INFINITY;
+}
+
+/**
+ * Which way to swing the nose while backing off: toward whichever side has more
+ * room, so the robot ends up out of the walking line rather than retreating
+ * along it.
+ */
+function evadeTurn(ctx: AbilityContext, scan: { ranges: number[]; fov: number }): number {
+  const { ranges, fov } = scan;
+  if (ranges.length === 0) return 0;
+  const step = fov / Math.max(ranges.length - 1, 1);
+  let left = 0;
+  let right = 0;
+  for (let i = 0; i < ranges.length; i += 1) {
+    const angle = -fov / 2 + i * step;
+    if (angle > 0.6 && angle < 1.8) left += ranges[i];
+    if (angle < -0.6 && angle > -1.8) right += ranges[i];
+  }
+  return left > right ? 1.1 : -1.1;
 }
 
 /** Is there room to back up? The lidar's rear beams have to say so. */

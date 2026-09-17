@@ -42,6 +42,20 @@ export type ExploreReport = {
   cellsPerMetre: number;
 };
 
+/** Where the published map lives in ability memory. */
+export const MAP_KEY = "map:occupancy";
+
+/** The map as anything outside the ability sees it. */
+export type PublishedMap = {
+  resolution: number;
+  origin: Vec2;
+  width: number;
+  height: number;
+  /** 0 unknown, 1 free, 2 occupied — row-major. */
+  cells: number[];
+  updatedAtMs: number;
+};
+
 type Grid = {
   resolution: number;
   width: number;
@@ -123,8 +137,28 @@ export const exploreFrontier: Ability<ExploreInput, ExploreReport> = {
     let travelled = 0;
     let frontiersVisited = 0;
     let previousPose = ctx.robot.pose();
+    let lastPublish = 0;
+
+    // Publishing the map as it fills, rather than only at the end, is what lets
+    // anything else — a UI, an operator, another robot — watch the space become
+    // known instead of waiting for a verdict.
+    const publish = () => {
+      ctx.memory.set(MAP_KEY, {
+        resolution,
+        origin,
+        width: grid.width,
+        height: grid.height,
+        /** 0 unknown, 1 free, 2 occupied. */
+        cells: Array.from(grid.cells, (value, index) =>
+          grid.seen[index] === 0 ? 0 : value > 0.5 ? 2 : value < -0.5 ? 1 : 0,
+        ),
+        updatedAtMs: ctx.now(),
+      });
+      lastPublish = ctx.now();
+    };
 
     integrateScan(grid, origin, ctx);
+    publish();
 
     while (!ctx.signal.aborted) {
       const elapsed = ctx.now() - started;
@@ -184,6 +218,7 @@ export const exploreFrontier: Ability<ExploreInput, ExploreReport> = {
           travelled += distance(now, previousPose);
           previousPose = now;
           integrateScan(grid, origin, ctx);
+          if (ctx.now() - lastPublish > 700) publish();
         },
       });
 
@@ -226,13 +261,7 @@ export const exploreFrontier: Ability<ExploreInput, ExploreReport> = {
       cellsPerMetre: travelled > 0.1 ? stats.known / travelled : 0,
     };
 
-    ctx.memory.set("map:occupancy", {
-      resolution,
-      origin,
-      width: grid.width,
-      height: grid.height,
-      cells: Array.from(grid.cells),
-    });
+    publish();
     ctx.emit({ kind: "metric", name: "explore.coverage", value: stats.coverage });
 
     return {

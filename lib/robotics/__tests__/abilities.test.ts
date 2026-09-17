@@ -44,8 +44,10 @@ test("reflex.shield keeps the robot away from people in a busy corridor", async 
 
   assert.equal(trip.ok, true, `never got through: ${trip.summary}`);
   assert.equal(rig.governor.isStopped(), false, "the shield latched an e-stop on a normal crossing");
+  // Centre to centre: a 0.28 m robot and a 0.25 m person touch at 0.53 m, so
+  // anything at or below that is a collision, not a close pass.
   assert.ok(
-    (report.data?.minHumanDistance ?? 0) > 0.3,
+    (report.data?.minHumanDistance ?? 0) > 0.55,
     `came within ${report.data?.minHumanDistance?.toFixed(2)} m of a person`,
   );
   assert.equal(rig.world.robot("luka-1").collisions, 0);

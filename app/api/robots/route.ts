@@ -6,6 +6,8 @@
 
 import { NextRequest } from "next/server";
 import { createSimRig, SCENARIOS, type ScenarioName } from "@/lib/robotics/index.ts";
+import { createInMemoryBackend } from "@/lib/robotics/core/memory.ts";
+import { MAP_KEY, type PublishedMap } from "@/lib/robotics/abilities/explore-frontier.ts";
 import { DEMOS, runDemo, type DemoName } from "@/lib/robotics/demos.ts";
 import type { SimRig } from "@/lib/robotics/index.ts";
 import type { AbilityEvent } from "@/lib/robotics/core/types.ts";
@@ -37,6 +39,8 @@ export async function GET() {
       requires: m.requires,
       tags: m.tags,
       daemon: m.daemon ?? false,
+      inputSchema: m.inputSchema,
+      typicalDurationMs: m.typicalDurationMs,
     })),
     demos: Object.entries(DEMOS).map(([name, demo]) => ({
       name,
@@ -72,11 +76,24 @@ export async function POST(request: NextRequest) {
       };
 
       let sampler: ReturnType<typeof setInterval> | null = null;
+      const memoryBackend = createInMemoryBackend();
+      let lastMapAt = -1;
 
       const bindRig = (rig: SimRig) => {
         if (sampler) clearInterval(sampler);
+        lastMapAt = -1;
         send("setup", describeWorld(rig));
-        sampler = setInterval(() => send("frame", snapshot(rig)), 60);
+        sampler = setInterval(() => {
+          send("frame", snapshot(rig));
+          // The map is large and changes slowly; send it only when it moves on.
+          const map = memoryBackend.read(`${rig.robot.id}:${MAP_KEY}`) as
+            | PublishedMap
+            | undefined;
+          if (map && map.updatedAtMs !== lastMapAt) {
+            lastMapAt = map.updatedAtMs;
+            send("map", packMap(map));
+          }
+        }, 60);
       };
 
       const onEvent = (event: AbilityEvent) => send("log", event);
@@ -93,6 +110,7 @@ export async function POST(request: NextRequest) {
             realtimeFactor: speed,
             onEvent,
             onRig: bindRig,
+            memoryBackend,
           });
           send("done", outcome);
           return;
@@ -102,6 +120,7 @@ export async function POST(request: NextRequest) {
           scenario: body.scenario ?? "cluttered-office",
           seed: body.seed,
           realtimeFactor: speed,
+          memoryBackend,
         });
         rig.runtime.on(onEvent);
         bindRig(rig);
@@ -169,7 +188,34 @@ function describeWorld(rig: SimRig) {
   };
 }
 
+/** Occupancy as a base64 byte per cell — a tenth the size of a JSON array. */
+function packMap(map: PublishedMap) {
+  const bytes = Uint8Array.from(map.cells);
+  return {
+    resolution: map.resolution,
+    origin: map.origin,
+    width: map.width,
+    height: map.height,
+    cells: Buffer.from(bytes).toString("base64"),
+  };
+}
+
+/** Every third beam: enough to draw a readable fan, a third of the bytes. */
+function packLidar(rig: SimRig) {
+  const scan = rig.robot.lidar();
+  const stride = 3;
+  const ranges: number[] = [];
+  for (let i = 0; i < scan.ranges.length; i += stride) {
+    ranges.push(Math.round(scan.ranges[i] * 100) / 100);
+  }
+  return { ranges, fov: scan.fov, maxRange: scan.maxRange, stride };
+}
+
 function snapshot(rig: SimRig) {
+  const lead = rig.world.robot(rig.robot.id);
+  const arm = rig.robot.arm();
+  const gripper = rig.robot.gripper();
+
   return {
     t: rig.world.timeMs,
     robots: rig.world.allRobots().map((r) => ({
@@ -184,6 +230,18 @@ function snapshot(rig: SimRig) {
       speed: r.linear,
       utterance: r.utterance,
     })),
+    lidar: packLidar(rig),
+    arm: {
+      tip: rig.world.tipWorldPosition(lead),
+      height: arm.height,
+      closure: gripper.closure,
+      force: gripper.force,
+      slip: gripper.slip,
+      pull: gripper.externalPull,
+    },
+    // How far away a person has to be for the robot's current speed to be safe.
+    // Drawing this is the clearest way to show what the governor is doing.
+    envelope: rig.governor.protectiveDistance(Math.abs(lead.linear)),
     humans: rig.world.humans.map((h) => ({
       id: h.id,
       x: h.at.x,

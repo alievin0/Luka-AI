@@ -6,8 +6,10 @@ import {
   clamp,
   distance,
   gaussian,
+  length,
   makeRng,
   type Pose2,
+  sub,
   type Vec2,
   wrapAngle,
 } from "../core/math.ts";
@@ -39,6 +41,16 @@ export type SimObject = {
   yield?: number;
 };
 
+/**
+ * How a person behaves around a robot.
+ *
+ * - `cooperative` — an ordinary pedestrian: sees the robot and walks around it.
+ * - `distracted`  — looking at their phone, does not avoid at all. Contact is
+ *                   then entirely the robot's problem, which is the case worth
+ *                   testing and the one most simulations quietly skip.
+ */
+export type Avoidance = "cooperative" | "distracted";
+
 export type SimHuman = {
   id: string;
   at: Vec2;
@@ -47,6 +59,7 @@ export type SimHuman = {
   speed: number;
   /** True when looking at the robot — the telegraphing ability cares. */
   attentive: boolean;
+  avoidance?: Avoidance;
   waypointIndex?: number;
 };
 
@@ -95,6 +108,8 @@ export type SimRobot = {
   lights: { pattern: string; color: string };
   utterance: string | null;
   collisions: number;
+  /** Contacts with a person specifically — the number that actually matters. */
+  humanContacts: number;
   /** True while the robot is pressed against geometry. */
   inContact: boolean;
   distanceTravelled: number;
@@ -129,6 +144,10 @@ export type SimSnapshot = {
   timeMs: number;
   robots: SimRobot[];
 };
+
+/** Body radii, metres. Two bodies touch when their centres are this far apart. */
+export const ROBOT_RADIUS = 0.28;
+export const HUMAN_RADIUS = 0.25;
 
 const GRAVITY = 9.81;
 const GRIP_FRICTION = 0.6;
@@ -285,6 +304,7 @@ export class SimWorld {
       lights: { pattern: "idle", color: "#3b82f6" },
       utterance: null,
       collisions: 0,
+      humanContacts: 0,
       inContact: false,
       distanceTravelled: 0,
       energyUsedWh: 0,
@@ -421,6 +441,7 @@ export class SimWorld {
       // two seconds has had one collision, not a hundred.
       if (!robot.inContact) {
         robot.collisions += 1;
+        if (this.touchingSomeone({ x: nextX, y: nextY })) robot.humanContacts += 1;
         robot.inContact = true;
       }
       robot.linear = 0;
@@ -610,40 +631,62 @@ export class SimWorld {
       if (human.waypoints.length === 0) continue;
       const index = human.waypointIndex ?? 0;
       const target = human.waypoints[index % human.waypoints.length];
-      const dx = target.x - human.at.x;
-      const dy = target.y - human.at.y;
-      const dist = Math.hypot(dx, dy);
+      const toTarget = sub(target, human.at);
+      const dist = length(toTarget);
       if (dist < 0.12) {
         human.waypointIndex = (index + 1) % human.waypoints.length;
         continue;
       }
 
-      let vx = (dx / dist) * human.speed;
-      let vy = (dy / dist) * human.speed;
+      let heading = Math.atan2(toTarget.y, toTarget.x);
+      let speed = human.speed;
 
-      // People do not walk into things. A mild repulsion from any robot within
-      // personal space is what stops a stationary robot from being treated as
-      // a wall the simulation happily marches through — and it means the
-      // robot's own safety numbers are measured against a plausible human.
-      for (const robot of this.robots.values()) {
-        const gap = distance(human.at, robot.pose);
-        if (gap > 0.9 || gap < 1e-6) continue;
-        const strength = ((0.9 - gap) / 0.9) * human.speed * 1.8;
-        const awayX = (human.at.x - robot.pose.x) / gap;
-        const awayY = (human.at.y - robot.pose.y) / gap;
-        vx += awayX * strength;
-        vy += awayY * strength;
+      if ((human.avoidance ?? "cooperative") === "cooperative") {
+        // Steering, not a force field. A repulsion vector fights the walker's
+        // own heading and settles into an equilibrium where the person presses
+        // against the robot forever; steering the heading makes them go round,
+        // which is what people actually do.
+        for (const robot of this.robots.values()) {
+          const toRobot = sub(robot.pose, human.at);
+          const gap = length(toRobot);
+          if (gap > 2.2 || gap < 1e-6) continue;
 
-        // People step *around* an obstacle, they do not stand pressing into it.
-        // Without a sideways component the repulsion and the person's own
-        // heading cancel exactly, and the simulation deadlocks a pedestrian
-        // against a robot forever — which then looks like a robot bug.
-        const side = awayX * (dy / dist) - awayY * (dx / dist) >= 0 ? 1 : -1;
-        vx += -awayY * side * strength * 0.9;
-        vy += awayX * side * strength * 0.9;
+          const bearing = wrapAngle(Math.atan2(toRobot.y, toRobot.x) - heading);
+          // Only things roughly in front are worth walking around.
+          if (Math.abs(bearing) > Math.PI / 2) continue;
+
+          const clearNeeded = ROBOT_RADIUS + HUMAN_RADIUS + 0.2;
+          // How far off the current heading the robot is, laterally.
+          const lateral = Math.abs(gap * Math.sin(bearing));
+          if (lateral > clearNeeded) continue;
+
+          // Turn away by enough to clear it, more sharply the closer it is.
+          const needed = Math.asin(clamp(clearNeeded / Math.max(gap, clearNeeded), 0, 1));
+          const away = bearing >= 0 ? -1 : 1;
+          heading = wrapAngle(heading + away * needed * clamp(2.2 / gap, 1, 2.5));
+          // And slow down when it is close, the way a person does.
+          speed = human.speed * clamp(gap / 1.6, 0.35, 1);
+        }
       }
 
-      human.at = { x: human.at.x + vx * dt, y: human.at.y + vy * dt };
+      human.at = {
+        x: human.at.x + Math.cos(heading) * speed * dt,
+        y: human.at.y + Math.sin(heading) * speed * dt,
+      };
+
+      // Bodies do not pass through each other, whatever the steering decided.
+      // Without this the avoidance above is only a suggestion, and a determined
+      // pedestrian walks into the robot — which then shows up as a safety
+      // number that looks fine and is not.
+      for (const robot of this.robots.values()) {
+        const gap = distance(human.at, robot.pose);
+        const touching = ROBOT_RADIUS + HUMAN_RADIUS;
+        if (gap >= touching || gap < 1e-6) continue;
+        human.at = {
+          x: robot.pose.x + ((human.at.x - robot.pose.x) / gap) * touching,
+          y: robot.pose.y + ((human.at.y - robot.pose.y) / gap) * touching,
+        };
+      }
     }
   }
 
@@ -657,8 +700,16 @@ export class SimWorld {
     };
   }
 
-  /** True when a robot body centred at `at` would be inside geometry. */
-  blocked(at: Vec2, radius = 0.28): boolean {
+  /**
+   * True when a robot body centred at `at` would be inside something solid.
+   * People count: a robot that can drive through a person makes every safety
+   * number it reports meaningless.
+   */
+  blocked(at: Vec2, radius = ROBOT_RADIUS): boolean {
+    for (const human of this.humans) {
+      if (distance(at, human.at) < radius + HUMAN_RADIUS) return true;
+    }
+
     if (at.x < radius || at.y < radius) return true;
     if (at.x > this.width - radius || at.y > this.height - radius) return true;
     for (const obstacle of this.obstacles) {
@@ -675,6 +726,11 @@ export class SimWorld {
       }
     }
     return false;
+  }
+
+  /** True when a robot body at `at` would be touching a person. */
+  touchingSomeone(at: Vec2, radius = ROBOT_RADIUS): boolean {
+    return this.humans.some((h) => distance(at, h.at) < radius + HUMAN_RADIUS + 1e-6);
   }
 
   /** Distance to the first thing a ray hits, up to `maxRange`. */
@@ -699,9 +755,9 @@ export class SimWorld {
       if (hit !== null && hit > 0 && hit < nearest) nearest = hit;
     }
 
-    // People are obstacles too, modelled as 0.25 m cylinders.
+    // People are obstacles too, modelled as cylinders of HUMAN_RADIUS.
     for (const human of this.humans) {
-      const hit = rayCircle(origin, dx, dy, human.at, 0.25);
+      const hit = rayCircle(origin, dx, dy, human.at, HUMAN_RADIUS);
       if (hit !== null && hit > 0 && hit < nearest) nearest = hit;
     }
 

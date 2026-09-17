@@ -12,6 +12,7 @@ import { navigateTo } from "./navigate-to.ts";
 import { powerLifeline } from "./power-lifeline.ts";
 import { reflexShield } from "./reflex-shield.ts";
 import { rehearsePlan } from "./rehearse.ts";
+import { safetyStoppable } from "./stoppable.ts";
 import { spatialMemory } from "./spatial-memory.ts";
 import { swarmAuction } from "./swarm-auction.ts";
 import type { Ability } from "../core/types.ts";
@@ -28,6 +29,7 @@ export const ALL_ABILITIES: Array<Ability<never, never>> = [
   powerLifeline,
   reflexShield,
   rehearsePlan,
+  safetyStoppable,
   spatialMemory,
   swarmAuction,
 ] as unknown as Array<Ability<never, never>>;
@@ -49,6 +51,7 @@ export {
   powerLifeline,
   reflexShield,
   rehearsePlan,
+  safetyStoppable,
   spatialMemory,
   swarmAuction,
 };

@@ -5,12 +5,33 @@
 حقيقي عبر ROS 2 بدون ما تغيّر سطر بالقدرة نفسها.
 
 ```bash
-npm test                     # ٣٩ اختبار للنواة والقدرات
-npm run demo                 # ٩ عروض كاملة بالطرفية
+npm test                     # ٥٣ اختبار للنواة والقدرات والقياس
+npm run demo                 # ١١ عرض كامل بالطرفية
 npm run dev                  # بعدين افتح /robots للعرض المرئي
 npm run robo -- list         # كل القدرات
 npm run robo -- run navigate.to '{"x":12,"y":8}'
 ```
+
+## ⚠️ حدود لازم تنقال أول — limits, stated first
+
+هالقسم فوق مو تحت، لأنه أهم من أي رقم بالملف.
+
+- **المحاكي ثنائي الأبعاد.** الحتمية هون **خاصية قابلية إعادة إنتاج، مو ادّعاء
+  دقّة فيزيائية**. أفضل محرّكات الفيزياء الموجودة بتنحرف بشكل كبير عند لحظة
+  التلامس — وهاد بالضبط المكان اللي المناورة فيه بتصير مهمة.
+- **حارس الأمان و`safety.stoppable` أدوات تصميم، مو وظائف أمان معتمدة.** الأنظمة
+  اللي عم تشتغل فعلياً بدون أسوار حوالين الناس بتستعمل متحكّم أمان مستقل على
+  عتاد منفصل. الطبقة اللي هالمكتبة فيها مو هي.
+- **حلقة تحكّم ٥٠ هرتز بـ TypeScript فوق WebSocket مو طبقة زمن حقيقي.** على عتاد
+  حقيقي لازم يكون تحتها مراقب على عتاد أو خيط بأولوية حقيقية.
+- **أمان الروبوت عم يعتمد على تعاون الإنسان.** شوف عرض `measured-crossing`:
+  ٢٠/٢٠ عبور نظيف مع ناس بينتبهوا، ٠/٢٠ مع ناس ما بيرفعوا راسهم.
+
+> The simulator is 2-D and determinism is a reproducibility property, not a
+> fidelity claim. The safety governor and the stoppability monitor are design
+> aids, not certified safety functions. A 50 Hz loop in TypeScript over a
+> WebSocket is not a real-time layer. And the robot's safety record depends on
+> people cooperating — `measured-crossing` measures exactly how much.
 
 ---
 
@@ -31,6 +52,7 @@ npm run robo -- run navigate.to '{"x":12,"y":8}'
 | 11 | `hri.handover` · التسليم لليد | بيقدّم الغرض وبيفلته لما يحس بشدّ إيد الشخص، مو على مؤقّت | التسليم أكتر تفاعل جسدي شائع بين الروبوت والإنسان |
 | 12 | `explore.frontier` · المستكشف | بيرسم خريطة مكان مجهول بالمشي على الحدود بين المعروف والمجهول | شرط التوقف واضح: ما ضل حدود يعني خلص المكان |
 | 13 | `navigate.to` · التنقل | بيوصل لنقطة ويتفادى كل شي بيظهر بالطريق | الأساس اللي بتبني عليه الباقي |
+| 14 | `safety.stoppable` · مراقب التوقف | بيجاوب باستمرار: لو وقف هلق، بيوصل لوضع ثابت بدون ما يوقع أو يصطدم؟ | حدّ السرعة بيجاوب «قديش بسرعة»، مو «هل التوقف لسا ممكن» — والاتنين بينفصلوا بالضبط وين بيهمّوا |
 
 كل قدرة بتشتغل هيك:
 
@@ -180,18 +202,67 @@ Tool definitions are generated from the manifests, so they cannot drift.
 
 ---
 
+## Measuring things honestly
+
+`lib/robotics/eval/` exists because the field's own complaint about itself in
+2026 is not that models are bad — it is that nobody can prove they got better.
+A bare percentage over ten episodes is not evidence, and this module makes it
+awkward to publish one.
+
+```ts
+import { runSuite, compare, report, type Protocol } from "@/lib/robotics/eval";
+
+const protocol: Protocol = {
+  name: "corridor crossing",
+  scenario: "busy-corridor",
+  seeds: [1000, 1007, 1014, /* … */],
+  timeLimitMs: 120_000,
+  criterion: { id: "arrived-without-contact", version: "1.0.0", description: "…" },
+  conditions: { shield: "on" },
+};
+
+const result = await runSuite(protocol, runOneEpisode);
+console.log(report(result));
+```
+
+```
+corridor crossing · busy-corridor  [919f8ef350b08551]
+  world busy-corridor · 20 episodes · 120s limit each
+  success: 20/20 = 100.0%
+  95% CI:  83.9% – 100.0%   (Wilson)
+  this many episodes can only resolve differences above 40 points
+  criterion: arrived-without-contact@1.0.0 — reached the goal and never touched a person
+  humanContacts: mean 0.000 ± 0.000 · median 0.000 · range 0.000–0.000
+```
+
+What it enforces:
+
+- **Every rate carries a Wilson interval.** Nine out of ten is 60–98%, not 90%.
+- **Every protocol has a fingerprint** over its seeds, limits, success criterion
+  and conditions. `compare()` throws on mismatched fingerprints rather than
+  subtracting two numbers that were never measuring the same thing.
+- **Comparisons are paired** (exact McNemar on the episodes where the two
+  variants disagreed), which needs far fewer episodes than comparing two
+  independent rates.
+- **Sample size before the experiment.** At a 50% baseline and 80% power:
+  93 episodes to detect 20 points, 388 for 10, about 9,800 for 2. `runSuite`
+  reports what its own episode count could actually have resolved.
+- **`sweep()` reports a curve**, not a number — one success rate on nominal
+  conditions is the statistic that made everyone stop trusting robot benchmarks.
+
 ## Testing
 
 ```bash
-npm test                        # 39 tests: kernel, safety model, every ability
-npm run demo                    # 9 demonstrations, each checking its own result
-npm run demo -- feel-it-out     # just one
+npm test                        # 53 tests: kernel, safety model, statistics, every ability
+npm run demo                    # 11 demonstrations, each checking its own result
+npm run demo -- push-sweep      # just one
 ```
 
 The tests are behavioural, not smoke tests. They assert things like:
 
 - a 1.6 rad/s shove topples the robot **unless** `balance.recover` catches it —
   the control case is run first, so the test proves something;
+- a 12–4 win is reported as *unresolved* (p = 0.077), because it is;
 - `grasp.adaptive` recovers an unknown object's stiffness to within 20% by
   squeezing it, and refuses the one object that cannot be held without damage —
   leaving it undamaged;

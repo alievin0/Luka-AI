@@ -7,6 +7,7 @@ export type ScenarioName =
   | "empty-hall"
   | "cluttered-office"
   | "busy-corridor"
+  | "distracted-corridor"
   | "kitchen-fetch"
   | "warehouse-fleet"
   | "long-patrol";
@@ -85,6 +86,48 @@ export const SCENARIOS: Record<ScenarioName, Scenario> = {
           ],
           speed: 0.8,
           attentive: true,
+        },
+      ],
+    },
+    spawns: [{ id: "luka-1", x: 2, y: 3 }],
+  },
+
+  "distracted-corridor": {
+    name: "distracted-corridor",
+    title: { en: "Distracted Corridor", ar: "ممر وناسه مشغولين" },
+    description:
+      "The same corridor, except nobody looks up from their phone. Avoiding contact is now entirely the robot's problem — which is the case worth measuring and the one most simulations quietly skip.",
+    world: {
+      width: 16,
+      height: 6,
+      seed: 37,
+      dock: { x: 1.2, y: 1.2 },
+      obstacles: [
+        { id: "wall-a", kind: "box", at: { x: 8, y: 0.9 }, width: 7, height: 0.4 },
+        { id: "wall-b", kind: "box", at: { x: 8, y: 5.1 }, width: 7, height: 0.4 },
+      ],
+      humans: [
+        {
+          id: "amal",
+          at: { x: 11, y: 3 },
+          waypoints: [
+            { x: 4, y: 3 },
+            { x: 13, y: 3 },
+          ],
+          speed: 1.1,
+          attentive: false,
+          avoidance: "distracted",
+        },
+        {
+          id: "sami",
+          at: { x: 6, y: 2.3 },
+          waypoints: [
+            { x: 13, y: 2.3 },
+            { x: 5, y: 3.7 },
+          ],
+          speed: 0.8,
+          attentive: false,
+          avoidance: "distracted",
         },
       ],
     },

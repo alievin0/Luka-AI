@@ -20,13 +20,25 @@ export type SafetyLimits = {
   maxAngular: number;
   /** Deceleration the brakes can actually deliver, m/s². */
   maxDecel: number;
-  /** Sense→command→motor latency, seconds. */
+  /**
+   * Sense→command→motor latency budget, seconds. This is a *budget*: the real
+   * figure is measured at runtime and, if it exceeds this, the separation model
+   * uses the measured one. A policy running in a datacentre can add a quarter
+   * of a second of round trip, which at walking speed is a third of a metre of
+   * protective distance the robot would otherwise never have accounted for.
+   */
   reactionTime: number;
   /** Assumed human approach speed, m/s (1.6 is the standard walking figure). */
   humanSpeed: number;
   /** Perception + localisation uncertainty rolled into one margin, metres. */
   uncertainty: number;
-  /** Never get closer to a person than this, whatever the maths says. */
+  /**
+   * Never get closer to a person than this, whatever the maths says. Measured
+   * centre to centre, because that is what a person tracker reports — so it has
+   * to cover both bodies. A 0.28 m robot and a 0.25 m person are touching at
+   * 0.53 m, which makes anything below that a collision rather than a close
+   * pass.
+   */
   minSeparation: number;
   /** Stop before hitting static geometry with less than this clearance. */
   obstacleClearance: number;
@@ -41,7 +53,7 @@ export const DEFAULT_LIMITS: SafetyLimits = {
   reactionTime: 0.12,
   humanSpeed: 1.6,
   uncertainty: 0.12,
-  minSeparation: 0.35,
+  minSeparation: 0.55,
   obstacleClearance: 0.25,
   maxContactForce: 28,
 };
@@ -70,6 +82,9 @@ export class SafetyGovernor implements SafetyApi {
   private stopped = false;
   private stopReason = "";
   private override: { linear: number; angular: number; reason: string } | null = null;
+  /** Exponentially-weighted measurement of the real sense-to-act latency, seconds. */
+  private measuredLatency = 0;
+  private latencyWarned = false;
   private last: SafetyVerdict = {
     level: "clear",
     speedScale: 1,
@@ -84,11 +99,39 @@ export class SafetyGovernor implements SafetyApi {
   }
 
   /**
+   * Report how long it actually took between sensing the world and the motors
+   * acting on it. Everything downstream of a slow link — a cloud policy, a
+   * congested network, a busy control loop — shows up here.
+   */
+  observeLatency(seconds: number): void {
+    if (!Number.isFinite(seconds) || seconds < 0) return;
+    this.measuredLatency = this.measuredLatency === 0
+      ? seconds
+      : this.measuredLatency * 0.9 + seconds * 0.1;
+
+    if (this.measuredLatency > this.limits.reactionTime && !this.latencyWarned) {
+      this.latencyWarned = true;
+      this.onChange?.({
+        level: this.last.level,
+        speedScale: this.last.speedScale,
+        reason: `measured latency ${(this.measuredLatency * 1000).toFixed(0)} ms exceeds the ${(this.limits.reactionTime * 1000).toFixed(0)} ms budget — separation distances widened to match`,
+        nearestHuman: this.last.nearestHuman,
+      });
+    }
+  }
+
+  /** The latency the separation model is actually using, seconds. */
+  effectiveReactionTime(): number {
+    return Math.max(this.limits.reactionTime, this.measuredLatency);
+  }
+
+  /**
    * Protective separation distance for a robot travelling at `speed`: how far
    * away a person has to be for this speed to still be safe.
    */
   protectiveDistance(speed: number): number {
-    const { reactionTime, maxDecel, humanSpeed, uncertainty } = this.limits;
+    const { maxDecel, humanSpeed, uncertainty } = this.limits;
+    const reactionTime = this.effectiveReactionTime();
     const stoppingTime = Math.abs(speed) / maxDecel;
     const humanTravel = humanSpeed * (reactionTime + stoppingTime);
     const robotReaction = Math.abs(speed) * reactionTime;
@@ -101,8 +144,8 @@ export class SafetyGovernor implements SafetyApi {
    * inside `distance`. Solved in closed form from the quadratic above.
    */
   allowedSpeed(distance: number): number {
-    const { reactionTime, maxDecel, humanSpeed, uncertainty, minSeparation, maxLinear } =
-      this.limits;
+    const { maxDecel, humanSpeed, uncertainty, minSeparation, maxLinear } = this.limits;
+    const reactionTime = this.effectiveReactionTime();
     if (!Number.isFinite(distance)) return maxLinear;
 
     const usable = distance - minSeparation;
@@ -271,7 +314,8 @@ export class SafetyGovernor implements SafetyApi {
   }
 
   private obstacleSpeedLimit(distance: number): number {
-    const { maxDecel, reactionTime, obstacleClearance, maxLinear } = this.limits;
+    const { maxDecel, obstacleClearance, maxLinear } = this.limits;
+    const reactionTime = this.effectiveReactionTime();
     const budget = distance - obstacleClearance;
     if (budget <= 0) return 0;
     // v·Tr + v²/(2a) <= budget
