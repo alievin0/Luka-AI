@@ -130,6 +130,14 @@ export class Ros2Bridge implements RobotIO {
   private undecodableFrames = 0;
   /** Topics already reported as publishing an unreadable shape. */
   private readonly reportedMalformed = new Set<string>();
+  /** When the last readable frame arrived, or 0 if none ever has. */
+  private lastInboundAt = 0;
+  /** When connect() completed, for judging how long silence has lasted. */
+  private connectedAt = 0;
+  /** Outstanding service calls, keyed by request id. */
+  private readonly serviceReplies = new Map<string, (values: unknown) => void>();
+  /** Topics the robot said it publishes, or null if never asked or no answer. */
+  private advertised: Set<string> | null = null;
   /** Commands issued with nowhere to send them. */
   private undeliveredCommands = 0;
   /** Last velocity actually reported, held so silence does not read as stopped. */
@@ -211,7 +219,25 @@ export class Ros2Bridge implements RobotIO {
       }
 
       try {
-        const frame = JSON.parse(event.data) as { op: string; topic?: string; msg?: unknown };
+        const frame = JSON.parse(event.data) as {
+          op: string;
+          topic?: string;
+          msg?: unknown;
+          id?: string;
+          values?: unknown;
+        };
+
+        // Anything readable arriving is proof the link is alive in the inbound
+        // direction, which is the direction a half-open socket stops working
+        // in first.
+        this.lastInboundAt = Date.now();
+
+        if (frame.op === "service_response" && frame.id) {
+          this.serviceReplies.get(frame.id)?.(frame.values);
+          this.serviceReplies.delete(frame.id);
+          return;
+        }
+
         if (frame.op !== "publish" || !frame.topic) return;
         this.cache.set(frame.topic, { value: frame.msg, at: Date.now() });
         if (frame.topic === this.topics.mesh) {
@@ -226,23 +252,14 @@ export class Ros2Bridge implements RobotIO {
       }
     });
 
+    this.connectedAt = Date.now();
+
     // CBOR rather than the default JSON. rosbridge's reputation for choking on
     // high-rate topics is mostly the JSON tax: a lidar scan is a thousand
     // floats, and spelling each one out in decimal costs several times what the
     // binary costs to send and to parse. CBOR packs homogeneous arrays, and it
     // is a per-subscription flag, not a different bridge.
-    for (const topic of [
-      this.topics.odom,
-      this.topics.scan,
-      this.topics.imu,
-      this.topics.battery,
-      this.topics.detections,
-      this.topics.people,
-      this.topics.gripperState,
-      this.topics.armState,
-      this.topics.mesh,
-      this.topics.diagnostics,
-    ]) {
+    for (const topic of this.subscribedTopics()) {
       this.publish({
         op: "subscribe",
         topic,
@@ -605,6 +622,89 @@ export class Ros2Bridge implements RobotIO {
   /** Whether there is currently a connection to send on. */
   isConnected(): boolean {
     return this.socket !== null;
+  }
+
+  /**
+   * Whether anything has actually arrived, and how long it has been.
+   *
+   * An open socket is not a working link. A TCP connection that has half-closed
+   * keeps accepting sends locally and never delivers them, and never errors
+   * either — so a robot that died the moment after connecting looks exactly
+   * like a robot that is connected and quiet. Measured before this existed: a
+   * link that had never delivered one message reported itself healthy with
+   * zero problems.
+   *
+   * The inbound direction is the one that gives it away, because a live robot
+   * is always publishing something.
+   */
+  inbound(): { everReceived: boolean; silentForMs: number } {
+    if (this.socket === null) return { everReceived: false, silentForMs: 0 };
+    const since = this.lastInboundAt === 0 ? this.connectedAt : this.lastInboundAt;
+    return {
+      everReceived: this.lastInboundAt > 0,
+      silentForMs: Math.max(0, Date.now() - since),
+    };
+  }
+
+  /**
+   * Ask the robot which topics it actually publishes.
+   *
+   * rosbridge accepts a subscription to any name at all, so a typo in a topic
+   * produces exactly the silence a dead sensor produces — and the silence gets
+   * debugged as a dead sensor, which it is not. `/rosapi/topics` is the only
+   * way to tell the two apart from this side.
+   *
+   * Returns null when the robot does not answer, which is itself worth knowing
+   * and must not be reported as "all topics present".
+   */
+  async advertisedTopics(timeoutMs = 2000): Promise<Set<string> | null> {
+    if (!this.socket) return null;
+    const id = `topics-${Date.now()}`;
+
+    const answer = await new Promise<unknown>((resolve) => {
+      const timer = setTimeout(() => {
+        this.serviceReplies.delete(id);
+        resolve(null);
+      }, timeoutMs);
+      this.serviceReplies.set(id, (values) => {
+        clearTimeout(timer);
+        resolve(values);
+      });
+      this.publish({ op: "call_service", service: "/rosapi/topics", id });
+    });
+
+    const topics = (answer as { topics?: unknown })?.topics;
+    if (!Array.isArray(topics)) return null;
+    this.advertised = new Set(topics.map(String));
+    return this.advertised;
+  }
+
+  /**
+   * Which of the topics this bridge subscribes to the robot does not publish.
+   *
+   * Null when the robot never answered, because "nobody told us" is a
+   * different state from "everything is there" and collapsing them is the
+   * whole mistake this audit keeps finding.
+   */
+  missingTopics(): string[] | null {
+    if (!this.advertised) return null;
+    return this.subscribedTopics().filter((topic) => !this.advertised!.has(topic));
+  }
+
+  /** Every topic this bridge subscribes to. */
+  subscribedTopics(): string[] {
+    return [
+      this.topics.odom,
+      this.topics.scan,
+      this.topics.imu,
+      this.topics.battery,
+      this.topics.detections,
+      this.topics.people,
+      this.topics.gripperState,
+      this.topics.armState,
+      this.topics.mesh,
+      this.topics.diagnostics,
+    ];
   }
 
   /**

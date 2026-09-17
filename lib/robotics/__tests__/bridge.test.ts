@@ -38,6 +38,9 @@ function fakeSocket() {
       handlers.get("message")?.({ data: JSON.stringify({ op: "publish", topic, msg }) }),
     /** Deliver something that is not a string, as a CBOR server would. */
     deliverRaw: (data: unknown) => handlers.get("message")?.({ data }),
+    /** Answer a service call the bridge made. */
+    reply: (id: string, values: unknown) =>
+      handlers.get("message")?.({ data: JSON.stringify({ op: "service_response", id, values }) }),
   };
 }
 
@@ -489,4 +492,59 @@ test("a well-formed message still gets through after a malformed one", async () 
   assert.equal(good.ranges.length, 30);
   assert.equal(good.stamp, "sensor");
   assert.equal(scanQuality(good), 1);
+});
+
+test("an open socket that has never delivered anything is not a working link", async () => {
+  // TCP half-open: the connection accepts sends locally, delivers nothing, and
+  // never errors. Measured before this existed — a link that had never carried
+  // one message reported itself healthy with zero problems, so a robot that
+  // died the instant after connecting looked like a robot that was quiet.
+  const { bridge } = await connected();
+
+  const cold = bridge.inbound();
+  assert.equal(cold.everReceived, false, "claimed to have received something");
+  assert.ok(bridge.isConnected(), "the socket is open — that is the point");
+
+  // One readable frame is enough to prove the inbound direction works.
+  const { bridge: live, fake } = await connected();
+  fake.deliver("/scan", {
+    ranges: new Array(10).fill(3),
+    angle_min: -1,
+    angle_max: 1,
+    range_max: 12,
+  });
+  assert.equal(live.inbound().everReceived, true);
+});
+
+test("a topic the robot does not publish is told apart from a sensor that is dead", async () => {
+  // rosbridge accepts a subscription to any name at all, so a typo produces
+  // exactly the silence a dead sensor produces — and gets debugged as a dead
+  // sensor, which costs an afternoon and sometimes a replacement part.
+  const { bridge, fake } = await connected();
+
+  // Before asking, the honest answer is "nobody told us", not "all present".
+  assert.equal(bridge.missingTopics(), null);
+
+  const asking = bridge.advertisedTopics(1000);
+  const call = fake.sent.find((f) => f.op === "call_service");
+  assert.ok(call, "no service call was made");
+  assert.equal(call.service, "/rosapi/topics");
+
+  // The robot answers with a list that is missing the scan topic.
+  fake.reply(String(call.id), { topics: ["/odom", "/imu/data", "/battery_state"] });
+  const advertised = await asking;
+  assert.ok(advertised?.has("/odom"));
+
+  const missing = bridge.missingTopics();
+  assert.ok(missing, "missingTopics stayed unknown after a successful answer");
+  assert.ok(missing.includes("/scan"), `expected /scan among ${missing.join(", ")}`);
+  assert.ok(!missing.includes("/odom"));
+});
+
+test("a robot that never answers leaves the topics unverified, not verified", async () => {
+  const { bridge, fake } = await connected();
+  const asking = bridge.advertisedTopics(30);
+  void fake;
+  assert.equal(await asking, null, "silence was read as a successful answer");
+  assert.equal(bridge.missingTopics(), null, "silence was read as nothing missing");
 });

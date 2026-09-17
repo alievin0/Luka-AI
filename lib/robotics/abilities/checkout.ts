@@ -221,12 +221,51 @@ export const hardwareCheckout: Ability<CheckoutInput, CheckoutReport> = {
     //     return normally with nothing sent; topics stay silent with nothing
     //     reported. Either way this process and the robot have stopped agreeing
     //     about what is happening, and that is not a state to drive in.
-    const transport = ctx.robot as { transportProblems?: () => number; isConnected?: () => boolean };
+    const transport = ctx.robot as {
+      transportProblems?: () => number;
+      isConnected?: () => boolean;
+      inbound?: () => { everReceived: boolean; silentForMs: number };
+      advertisedTopics?: (timeoutMs?: number) => Promise<Set<string> | null>;
+      missingTopics?: () => string[] | null;
+    };
     if (typeof transport.transportProblems === "function") {
       const problems = transport.transportProblems();
       const connected = transport.isConnected?.() ?? true;
+      const inbound = transport.inbound?.() ?? { everReceived: true, silentForMs: 0 };
+
+      // Ask the robot what it publishes before blaming a sensor for silence.
+      // rosbridge accepts a subscription to any name, so a typo produces
+      // exactly the silence a dead sensor produces — and gets debugged as one.
+      if (connected && typeof transport.advertisedTopics === "function") {
+        await transport.advertisedTopics(2000);
+      }
+      const missing = transport.missingTopics?.() ?? null;
+
       if (!connected) {
         add("transport", "fail", "There is no connection to the robot. Nothing sent will arrive.");
+      } else if (!inbound.everReceived) {
+        add(
+          "transport",
+          "fail",
+          `The socket is open and nothing has ever arrived on it (${inbound.silentForMs.toFixed(0)} ms ` +
+            "so far). An open socket is not a working link: a connection that half-closes keeps " +
+            "accepting sends and never delivers them, and never errors either.",
+        );
+      } else if (missing && missing.length > 0) {
+        add(
+          "transport",
+          "fail",
+          `The robot does not publish ${missing.join(", ")}. These are subscribed and will stay ` +
+            "silent forever, which is indistinguishable from the sensors being dead — check the " +
+            "topic names before replacing any hardware.",
+        );
+      } else if (missing === null && connected) {
+        add(
+          "transport",
+          "warn",
+          "The robot did not answer /rosapi/topics, so the topic names in this profile are " +
+            "unverified. A name that is wrong will look like a sensor that is broken.",
+        );
       } else if (problems > 0) {
         add(
           "transport",
