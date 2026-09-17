@@ -9,7 +9,8 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "test": "node scripts/test-affiliate.mjs"
+    "test": "node scripts/test-affiliate.mjs && node scripts/test-desk.mjs",
+    "test:desk": "node scripts/test-desk.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.109.1",

@@ -4,7 +4,10 @@ import { getCart } from "@/lib/cart";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 300;
+// Vercel rejects a build whose maxDuration exceeds the plan's limit (60s on
+// Hobby, higher on paid plans), so this stays at the value every plan accepts.
+// Raise it only after confirming the deployment plan allows it.
+export const maxDuration = 60;
 
 const MODEL = process.env.LUKA_MODEL || "claude-opus-4-8";
 const MAX_ITERATIONS = 16;

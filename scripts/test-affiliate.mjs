@@ -23,7 +23,7 @@ try {
     "npx",
     ["tsc", "lib/affiliate.ts", "lib/links.ts", "--outDir", outDir,
      "--module", "commonjs", "--target", "es2020", "--moduleResolution", "node",
-     "--esModuleInterop", "--skipLibCheck"],
+     "--esModuleInterop", "--skipLibCheck", "--strict"],
     { stdio: "inherit" },
   );
 } catch {

@@ -5,7 +5,10 @@ import { publishDeals, getTelegramConfig } from "@/lib/telegram";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 // Hunting involves a dozen web searches and page fetches; give it room.
-export const maxDuration = 800;
+// Vercel rejects a build whose maxDuration exceeds the plan's limit (60s on
+// Hobby, higher on paid plans), so this stays at the value every plan accepts.
+// Raise it only after confirming the deployment plan allows it.
+export const maxDuration = 60;
 
 /**
  * Run the deal hunter and publish what it verified.
