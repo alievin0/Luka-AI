@@ -95,8 +95,17 @@ test("motion.telegraph aims its pre-cue away from the confusable goal", async ()
 // --- balance ---------------------------------------------------------------
 
 test("balance.recover catches a shove that would otherwise tip the robot", async () => {
+  // 1.2 rad/s, not the 1.6 this used to use.
+  //
+  // The recoverable envelope shrank by about a quarter when the IMU stopped
+  // handing over the true tilt and started reporting a fused estimate, which is
+  // what an IMU actually produces: the gyro integrated, pulled slowly toward
+  // what gravity says. Swept over twenty seeds per level, the robot now holds
+  // 1.2 rad/s at 20/20 and 1.4 at 1/20, where it used to hold 1.6 and fail at
+  // 2.0. Nothing about the capability changed; a quarter of what it could do
+  // was the sensor being perfect.
   const uncaught = createSimRig({ scenario: "empty-hall" });
-  uncaught.world.applyTiltImpulse("luka-1", 1.6);
+  uncaught.world.applyTiltImpulse("luka-1", 1.2);
   for (let i = 0; i < 150; i += 1) uncaught.world.step(0.02);
   assert.ok(
     Math.abs(uncaught.world.robot("luka-1").tilt) > 0.5,
@@ -104,7 +113,7 @@ test("balance.recover catches a shove that would otherwise tip the robot", async
   );
 
   const rig = createSimRig({ scenario: "empty-hall" });
-  rig.world.applyTiltImpulse("luka-1", 1.6);
+  rig.world.applyTiltImpulse("luka-1", 1.2);
   const result = await rig.runtime.run<Record<string, never>, {
     strategy: string;
     peakTilt: number;

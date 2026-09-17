@@ -71,9 +71,11 @@ export const balanceRecover: Ability<BalanceInput, BalanceReport> = {
     proof: {
       status: "SIMULATED" as const,
       basis:
-        "Holds to a 1.6 rad/s shove and fails at 2.0, ten seeds per level with intervals. At " +
-        "n=10 nothing under about 50 percentage points apart is distinguishable, which is stated " +
-        "in the demo rather than rounded away. Simulated inverted pendulum only.",
+        "Holds a 1.2 rad/s shove at 20/20 and a 1.4 rad/s one at 1/20, twenty seeds per level. " +
+        "It used to hold 1.6 and fail at 2.0, and nothing about the capability changed: the " +
+        "simulator stopped handing over the true tilt and started reporting a fused estimate, " +
+        "which is what an IMU produces. About a quarter of the recoverable envelope was the " +
+        "sensor being perfect. Simulated inverted pendulum only.",
       verification:
         "This is the one that should not be verified by pushing a real robot until somebody has " +
         "rehearsed the catch in simulation with that robot's measured mass and centre-of-mass " +
@@ -86,6 +88,11 @@ export const balanceRecover: Ability<BalanceInput, BalanceReport> = {
           "case the manoeuvre is computed, commanded and does not happen.",
         "A frozen IMU reports a constant tilt, which looks like a stable lean rather than a " +
           "sensor that has stopped — freshness is checked for exactly this.",
+        "It reads the driver's fused tilt and cannot see inside the fusion. The accelerometer " +
+          "half of that fusion measures specific force, which is not straight down while the " +
+          "robot is accelerating — and accelerating hard is exactly what catching a fall is. " +
+          "Measured, the reported tilt is up to 0.9 degrees out during a recovery, against a " +
+          "tip angle of 11.5.",
       ],
       degradedModes: [
         "None. There is no useful half-measure between measuring the fall and not measuring it, " +

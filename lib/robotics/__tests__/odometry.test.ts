@@ -267,3 +267,89 @@ test("the reported draw is the draw, including the arm", () => {
       "which does not account for a manipulator",
   );
 });
+
+// ── The IMU ────────────────────────────────────────────────────────────────
+
+test("the IMU reports a fused estimate, because that is what an IMU has", () => {
+  // An IMU does not measure tilt. It measures angular rate and specific force,
+  // and tilt is a fusion of the two — the gyro integrated because it is smooth
+  // and fast, pulled slowly toward what gravity says because the gyro drifts.
+  // The simulator used to hand out the true tilt with three milliradians of
+  // noise, which is not a sensor, it is the answer.
+  const rig = createSimRig({ scenario: "empty-hall", seed: 3 });
+  const truth = rig.robot as unknown as { trueTilt(): number };
+
+  rig.world.applyTiltImpulse(rig.robot.id, 1.6);
+  let worst = 0;
+  for (let i = 0; i < 150; i += 1) {
+    rig.world.step(0.02);
+    worst = Math.max(worst, Math.abs(rig.robot.imu().tilt - truth.trueTilt()));
+  }
+
+  assert.ok(worst > 0.004, `the tilt estimate is accurate to ${worst.toFixed(4)} rad, which is the answer`);
+  // And bounded: an estimate that runs away is a bug in the filter, not realism.
+  assert.ok(worst < 0.1, `the tilt estimate was ${worst.toFixed(3)} rad out, which is not a filter`);
+});
+
+test("a robot on the floor has stopped falling", () => {
+  // The tilt was clamped at ninety degrees and the tilt *rate* was not, so a
+  // robot that had already landed kept accumulating rate at fourteen radians
+  // per second squared for as long as the simulation ran. Every test read the
+  // tilt, which is clamped and looked right. It surfaced only when an IMU model
+  // started integrating the rate and reported a tilt of 905 degrees.
+  const rig = createSimRig({ scenario: "empty-hall", seed: 1 });
+  const robot = rig.world.robot(rig.robot.id);
+
+  rig.world.applyTiltImpulse(rig.robot.id, 6);
+  for (let i = 0; i < 300; i += 1) rig.world.step(0.02);
+
+  assert.ok(Math.abs(robot.tilt) > 1.5, "the robot did not fall, so this proves nothing");
+  assert.ok(
+    Math.abs(robot.tiltRate) < 0.001,
+    `a robot lying on the floor is still tipping at ${robot.tiltRate.toFixed(1)} rad/s`,
+  );
+});
+
+test("a gyro carries a bias, which is what makes an unaided estimate walk", () => {
+  // Every MEMS gyro has a constant offset, typically half a degree to two
+  // degrees per second. It is why integrating a rate without a reference does
+  // not stay pointing at anything.
+  const rig = createSimRig({ scenario: "empty-hall", seed: 2 });
+  const robot = rig.world.robot(rig.robot.id);
+
+  let reported = 0;
+  for (let i = 0; i < 50; i += 1) {
+    rig.world.step(0.02);
+    reported += rig.robot.imu().yawRate;
+  }
+  const mean = reported / 50;
+
+  assert.equal(robot.angular, 0, "this test needs a robot that is not turning");
+  assert.ok(
+    Math.abs(mean) > 1e-4,
+    "a stationary robot's gyro averaged to zero over fifty samples, which no gyro does",
+  );
+  assert.ok(
+    Math.abs(mean) < 0.05,
+    `the gyro reads ${mean.toFixed(3)} rad/s at rest, which is broken rather than biased`,
+  );
+});
+
+test("gyro bias does not trip the contradiction detector", () => {
+  // Worth checking against my own work: the world-state detector compares wheel
+  // odometry to the gyro at a 0.5 rad/s threshold, and a real gyro now disagrees
+  // with the wheels by its bias at all times. If that bias were near the
+  // threshold the detector would cry fault on every healthy robot.
+  const rig = createSimRig({ scenario: "cluttered-office", seed: 4 });
+  for (let tick = 0; tick < 200; tick += 1) {
+    const command = rig.governor.govern(rig.robot, 0.4, tick % 60 < 30 ? 0 : 0.5);
+    rig.robot.drive(command.linear, command.angular);
+    rig.world.step(0.05);
+    assert.equal(
+      rig.governor.standingConflicts().length,
+      0,
+      `a healthy robot with an ordinary gyro bias was accused of ` +
+        `${rig.governor.standingConflicts().map((c) => c.kind).join(", ")}`,
+    );
+  }
+});

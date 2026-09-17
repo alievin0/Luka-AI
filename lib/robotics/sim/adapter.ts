@@ -264,6 +264,11 @@ export class SimRobotAdapter implements RobotIO {
     };
   }
 
+  /** Ground-truth tilt, for scoring. Never for control. */
+  trueTilt(): number {
+    return this.self.tilt;
+  }
+
   /** Ground-truth pose — for scoring and rendering, never for control. */
   truePose(): Pose2 {
     return { ...this.self.pose };
@@ -311,13 +316,22 @@ export class SimRobotAdapter implements RobotIO {
     };
   }
 
+  /**
+   * What the IMU reports, which is not what the body is doing.
+   *
+   * `tilt` is a fused estimate rather than a measurement — see `stepIMU` — and
+   * the rates carry this unit's constant bias. Before this the simulator handed
+   * out the true tilt with three milliradians of noise, which is not a sensor,
+   * it is the answer. `balance.recover` decides whether a fall is still
+   * catchable from this number.
+   */
   imu(): ImuSample {
     const robot = this.self;
     return {
-      tilt: this.world.noisy(robot.tilt, 0.003),
-      tiltRate: this.world.noisy(robot.tiltRate, 0.01),
+      tilt: this.world.noisy(robot.tiltEstimate, 0.003),
+      tiltRate: this.world.noisy(robot.tiltRate + robot.gyroBias, 0.01),
       accel: this.world.noisy(robot.commandedLinear - robot.linear, 0.02),
-      yawRate: this.world.noisy(robot.angular, 0.01),
+      yawRate: this.world.noisy(robot.angular + robot.gyroBias, 0.01),
       t: this.world.timeMs,
       stamp: "sensor" as const,
     };

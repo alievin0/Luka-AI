@@ -124,6 +124,24 @@ export type SimRobot = {
   /** Systematic error in this pack's reported state of charge, fraction. */
   gaugeBias: number;
   /**
+   * Constant offset on this unit's rate gyro, rad/s.
+   *
+   * Every MEMS gyro has one, typically half a degree to two degrees per second,
+   * and it changes with temperature. Integrating a biased rate is what makes an
+   * unaided tilt estimate walk away from vertical.
+   */
+  gyroBias: number;
+  /**
+   * The tilt the driver reports, as opposed to the tilt the body has.
+   *
+   * An IMU does not measure tilt. It measures angular rate and specific force,
+   * and tilt is a fusion of the two — the gyro integrated for the short term,
+   * pulled slowly back toward what gravity says by the accelerometer. The
+   * simulator used to hand out the true tilt with a little noise on it, which
+   * is not a sensor, it is the answer.
+   */
+  tiltEstimate: number;
+  /**
    * How much of the wheel speed the floor actually converts into travel, 0..1.
    *
    * A property of the ground, not of the robot. At 1 the wheels carry the body;
@@ -186,6 +204,8 @@ export const HUMAN_RADIUS = 0.25;
 
 const GRAVITY = 9.81;
 const GRIP_FRICTION = 0.6;
+/** Complementary-filter time constant for tilt, seconds. */
+const TILT_FUSION_TAU = 0.5;
 /** Physics substep. Bigger steps make the tilt integrator misbehave. */
 export const MAX_SUBSTEP = 0.02;
 /** Height of the centre of mass above the wheel axis, metres. */
@@ -339,6 +359,9 @@ export class SimWorld {
       // discharge, and the inference carries a systematic offset per pack and
       // per cell age. A few per cent is a good gauge.
       gaugeBias: this.random() * 0.08 - 0.04,
+      // About a degree per second, which is an ordinary consumer part.
+      gyroBias: (this.random() * 0.03 - 0.015),
+      tiltEstimate: 0,
       odomScale: 1 + this.random() * 0.04 - 0.02,
       odomTurnScale: 1 + this.random() * 0.06 - 0.03,
       externalPull: 0,
@@ -537,6 +560,17 @@ export class SimWorld {
         (actualAccel / COM_HEIGHT) * Math.cos(robot.tilt);
       robot.tiltRate += tiltAccel * dt;
       robot.tilt = clamp(robot.tilt + robot.tiltRate * dt, -Math.PI / 2, Math.PI / 2);
+      // Flat on the floor is the end of the fall, not the middle of it.
+      //
+      // The tilt was clamped here and the rate was not, so a robot that had
+      // already landed kept accumulating tilt rate at fourteen radians per
+      // second squared, for as long as the simulation ran. Nothing caught it
+      // because every test reads the tilt, which is clamped and therefore
+      // looked right — it surfaced only when an IMU model started integrating
+      // the rate and reported a tilt of 905 degrees.
+      //
+      // A body lying on the ground is supported by the ground.
+      if (Math.abs(robot.tilt) >= Math.PI / 2 - 1e-9) robot.tiltRate = 0;
       if (Math.abs(robot.tilt) < 0.001 && Math.abs(robot.tiltRate) < 0.005) {
         robot.tilt = 0;
         robot.tiltRate = 0;
@@ -546,9 +580,40 @@ export class SimWorld {
       robot.tiltRate = 0;
     }
 
+    this.stepIMU(robot, dt, actualAccel);
     this.stepArm(robot, dt);
     this.stepGripper(robot, dt);
     this.stepBattery(robot, dt);
+  }
+
+  /**
+   * What the IMU driver believes the tilt is.
+   *
+   * A complementary filter, which is what a cheap IMU actually ships with: the
+   * gyro integrated because it is smooth and fast, corrected slowly toward the
+   * accelerometer because the gyro drifts. Both halves are modelled with the
+   * error they really have.
+   *
+   * The gyro half walks away, because the bias is constant and integrating a
+   * constant is a ramp. The accelerometer half is the interesting one: it reads
+   * the direction of specific force, and under linear acceleration that is not
+   * straight down. A robot accelerating forward at `a` appears to lean back by
+   * about a/g — so the reference that is supposed to correct the drift is
+   * wrong exactly when the robot is accelerating hard, which is exactly what a
+   * balancing robot does while catching a fall.
+   */
+  private stepIMU(robot: SimRobot, dt: number, actualAccel: number): void {
+    if (robot.stance !== "dynamic") {
+      robot.tiltEstimate = 0;
+      return;
+    }
+    // Gyro: the true rate plus this unit's bias.
+    const integrated = robot.tiltEstimate + (robot.tiltRate + robot.gyroBias) * dt;
+    // Accelerometer: gravity, tilted by whatever the body is doing.
+    const fromGravity = robot.tilt - actualAccel / GRAVITY;
+    // Trust the gyro over the short term, gravity over the long one.
+    const alpha = TILT_FUSION_TAU / (TILT_FUSION_TAU + dt);
+    robot.tiltEstimate = alpha * integrated + (1 - alpha) * fromGravity;
   }
 
   private stepArm(robot: SimRobot, dt: number): void {

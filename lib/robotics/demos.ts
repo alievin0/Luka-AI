@@ -130,12 +130,12 @@ export const DEMOS: Record<DemoName, Demo> = {
     async run(options) {
       // Control case first: the same shove, nobody catching it.
       const control = rigFor("empty-hall", { ...options, onEvent: undefined });
-      control.world.applyTiltImpulse("luka-1", 1.6);
+      control.world.applyTiltImpulse("luka-1", 1.2);
       for (let i = 0; i < 150; i += 1) control.world.step(0.02);
       const uncaughtTilt = Math.abs(control.world.robot("luka-1").tilt);
 
       const rig = rigFor("empty-hall", options);
-      rig.world.applyTiltImpulse("luka-1", 1.6);
+      rig.world.applyTiltImpulse("luka-1", 1.2);
       const result = await rig.runtime.run<Record<string, never>, {
         strategy: string;
         peakTilt: number;
