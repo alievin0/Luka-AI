@@ -155,6 +155,15 @@ export type SimRobot = {
   /** Force a nearby person is applying to whatever the robot is holding, N. */
   externalPull: number;
   armTip: Vec2;
+  /**
+   * Constant error between where the tip is and where the encoders say, metres.
+   *
+   * A millimetre of link-length error and half a degree of joint zero put a few
+   * millimetres at the tip, and they do not average out.
+   */
+  armTipBias: Vec2;
+  /** Whether the last commanded arm target was inside the reach envelope. */
+  armTargetReachable: boolean;
   armHeight: number;
   armTarget: Vec2 | null;
   armTargetHeight: number;
@@ -385,6 +394,11 @@ export class SimWorld {
       odomTurnScale: 1 + this.random() * 0.06 - 0.03,
       externalPull: 0,
       armTip: { x: 0.35, y: 0 },
+      armTipBias: {
+        x: this.random() * 0.008 - 0.004,
+        y: this.random() * 0.008 - 0.004,
+      },
+      armTargetReachable: true,
       armHeight: 0.4,
       armTarget: null,
       armTargetHeight: 0.4,

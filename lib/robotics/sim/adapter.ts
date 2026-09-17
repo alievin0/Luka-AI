@@ -450,12 +450,27 @@ export class SimRobotAdapter implements RobotIO {
     };
   }
 
+  /**
+   * Where the arm believes its tip is, and whether it was asked for something
+   * it could reach.
+   *
+   * The tip position is not measured. It is computed from the joint encoders
+   * through the kinematic chain, so an error in a link length or a joint zero
+   * appears at the tip, scaled by the reach and constant for the robot. This
+   * used to report the true tip with no error at all — not noise, zero — which
+   * matters against `learn.demo` claiming it reproduces a demonstration to
+   * 10 mm.
+   */
   arm(): ArmState {
     const robot = this.self;
     return {
-      tip: { ...robot.armTip },
+      tip: {
+        x: robot.armTip.x + robot.armTipBias.x,
+        y: robot.armTip.y + robot.armTipBias.y,
+      },
       height: robot.armHeight,
       moving: robot.armTarget !== null,
+      reachable: robot.armTargetReachable,
     };
   }
 
@@ -498,10 +513,20 @@ export class SimRobotAdapter implements RobotIO {
   moveArm(target: Vec2, height: number): void {
     const robot = this.self;
     // Reach envelope: the arm cannot leave a 0.2–0.75 m annulus in front.
-    const reach = clamp(Math.hypot(target.x, target.y), 0.2, 0.75);
+    //
+    // A target outside it is still clamped, because that is what the arm does —
+    // it goes as far as it can and stops. What changed is that it says so.
+    // Measured before it did: asked for a point 1.6 m away the arm went to
+    // 0.75 m, eight hundred and fifty millimetres short, and reported
+    // `moving: false` and a tip, exactly as it does on a motion that arrived.
+    const wanted = Math.hypot(target.x, target.y);
+    const reach = clamp(wanted, 0.2, 0.75);
     const angle = Math.atan2(target.y, target.x);
+    const wantedHeight = clamp(height, 0.05, 1.2);
+    robot.armTargetReachable =
+      Math.abs(reach - wanted) < 1e-9 && Math.abs(wantedHeight - height) < 1e-9;
     robot.armTarget = { x: Math.cos(angle) * reach, y: Math.sin(angle) * reach };
-    robot.armTargetHeight = clamp(height, 0.05, 1.2);
+    robot.armTargetHeight = wantedHeight;
   }
 
   setGripper(closure: number, force: number): void {

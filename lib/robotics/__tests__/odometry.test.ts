@@ -474,3 +474,64 @@ test("an unknown platform does not claim to know its own speed floor", () => {
     "an unmeasured speed floor was not reported, so nobody would go and measure it",
   );
 });
+
+// ── The arm ────────────────────────────────────────────────────────────────
+
+test("an arm asked for somewhere it cannot go says so", () => {
+  // The reach envelope clamps an out-of-range target to the nearest point the
+  // arm can hold, which is what an arm does. What it used to do as well was
+  // finish that motion exactly like one that arrived — `moving: false`, a tip
+  // reported, nothing amiss. Measured: asked for a point 1.6 m away the hand
+  // stopped 0.85 m short and nothing anywhere said the request had been
+  // altered.
+  const rig = createSimRig({ scenario: "kitchen-fetch", seed: 1 });
+
+  rig.robot.moveArm({ x: 0.5, y: 0 }, 0.4);
+  assert.equal(rig.robot.arm().reachable, true, "a target well inside the envelope was refused");
+
+  for (const target of [{ x: 1.6, y: 0 }, { x: 0.05, y: 0 }, { x: 0, y: 1.2 }]) {
+    rig.robot.moveArm(target, 0.4);
+    assert.equal(
+      rig.robot.arm().reachable,
+      false,
+      `(${target.x}, ${target.y}) is outside the envelope and the arm did not say so`,
+    );
+  }
+});
+
+test("grasping refuses an object the arm cannot reach", async () => {
+  // Closing the fingers at the edge of the envelope is a robot gripping air and
+  // then measuring the stiffness of nothing. Better to refuse and say to drive
+  // closer.
+  const rig = createSimRig({ scenario: "kitchen-fetch", seed: 1 });
+  const object = rig.world.objects[0];
+  assert.ok(object, "this scenario needs something to grasp");
+
+  // Put the object far enough away that no arm pose reaches it.
+  object.at = { x: rig.world.robot(rig.robot.id).pose.x + 3, y: rig.world.robot(rig.robot.id).pose.y };
+  const result = await rig.runtime.run("grasp.adaptive", { target: object.label ?? object.id });
+  await rig.runtime.stopDaemons("test over");
+
+  assert.equal(result.ok, false, "it claimed to grasp something three metres away");
+  assert.equal(result.failure, "precondition");
+});
+
+test("the arm's tip is computed, not measured", () => {
+  // The tip position comes from the joint encoders through the kinematic chain,
+  // so link-length and joint-zero errors appear there, scaled by reach and
+  // constant for the robot. This reported the true tip with an error of exactly
+  // zero — not noise, zero — against `learn.demo` claiming it reproduces a
+  // demonstration to 10 mm.
+  const rig = createSimRig({ scenario: "kitchen-fetch", seed: 3 });
+  const robot = rig.world.robot(rig.robot.id);
+  rig.robot.moveArm({ x: 0.5, y: 0.2 }, 0.4);
+  for (let i = 0; i < 200; i += 1) rig.world.step(0.02);
+
+  const reported = rig.robot.arm().tip;
+  const error = Math.hypot(reported.x - robot.armTip.x, reported.y - robot.armTip.y);
+  assert.ok(error > 1e-5, "the reported tip is the true tip, which no encoder chain gives you");
+  assert.ok(error < 0.02, `the tip is ${(error * 1000).toFixed(0)} mm out, which is a broken arm`);
+
+  // Systematic, not noise: asking twice gives the same answer.
+  assert.deepEqual(rig.robot.arm().tip, reported);
+});

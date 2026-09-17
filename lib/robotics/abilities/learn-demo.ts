@@ -82,6 +82,13 @@ export const learnFromDemo: Ability<LearnInput, LearnReport> = {
           "that depends on contact will not transfer.",
         "The simulated arm has no compliance, so nothing here has met a joint that bends under " +
           "load.",
+        "A demonstration can pass through space this arm cannot reach — recorded on a different " +
+          "robot, or from a different standing position. Those waypoints are clamped to the " +
+          "envelope and the replay continues, so the path flown is not the path that was " +
+          "learned. It is counted and reported rather than absorbed into the error figure.",
+        "The tip position is computed from the joint encoders and carries a few millimetres of " +
+          "constant error from link lengths and joint zeros. The 10 mm reproduction figure is " +
+          "measured against that estimate, not against where the hand actually is.",
       ],
       degradedModes: [
         "None. Without arm state there is nothing to record and nothing to compare against.",
@@ -239,11 +246,19 @@ export const learnFromDemo: Ability<LearnInput, LearnReport> = {
     });
 
     let previousT = 0;
+    let outOfReach = 0;
     for (const point of trajectory) {
       if (ctx.signal.aborted) {
         return { ok: false, summary: `Replay of "${input.name}" aborted.`, failure: "aborted" };
       }
       ctx.robot.moveArm({ x: point.values[0], y: point.values[1] }, point.values[2]);
+      // A demonstration recorded on one robot, or from one standing position,
+      // can pass through space this arm cannot reach. Those points are clamped
+      // to the envelope and the replay goes on as though nothing happened, so
+      // the shape that comes out is not the shape that went in. Count them:
+      // "reproduced to 10 mm" means something different when a third of the
+      // trajectory was unreachable.
+      if (ctx.robot.arm().reachable === false) outOfReach += 1;
       await ctx.sleep(Math.max((point.t - previousT) * 1000, 10));
       previousT = point.t;
     }
@@ -263,7 +278,12 @@ export const learnFromDemo: Ability<LearnInput, LearnReport> = {
 
     return {
       ok: goalError < 0.12,
-      summary: `Performed "${input.name}" in ${tau.toFixed(1)} s — finished ${(goalError * 1000).toFixed(0)} mm from the target.`,
+      summary:
+        `Performed "${input.name}" in ${tau.toFixed(1)} s — finished ${(goalError * 1000).toFixed(0)} mm from the target.` +
+        (outOfReach > 0
+          ? ` ${outOfReach} of ${trajectory.length} waypoints were outside the arm's reach and were ` +
+            "clamped to the envelope, so the path flown is not the path that was learned."
+          : ""),
       data: {
         op,
         name: input.name,

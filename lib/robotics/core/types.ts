@@ -344,6 +344,19 @@ export type ArmState = {
   /** Height above the base, metres. */
   height: number;
   moving: boolean;
+  /**
+   * Whether the last commanded target was inside the arm's reach.
+   *
+   * False means the request was altered: the arm went to the nearest point it
+   * could and stopped there, reporting `moving: false` and a tip like any other
+   * completed motion. Without this, asking for somewhere the arm cannot go and
+   * asking for somewhere it can are indistinguishable afterwards, and a
+   * capability reading "not moving" concludes it arrived.
+   *
+   * Optional, because a driver that does not know its own envelope should say
+   * nothing rather than claim everything is reachable.
+   */
+  reachable?: boolean;
 };
 
 /**

@@ -84,6 +84,10 @@ export const adaptiveGrasp: Ability<GraspInput, GraspReport> = {
           "sealed cup, a spring-loaded clip — is modelled wrongly after the first millimetre.",
         "Slip is detected after it starts. A smooth heavy object can be dropped before the " +
           "correction lands.",
+        "An object outside the arm's reach is refused rather than grasped at the envelope edge. " +
+          "The arm clamps an out-of-range target and completes the motion exactly like one that " +
+          "arrived, so without that check this closes the fingers on air and measures the " +
+          "stiffness of nothing — asked for a point 1.6 m away, the hand stops 0.85 m short.",
       ],
       degradedModes: [
         "On a gripper that reports position but not force, the evidence is degraded and this " +
@@ -159,6 +163,27 @@ export const adaptiveGrasp: Ability<GraspInput, GraspReport> = {
     ctx.robot.setGripper(0, 0);
     ctx.robot.moveArm(local, 0.35);
     await waitForArm(ctx, 4000);
+
+    // The arm reports whether it was asked for somewhere it could go.
+    //
+    // A target outside the reach envelope is clamped to the nearest point the
+    // arm can hold, and the motion then completes exactly like one that
+    // arrived: not moving, tip reported, nothing amiss. Measured, asking for a
+    // point 1.6 m away put the hand 0.85 m short of it. Closing the fingers
+    // there is a robot gripping air and then measuring the stiffness of
+    // nothing, so it is worth refusing rather than discovering later.
+    const reach = ctx.robot.arm();
+    if (reach.reachable === false) {
+      ctx.robot.setLights("idle", "#3b82f6");
+      return {
+        ok: false,
+        summary:
+          `"${input.target}" is outside the arm's reach. The hand went as far as it could and ` +
+          `stopped ${Math.hypot(reach.tip.x - local.x, reach.tip.y - local.y).toFixed(2)} m short. ` +
+          "Drive closer and ask again.",
+        failure: "precondition",
+      };
+    }
 
     // 2. Measure compliance properly: squeeze at two light, known forces and
     //    read how much further the fingers travelled. Force over closure *is*
