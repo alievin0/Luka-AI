@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { TOOLS, executeTool } from "@/lib/tools";
+import { TOOLS, executeTool, trackCartView } from "@/lib/tools";
 import { getCart } from "@/lib/cart";
 
 export const runtime = "nodejs";
@@ -150,7 +150,7 @@ export async function POST(req: Request) {
         }
 
         // Always send the authoritative cart state at the end.
-        send({ type: "cart", cart: getCart(sessionId) });
+        send({ type: "cart", cart: trackCartView(getCart(sessionId), sessionId) });
         send({ type: "done" });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);

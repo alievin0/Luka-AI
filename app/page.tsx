@@ -256,7 +256,29 @@ export default function Home() {
           <CartPanel cart={cart} />
         </aside>
       </div>
+
+      <DisclosureBar />
     </div>
+  );
+}
+
+/**
+ * Affiliate disclosure, shown on every view.
+ *
+ * Required by Amazon Associates' operating agreement and by consumer-protection
+ * rules in most markets: shoppers must be told about the commission before they
+ * click, not after. Removing this risks termination of the affiliate account and
+ * forfeiture of earnings already accrued.
+ */
+function DisclosureBar() {
+  return (
+    <footer className="border-t border-slate-200 bg-white px-4 py-2 text-center text-[11px] leading-relaxed text-slate-500">
+      بعض الروابط هون روابط تسويق بالعمولة — إذا اشتريت من خلالها بتوصلنا عمولة
+      بسيطة، بدون أي فرق بالسعر عليك.{" "}
+      <a href="/disclosure" className="font-medium text-brand-600 hover:underline">
+        تفاصيل أكتر
+      </a>
+    </footer>
   );
 }
 

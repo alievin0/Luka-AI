@@ -7,6 +7,8 @@ import {
   type ExternalProduct,
   type CartView,
 } from "./cart";
+import { monetizeUrl } from "./affiliate";
+import { buildClickUrl } from "./links";
 
 // Custom (client-executed) tools. Web search / web fetch are server tools and
 // are appended in the API route.
@@ -133,6 +135,44 @@ export type ToolExecResult = {
   ui?: ToolUi;
 };
 
+/**
+ * Apply affiliate tagging and click tracking to a product on its way to the UI.
+ *
+ * Deliberately done here rather than in the cart: the cart keeps the original
+ * store link, so links are re-tagged fresh every time they're displayed and a
+ * change to the affiliate configuration takes effect immediately — including
+ * for items saved before it was configured.
+ */
+function trackProduct(
+  product: ExternalProduct,
+  source: string,
+  sessionId: string,
+): ExternalProduct {
+  if (!product.url) return product;
+  return {
+    ...product,
+    url: buildClickUrl({
+      url: product.url,
+      title: product.title,
+      source,
+      session: sessionId,
+    }),
+    originalUrl: product.url,
+    network: monetizeUrl(product.url).network,
+  };
+}
+
+/** The cart as the shopper sees it: every saved link tagged and tracked. */
+export function trackCartView(cart: CartView, sessionId: string): CartView {
+  return {
+    ...cart,
+    items: cart.items.map((item) => ({
+      ...item,
+      product: trackProduct(item.product, "cart", sessionId),
+    })),
+  };
+}
+
 export function executeTool(
   name: string,
   input: Record<string, unknown>,
@@ -154,7 +194,10 @@ export function executeTool(
         }
         return {
           resultText: `Displayed ${products.length} product card(s) to the shopper. Don't repeat every spec in prose — summarize your recommendation briefly.`,
-          ui: { kind: "products", products },
+          ui: {
+            kind: "products",
+            products: products.map((p) => trackProduct(p, "chat", sessionId)),
+          },
         };
       }
 
@@ -167,7 +210,7 @@ export function executeTool(
         const res = addToCart(sessionId, product, qty);
         return {
           resultText: res.message,
-          ui: { kind: "cart", cart: getCart(sessionId) },
+          ui: { kind: "cart", cart: trackCartView(getCart(sessionId), sessionId) },
         };
       }
 
@@ -176,15 +219,17 @@ export function executeTool(
         const res = removeFromCart(sessionId, ref);
         return {
           resultText: res.message,
-          ui: { kind: "cart", cart: getCart(sessionId) },
+          ui: { kind: "cart", cart: trackCartView(getCart(sessionId), sessionId) },
         };
       }
 
       case "view_cart": {
         const cart = getCart(sessionId);
         return {
+          // The model gets the untagged cart: tracking links are a UI concern,
+          // and echoing them back into prose would be noise.
           resultText: JSON.stringify(cart),
-          ui: { kind: "cart", cart },
+          ui: { kind: "cart", cart: trackCartView(cart, sessionId) },
         };
       }
 
@@ -192,7 +237,7 @@ export function executeTool(
         clearCart(sessionId);
         return {
           resultText: "Cart cleared.",
-          ui: { kind: "cart", cart: getCart(sessionId) },
+          ui: { kind: "cart", cart: trackCartView(getCart(sessionId), sessionId) },
         };
       }
 

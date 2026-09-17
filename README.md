@@ -21,6 +21,12 @@ and reviews, and brings back the best options as cards with working store links.
 - **Streaming + live status** — replies stream over SSE, with "searching the web…"
   indicators while the agent works.
 - **Bilingual + RTL** — replies in the shopper's language; the UI is right-to-left.
+- **Earns on what it recommends** — every outgoing product link is affiliate-tagged
+  and click-tracked, with a disclosure shown to every shopper. See
+  [MONETIZATION.md](./MONETIZATION.md).
+- **Hunts deals unattended** — a scheduled job searches the web for discounts that
+  are live now, verifies each one by opening the page, and publishes them to a
+  Telegram channel with tagged links.
 
 ## 🏗️ How it works
 
@@ -45,6 +51,15 @@ UI cards to the browser. The loop handles `pause_turn` (long server-tool runs) a
 | `app/api/chat/route.ts` | Agentic loop + server web tools + SSE streaming |
 | `lib/tools.ts` | Custom tool definitions + executor |
 | `lib/cart.ts` | In-memory per-session shortlist with per-currency totals |
+| `lib/affiliate.ts` | Affiliate rule engine — tags every outgoing product link |
+| `lib/links.ts` | Signs outbound links; guards `/api/go` against open redirects |
+| `lib/clicks.ts` | Click log and stats |
+| `lib/deals.ts` | Scheduled deal hunter (verifies every deal before reporting) |
+| `lib/telegram.ts` | Post formatting + channel publishing |
+| `app/api/go/route.ts` | Click tracking, then redirect to the store |
+| `app/api/deals/route.ts` | Cron entry point: hunt, then publish |
+| `app/api/stats/route.ts` | Operator click dashboard (secret-gated) |
+| `app/disclosure/page.tsx` | Affiliate disclosure page |
 
 ## 🚀 Getting started
 
@@ -79,6 +94,23 @@ Open [http://localhost:3000](http://localhost:3000) and start chatting.
 | `ANTHROPIC_API_KEY` | _(required)_ | Your Anthropic API key. |
 | `LUKA_MODEL` | `claude-opus-4-8` | Model used by the agent (needs web-search support). |
 
+Monetization, link signing, and the deal bot add their own variables — all of them
+optional, all documented in [`.env.example`](./.env.example) and
+[MONETIZATION.md](./MONETIZATION.md). With none of them set the app behaves exactly
+as before: links go out untagged.
+
+## 💸 Making it earn
+
+```bash
+# see what the deal bot would publish, without posting anything
+export CRON_SECRET=<your secret>
+node scripts/post-deals.mjs --dry-run --category "headphones" --region "Jordan"
+```
+
+[MONETIZATION.md](./MONETIZATION.md) (in Arabic) walks through signing up for
+affiliate programs, deploying, wiring up the Telegram channel, scheduling the bot,
+and — the part no code can do for you — building an audience from zero.
+
 ## 🧪 Try these prompts
 
 - `بدي سماعات سوني WH-1000XM5 بأرخص سعر — قارن المتاجر`
@@ -90,6 +122,9 @@ Open [http://localhost:3000](http://localhost:3000) and start chatting.
 
 - The agent **researches and links — it never pays or places orders**. Checkout
   happens on the store's own site via the product link.
+- Affiliate links carry a **disclosure** in the footer and on every published post.
+  Amazon Associates' terms and consumer-protection rules both require it — removing
+  it risks account termination and forfeited earnings.
 - Prices shown are approximate: they change and vary by region, so the UI and the
   agent present them with `~`.
 - Coverage is what web search can reach — broad, but not literally "every store on
