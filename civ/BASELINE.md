@@ -124,7 +124,7 @@ progress.**
 
 | Gate | Verdict | Basis |
 |---|---|---|
-| **G1** Live model execution | **UNVERIFIED** | No provider reachable in the build container. `ClaudeProvider` is written and conformance-tested in shape only. `civ/live_proof.py` settles this in one command on a machine with a key. |
+| **G1** Live model execution | **UNVERIFIED** | **Re-checked 2026-09-17 at the owner's direction.** The network path to `api.anthropic.com` is confirmed working (HTTP **401**, an authentication error, not a connection failure). `ANTHROPIC_BASE_URL` is set but is the plain public endpoint with no credential-injecting proxy. No `ANTHROPIC_API_KEY`, no `OPENAI_API_KEY`, no local model server on 11434/8080/1234/5000/8000, and no `ollama`/`llama-cli`/`llamafile` binary. **G1 is not failing — it is unrunnable in this container.** `civ/g1_gate.py` runs all nine checks in one command on a machine with a credential. |
 | **G2** Real tool execution | **PASS** | Real `subprocess`, real file writes, cwd allowlist, path-escape refused (L9) |
 | **G3** Real artifact creation | **PASS** (mechanism) | A real file at a real path with a real sha. **Its content is MOCK and labelled so.** |
 | **G4** Real artifact verification | **PASS** | Independent verifier executed it: `exit=0`, `stdout='17'` — the true count of `.py` files in this repo |
