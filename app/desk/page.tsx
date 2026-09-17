@@ -14,6 +14,7 @@ type Service = { id: string; code: string; name: string; durationMin: number; pr
 type BusinessSummary = { id: string; slug: string; name: string; kind: string; isDemo: boolean };
 type BusinessProfile = BusinessSummary & { services: Service[]; currency: string };
 type Storage = { ok: boolean; kind: string; persistent: boolean; message: string };
+type ModelStatus = { configured: boolean; keyLength: number };
 type Booking = {
   id: string; serviceName: string; date: string; time: string;
   customerName?: string; status: string;
@@ -32,6 +33,7 @@ export default function DeskConsole() {
   const [businesses, setBusinesses] = useState<BusinessSummary[]>([]);
   const [profile, setProfile] = useState<BusinessProfile | null>(null);
   const [storage, setStorage] = useState<Storage | null>(null);
+  const [model, setModel] = useState<ModelStatus | null>(null);
   const [businessId, setBusinessId] = useState("");
   const [turns, setTurns] = useState<Turn[]>([]);
   const [input, setInput] = useState("");
@@ -49,6 +51,7 @@ export default function DeskConsole() {
       .then((d) => {
         setBusinesses(d.businesses ?? []);
         setStorage(d.storage ?? null);
+        setModel(d.model ?? null);
         if (d.businesses?.length) setBusinessId(d.businesses[0].id);
       })
       .catch(() => setError("ما قدرت أجيب قائمة الأنشطة."));
@@ -142,6 +145,20 @@ export default function DeskConsole() {
       {summary?.isDemo && (
         <div className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-center text-xs text-amber-800">
           ⚠️ هاد نشاط <b>تجريبي</b> للاختبار فقط — مش زبون حقيقي.
+        </div>
+      )}
+
+      {model && !model.configured && (
+        <div className="border-b border-red-300 bg-red-100 px-4 py-2 text-center text-xs text-red-900">
+          🔑 <b>ANTHROPIC_API_KEY مش واصل لهالنشرة</b> — الوكيل ما بيقدر يرد.
+          تأكد إنه المتغيّر مضاف على بيئة <b>Preview</b> (مش Production بس)، وإنه
+          مشمول بكل فروع Preview، وبعدها انشر من جديد.
+        </div>
+      )}
+      {model && model.configured && (
+        <div className="border-b border-emerald-200 bg-emerald-50 px-4 py-1.5 text-center text-[11px] text-emerald-800">
+          🔑 المفتاح موصول ({model.keyLength} حرف). إذا لسا بيطلع خطأ، المشكلة بالمفتاح نفسه
+          (غلط أو منتهي أو الرصيد خلص) مش بالإعدادات.
         </div>
       )}
 

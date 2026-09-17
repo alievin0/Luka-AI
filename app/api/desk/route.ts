@@ -7,6 +7,22 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 /**
+ * Whether this deployment can reach the model at all.
+ *
+ * A missing key and a failed API call used to look identical to the operator
+ * — both surfaced as "a temporary technical problem". Reporting the
+ * configuration separately is what makes a misconfigured deployment
+ * diagnosable without reading server logs.
+ *
+ * Only ever a boolean and the key's length: the value itself never leaves
+ * the server.
+ */
+function modelStatus(): { configured: boolean; keyLength: number } {
+  const key = process.env.ANTHROPIC_API_KEY?.trim() ?? "";
+  return { configured: key.length > 0, keyLength: key.length };
+}
+
+/**
  * Operator-facing read surface, and the web chat channel.
  *
  * Both the console and the world read from here, so what the world draws is
@@ -19,7 +35,7 @@ export async function GET(req: Request) {
 
   if (!ref) {
     const [businesses, health] = await Promise.all([repo.listBusinesses(), repoHealth()]);
-    return NextResponse.json({ businesses, storage: health });
+    return NextResponse.json({ businesses, storage: health, model: modelStatus() });
   }
 
   const business = await repo.getBusiness(ref);
@@ -46,6 +62,7 @@ export async function GET(req: Request) {
     tasks,
     conversations,
     storage: health,
+    model: modelStatus(),
   });
 }
 
