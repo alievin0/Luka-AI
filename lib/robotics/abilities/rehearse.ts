@@ -62,6 +62,40 @@ export const rehearsePlan: Ability<RehearseInput, RehearseReport> = {
     tags: ["planning", "verification", "simulation"],
     risk: "passive",
     requires: [],
+    // It forks the world and tries a plan before a motor turns, which is a claim
+    // about the simulator rather than about the robot — so what it needs is that
+    // the state it forks from is real. A twin started from an invented pose
+    // rehearses somewhere the robot is not.
+    evidence: [
+      { source: "pose" as const, because: "the twin starts from where the robot actually is" },
+      { source: "velocity" as const, because: "and from what it is actually doing" },
+    ],
+    proof: {
+      status: "SIMULATED" as const,
+      basis:
+        "Refuses an impossible plan and clears a sound one without the real robot moving a " +
+        "millimetre — measured as 0.0e+0 m of real motion, which is the property that matters.",
+      verification:
+        "The thing to verify is not the rehearsal but the correspondence: run the same plan in " +
+        "the twin and on the robot and compare outcomes. A rehearsal that agrees with itself and " +
+        "disagrees with the robot is worse than not rehearsing, because it is trusted.",
+      failureModes: [
+        "It rehearses in this simulator, whose physics are a model. Every difference between the " +
+          "model and the robot is a difference this cannot see, and the comfortable ones are the " +
+          "dangerous ones.",
+        "Monte Carlo over seeds explores the variation the simulator knows how to produce, which " +
+          "is not the variation a room produces.",
+        "A plan that passes rehearsal has been shown not to fail in the model. That is not the " +
+          "same as safe.",
+      ],
+      degradedModes: [
+        "None. Rehearsing from a pose the robot cannot vouch for is the failure mode, not a " +
+          "reduced service.",
+      ],
+      safetyBoundary:
+        "Never commands the real robot. The twin is a copy, and the only thing that crosses back " +
+        "is a verdict.",
+    },
     typicalDurationMs: 3000,
     inputSchema: {
       type: "object",

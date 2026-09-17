@@ -46,6 +46,48 @@ const manifest = {
   tags: ["safety", "daemon", "reactive"],
   risk: "critical" as const,
   requires: ["drive" as const, "lidar" as const],
+  // A reflex that cannot sense is worse than no reflex, because everyone
+  // downstream believes it is watching. It accepts a half-working scan —
+  // something is genuinely better than nothing for a guardian — and refuses a
+  // scan that is reporting nothing usable rather than standing guard over a
+  // sensor that has stopped.
+  evidence: [
+    {
+      source: "lidar" as const,
+      because: "time-to-collision is computed from the scan and nothing else",
+      maxAgeMs: 300,
+      acceptDegraded: true,
+    },
+    {
+      source: "velocity" as const,
+      because: "closing speed needs the robot's own motion, not just the obstacle's range",
+    },
+  ],
+  proof: {
+    status: "SIMULATED" as const,
+    basis:
+      "Runs at 50 Hz in the simulator and brakes before contact in the measured-crossing and " +
+      "cluttered-office demos. Every number is simulated; no physical robot has run it.",
+    verification:
+      "On hardware, roll a box down a ramp at the stationary robot and measure the gap at rest " +
+      "with a tape. Repeat at several approach speeds and check the stopping distance grows as " +
+      "the square of speed rather than linearly, which is what says the model is being used " +
+      "rather than a fixed threshold.",
+    failureModes: [
+      "The scan plane cannot see a foot, an animal, or a person lying down, and this reflex " +
+        "inherits that completely.",
+      "A lidar with wrong extrinsics brakes for phantom obstacles and misses real ones.",
+      "Loop latency above the reaction-time budget silently shortens every margin; the " +
+        "governor measures it, this does not.",
+    ],
+    degradedModes: [
+      "Accepts a partial scan and keeps guarding what it can still see, on the grounds that a " +
+        "reflex watching half the world is worth more than one that has switched itself off.",
+    ],
+    safetyBoundary:
+      "Commands braking only. It never steers the robot anywhere, so the worst it can do to a " +
+      "correct plan is stop it.",
+  },
   typicalDurationMs: 0,
   daemon: true,
   inputSchema: {

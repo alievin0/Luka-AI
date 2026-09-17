@@ -60,6 +60,35 @@ export const learnFromDemo: Ability<LearnInput, LearnReport> = {
     tags: ["learning", "manipulation", "imitation"],
     risk: "motion",
     requires: ["arm"],
+    // It reproduces a demonstrated trajectory, so it needs to know where the arm
+    // actually is — both to record the demonstration and to know whether the
+    // reproduction went anywhere near it.
+    evidence: [
+      { source: "arm" as const, because: "both recording and reproducing are arm positions over time" },
+    ],
+    proof: {
+      status: "SIMULATED" as const,
+      basis:
+        "Learns a pour from one demonstration and reproduces it to 10 mm over 2.5 s, finishing " +
+        "34 mm from the target when performed. Simulated arm with no compliance and no payload.",
+      verification:
+        "Demonstrate on a real arm by hand-guiding, then measure the reproduction against the " +
+        "demonstration with a tracker. The interesting number is not the fit to the demonstration " +
+        "but the error when the target is moved, which is what the primitive is for.",
+      failureModes: [
+        "One demonstration teaches one demonstration. Anything the person did incidentally is " +
+          "learned as if it mattered.",
+        "Dynamic movement primitives generalise the shape of a motion, not its forces. A pour " +
+          "that depends on contact will not transfer.",
+        "The simulated arm has no compliance, so nothing here has met a joint that bends under " +
+          "load.",
+      ],
+      degradedModes: [
+        "None. Without arm state there is nothing to record and nothing to compare against.",
+      ],
+      safetyBoundary:
+        "Moves the arm only, within the profile's declared reach, and refuses a target outside it.",
+    },
     typicalDurationMs: 4000,
     inputSchema: {
       type: "object",

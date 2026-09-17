@@ -64,6 +64,45 @@ export const hardwareCheckout: Ability<CheckoutInput, CheckoutReport> = {
     tags: ["safety", "hardware", "diagnostics"],
     risk: "motion",
     requires: [],
+    // Deliberately declares no evidence requirements, and this is the one place
+    // that omission is correct rather than an oversight.
+    //
+    // The capability gate refuses a capability whose sensors are absent, invalid or
+    // stale. This is the capability whose entire job is to find out whether the
+    // sensors are absent, invalid or stale. Gate it on the lidar working and a
+    // robot with a dead lidar cannot run the check that would tell anyone the lidar
+    // is dead — the diagnosis becomes available exactly when it is not needed.
+    //
+    // So it reads every channel directly and reports what it finds, including
+    // nothing. Its twelve gates are the evidence model applied by hand, in an order
+    // where nothing moves until whatever would stop it has been proven to work.
+    proof: {
+      status: "SIMULATED" as const,
+      basis:
+        "Twelve gates run in the simulator, including the last one, which is measured rather " +
+        "than asserted: it drives the robot, abandons the command, and records whether the " +
+        "wheels stopped. Wiring the deadman in caught this ability itself relying on a latched " +
+        "command.",
+      verification:
+        "This is the one that is verified by running it on the hardware, which is the point of " +
+        "it. The order is the specification: `lib/robotics/BRINGUP.md` walks through what should " +
+        "fail at each step and what it means when it does not.",
+      failureModes: [
+        "It checks the channels a robot declares. A sensor nobody put in the profile is not " +
+          "missing as far as this is concerned.",
+        "The clock gate separates a constant offset from a drift, and reports the drift first " +
+          "because it is the cause — but it can only see the drift over the window it watches.",
+        "Passing means the robot's senses agreed with themselves on a stationary robot in one " +
+          "place at one moment. It says nothing about a robot that has been driven for an hour.",
+      ],
+      degradedModes: [
+        "It is the diagnosis, so it does not degrade — it reports degradation. A gate that " +
+          "cannot be answered is reported as unanswered rather than passed.",
+      ],
+      safetyBoundary:
+        "Nothing moves until the gates that would stop it have passed, and the drive test is " +
+        "bounded by the deadman it is testing.",
+    },
     typicalDurationMs: 6000,
     inputSchema: {
       type: "object",

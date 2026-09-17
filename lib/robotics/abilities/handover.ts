@@ -52,6 +52,42 @@ export const handover: Ability<HandoverInput, HandoverReport> = {
     tags: ["hri", "manipulation", "collaboration"],
     risk: "contact",
     requires: ["arm", "gripper", "tactile", "camera", "speaker", "lights"],
+    // Releasing on a timer is how handovers go wrong, because people hesitate. This
+    // releases on measured pull, which means the measurement has to exist.
+    evidence: [
+      {
+        source: "gripper" as const,
+        because: "it releases on a measured pull, and an unmeasured pull is a timer",
+      },
+      {
+        source: "people" as const,
+        because: "handing over to nobody is dropping something, and the difference is a person track",
+      },
+      { source: "arm" as const, because: "the object has to be presented before it can be taken" },
+    ],
+    proof: {
+      status: "SIMULATED" as const,
+      basis:
+        "Releases at 8.0 N when a hand takes the object and keeps hold when nobody does. " +
+        "Simulated pull model with a simulated person.",
+      verification:
+        "A person taking an object from a real gripper with a force gauge in line, and — the " +
+          "important half — a person reaching out and stopping short, where nothing should be " +
+          "released.",
+      failureModes: [
+        "A gripper without force sensing turns this into a timer, which is the thing it was " +
+          "written to avoid.",
+        "The pull threshold is one number for every object. A heavy object's own weight can " +
+          "approach it.",
+        "It cannot tell a person taking the object from the object snagging on something.",
+      ],
+      degradedModes: [
+        "None: without force it refuses rather than releasing on a timer.",
+      ],
+      safetyBoundary:
+        "Never releases without a measured pull, and never closes on a hand — the grip is already " +
+        "closed before a person reaches for it.",
+    },
     typicalDurationMs: 8000,
     inputSchema: {
       type: "object",

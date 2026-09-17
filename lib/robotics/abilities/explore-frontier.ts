@@ -92,6 +92,46 @@ export const exploreFrontier: Ability<ExploreInput, ExploreReport> = {
     tags: ["navigation", "mapping", "autonomy"],
     risk: "motion",
     requires: ["drive", "lidar", "battery"],
+    // Frontier exploration is built on the claim that unobserved space is
+    // distinguishable from observed empty space, so the scan not arriving has to
+    // be distinguishable from the scan finding nothing.
+    evidence: [
+      {
+        source: "lidar" as const,
+        because: "a frontier is the boundary between what the scan has seen and what it has not",
+        maxAgeMs: 500,
+        acceptDegraded: true,
+      },
+      { source: "pose" as const, because: "every observation is recorded against where it was taken" },
+      {
+        source: "battery" as const,
+        because: "exploring is open-ended, and the way it should end is a charge budget",
+      },
+    ],
+    proof: {
+      status: "SIMULATED" as const,
+      basis:
+        "Maps 95% of reachable cells over 27.5 m in the demo, with a real stopping condition: no " +
+        "frontiers left. Simulated raycast lidar and perfect pose.",
+      verification:
+        "Run it in a room whose floor area is known, and compare the mapped area against a tape " +
+        "measurement. Then repeat from a different start pose — a map that depends on where the " +
+        "robot began is a map dominated by odometry drift.",
+      failureModes: [
+        "Odometry drift accumulates into the map, so on a real robot without SLAM the same wall " +
+          "gets recorded in several places and frontiers appear where the map disagrees with itself.",
+        "Glass and polished metal return nothing to a lidar, so they map as open space and stay " +
+          "frontiers forever.",
+        "The stopping condition is about frontiers, not about whether the map is any good.",
+      ],
+      degradedModes: [
+        "A thinned scan maps more slowly rather than wrongly, because an unanswered beam records " +
+          "nothing rather than recording free space.",
+      ],
+      safetyBoundary:
+        "Stops on the battery budget rather than on reaching a charge threshold, and stops when " +
+        "frontiers run out rather than wandering.",
+    },
     typicalDurationMs: 60_000,
     inputSchema: {
       type: "object",

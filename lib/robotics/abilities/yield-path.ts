@@ -101,6 +101,48 @@ const manifest = {
   tags: ["safety", "daemon", "hri", "prediction"],
   risk: "motion" as const,
   requires: ["drive" as const, "camera" as const],
+  // It moves the robot out of somebody's way, which means it has to actually see
+  // the somebody. An empty person list from a robot with no tracker is not an
+  // empty corridor, and stepping aside from a person who is not detected is the
+  // failure this whole capability exists to prevent.
+  evidence: [
+    {
+      source: "people" as const,
+      because: "it predicts a closest approach, and there is nothing to predict without a track",
+    },
+    {
+      source: "pose" as const,
+      because: "the sidestep is perpendicular to their path, which needs both positions",
+    },
+    {
+      source: "velocity" as const,
+      because: "closest approach is computed from relative velocity, not relative position",
+    },
+  ],
+  proof: {
+    status: "SIMULATED" as const,
+    basis:
+      "Corridor crossings against people who never look up go from 0/20 clean to 20/20, and " +
+      "contacts per run from 12.7 to zero. The five-second horizon was swept on those twenty " +
+      "seeds, so they are not independent; forty unseen seeds came back 40/40.",
+    verification:
+      "A person walking a marked line at a measured pace, crossing a robot on a marked course, " +
+      "with the closest approach measured from overhead video. The number to check is the " +
+      "predicted closest approach against the observed one, not whether it felt comfortable.",
+    failureModes: [
+      "The simulated people walk at constant speed along straight waypoints and never hesitate " +
+        "or change their minds. Real people do, and stepping into somebody who stepped the same " +
+        "way is this class of prediction's signature failure.",
+      "A person tracker that drops a track mid-approach looks exactly like a person who left.",
+      "In a corridor narrow enough that perpendicular is into a wall, it has nowhere to go and " +
+        "the prediction is correct and useless.",
+    ],
+    degradedModes: [
+      "None worth the name: without person tracks it does not run, and it should not.",
+    ],
+    safetyBoundary:
+      "Steps aside at the governor's permitted speed and never toward a predicted approach.",
+  },
   typicalDurationMs: 0,
   daemon: true,
   inputSchema: {

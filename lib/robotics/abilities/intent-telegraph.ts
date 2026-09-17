@@ -51,6 +51,40 @@ export const intentTelegraph: Ability<TelegraphInput, TelegraphReport> = {
     tags: ["hri", "safety", "communication"],
     risk: "motion",
     requires: ["drive", "lights", "speaker"],
+    // Telegraphing is for the benefit of a person, so it needs to know a person is
+    // there. Signalling to an empty room is harmless; believing the room is empty
+    // because nothing is looking is not.
+    evidence: [
+      {
+        source: "people" as const,
+        because: "the cue is for somebody, and an empty list from a blind robot is not an empty room",
+      },
+      { source: "pose" as const, because: "the cue rules out the goals it is not heading for" },
+    ],
+    proof: {
+      status: "SIMULATED" as const,
+      basis:
+        "Runs in the navigation demos and emits the cue before motion. Whether it makes a human " +
+        "any safer has not been measured and cannot be measured in a simulator, because the " +
+        "simulated people do not read it.",
+      verification:
+        "This one needs people, not instruments: whether a bystander can say where the robot is " +
+        "about to go, before it goes there, more often than chance. Anything less is a claim " +
+        "about the light being on.",
+      failureModes: [
+        "A cue nobody can interpret is decoration. Nothing here establishes that the chosen " +
+          "signal reads as a direction to a person who has not been told what it means.",
+        "Telegraphing an intention the planner then changes is worse than saying nothing.",
+        "It signals to people it can see. Someone behind the robot gets nothing.",
+      ],
+      degradedModes: [
+        "With no person tracks it does not run; the honest alternative would be signalling " +
+          "constantly, which trains people to ignore it.",
+      ],
+      safetyBoundary:
+        "Signals only. It never changes what the robot does, so a wrong cue misleads rather than " +
+        "moves.",
+    },
     typicalDurationMs: 2500,
     inputSchema: {
       type: "object",

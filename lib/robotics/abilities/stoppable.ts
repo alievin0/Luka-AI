@@ -67,6 +67,50 @@ export const safetyStoppable: Ability<StoppableInput, StoppableReport> = {
     tags: ["safety", "daemon", "diagnostics"],
     risk: "passive",
     requires: ["imu", "lidar"],
+    // It answers "if I stopped right now, would I reach a stable state" — which is
+    // a question about the robot's own motion and what is in front of it, so
+    // absence of either makes the answer meaningless rather than optimistic.
+    evidence: [
+      {
+        source: "imu" as const,
+        because: "a robot already leaning has a different stopping problem to one that is level",
+        maxAgeMs: 300,
+      },
+      {
+        source: "lidar" as const,
+        because: "stopping distance has to fit in the space that is actually there",
+        maxAgeMs: 500,
+        acceptDegraded: true,
+      },
+      {
+        source: "velocity" as const,
+        because: "there is no stopping distance without a speed",
+      },
+    ],
+    proof: {
+      status: "SIMULATED" as const,
+      basis:
+        "Runs alongside the navigation demos and reports the margin continuously. It has never " +
+        "been checked against a real platform's braking, which is the only number that matters.",
+      verification:
+        "Measure the platform's actual deceleration from full speed on the surface it will work " +
+        "on — loaded and unloaded, because a carried mass changes it — and compare against the " +
+        "`maxDecel` this uses. The assumed figure being optimistic is the failure that matters.",
+      failureModes: [
+        "`maxDecel` is a configured constant. If the real brakes are worse, every margin here is " +
+          "wrong in the unsafe direction and nothing in the loop will notice.",
+        "It reasons about the scan plane, so it cannot see a drop, a stair edge or a kerb.",
+        "It says whether stopping is possible, not whether stopping is safe for what is being " +
+          "carried.",
+      ],
+      degradedModes: [
+        "Accepts a partial scan, which makes the free distance a lower bound rather than an " +
+          "estimate — the safe direction to be wrong in.",
+      ],
+      safetyBoundary:
+        "Passive. It reports and never commands, so it cannot make anything worse directly; what " +
+        "it can do is be believed when it is wrong.",
+    },
     typicalDurationMs: 0,
     daemon: true,
     inputSchema: {

@@ -140,6 +140,47 @@ const manifest = {
   tags: ["safety", "daemon", "reactive", "connectome", "neuroscience"],
   risk: "critical" as const,
   requires: ["drive" as const, "lidar" as const],
+  // The circuit is driven entirely by the scan: angular size and its rate of
+  // change are computed from ranges, so a scan that has stopped reporting is a
+  // circuit with no input at all rather than one seeing an empty room.
+  evidence: [
+    {
+      source: "lidar" as const,
+      because: "angular size and expansion rate are both read out of the scan",
+      maxAgeMs: 300,
+      acceptDegraded: true,
+    },
+    {
+      source: "velocity" as const,
+      because: "the escape direction depends on where the robot is already going",
+    },
+  ],
+  proof: {
+    status: "SIMULATED" as const,
+    basis:
+      "367 cells and 57,450 measured synaptic contacts from the MaleCNS v1.0 connectome. In " +
+      "the fly-reflex demo it fires 0.33 m earlier than the geometric reflex and holds " +
+      "time-to-contact roughly constant across approach speeds, which was not coded for. All " +
+      "of it is simulated.",
+    verification:
+      "Approach a stationary robot with a flat panel at several constant speeds and record the " +
+      "range at which it fires. Time-to-contact at firing should stay near-constant while the " +
+      "range at firing changes — that is the claim, and a fixed range threshold would fail it.",
+    failureModes: [
+      "Tuned to the fly's own escape capability, which fires at about 0.5 m for someone walking " +
+        "in at 1.5 m/s — too late for a robot that brakes more slowly than a fly jumps.",
+      "It still false-positives while manoeuvring: about 5 in 7 metres across a cluttered room, " +
+        "none of them real. Tuning those out removes the real responses as well.",
+      "Glutamate is inhibitory in the fly, which is the opposite of the vertebrate default; a " +
+        "sign error anywhere in the wiring inverts the circuit silently.",
+    ],
+    degradedModes: [
+      "Runs on a partial scan. Fewer beams mean a coarser angular-size estimate and a later " +
+        "firing, not a wrong one.",
+    ],
+    safetyBoundary:
+      "Escapes and brakes; it never drives the robot toward anything.",
+  },
   typicalDurationMs: 0,
   daemon: true,
   inputSchema: {

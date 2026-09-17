@@ -60,6 +60,47 @@ export const powerLifeline: Ability<LifelineInput, LifelineReport> = {
     tags: ["power", "safety", "daemon", "learning"],
     risk: "motion",
     requires: ["drive", "battery"],
+    // The capability is entirely a claim about the battery, and this kernel has
+    // already been bitten by a charge figure whose units nobody established — 0.8
+    // on a 0-100 driver is nearly flat and reads as 80%. A charge it cannot vouch
+    // for is not a charge to plan a journey home on.
+    evidence: [
+      {
+        source: "battery" as const,
+        because: "the whole decision is how much charge is left against how much getting back costs",
+      },
+      {
+        source: "pose" as const,
+        because: "the cost of getting home depends on how far away home is",
+      },
+    ],
+    proof: {
+      status: "SIMULATED" as const,
+      basis:
+        "Called the mission at 40% and made it back with 72.5 Wh in hand against 53.9 Wh needed " +
+        "from 22.4 m out, having learned 2382.9 mWh/m during the run. Simulated battery model.",
+      verification:
+        "Drive a real robot a measured distance and integrate real current draw, then compare " +
+        "against what this learned. Do it loaded and unloaded, and on carpet as well as hard " +
+        "floor — the per-metre figure changes with all three.",
+      failureModes: [
+        "State of charge is not linear in voltage and the curve differs per chemistry and per " +
+          "cell age. A driver reporting voltage as a percentage is wrong in a direction that " +
+          "flatters the robot.",
+        "It learns Wh per metre on the terrain it has been driving. A return journey that is " +
+          "uphill, or across carpet, costs more than the average it learned.",
+        "It assumes the dock is reachable. A closed door makes every number here correct and the " +
+          "conclusion wrong.",
+      ],
+      degradedModes: [
+        "With a battery whose units were never established the evidence layer marks it degraded, " +
+          "and this does not accept that: a lifeline computed from a number nobody can vouch for " +
+          "is worse than no lifeline, because it will be believed.",
+      ],
+      safetyBoundary:
+        "Calls the mission at the point of no return rather than at a charge threshold, and the " +
+        "margin it keeps is the one it measured rather than a percentage.",
+    },
     typicalDurationMs: 0,
     daemon: true,
     inputSchema: {

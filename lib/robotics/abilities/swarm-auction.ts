@@ -65,6 +65,40 @@ export const swarmAuction: Ability<SwarmInput, SwarmReport> = {
     tags: ["multi-robot", "coordination", "planning"],
     risk: "passive",
     requires: ["radio", "battery"],
+    // Bidding on a job it cannot do is worse than not bidding, because the auction
+    // then does not offer the job to a robot that could. Its bid is a claim about
+    // its own charge and position, so both have to be real.
+    evidence: [
+      { source: "battery" as const, because: "the bid is a cost, and most of the cost is charge" },
+      { source: "pose" as const, because: "the rest of the cost is how far away the job is" },
+      {
+        source: "transport" as const,
+        because: "a bid that does not arrive loses the auction silently",
+        acceptDegraded: true,
+      },
+    ],
+    proof: {
+      status: "SIMULATED" as const,
+      basis:
+        "Allocates three jobs to three robots for a total cost of 19.9, and the robot at 31% " +
+        "charge correctly sits it out. In-process radio with no loss.",
+      verification:
+        "Two real robots on a real network, with messages dropped deliberately. The number to " +
+        "watch is what happens to a job whose winner goes offline between winning and starting.",
+      failureModes: [
+        "The simulated radio does not drop, duplicate or reorder. A real one does all three.",
+        "There is no mechanism for a winner that fails after winning; the job is simply not done.",
+        "Bids are cost estimates from the same models that are wrong elsewhere — a robot with " +
+          "optimistic odometry bids low and wins jobs it should not.",
+      ],
+      degradedModes: [
+        "It bids on what it can currently justify. A robot whose charge is unvouched sits out " +
+          "rather than bidding a number it cannot stand behind.",
+      ],
+      safetyBoundary:
+        "Allocation only. Winning a job does not start it; running it is another capability with " +
+        "its own gate.",
+    },
     typicalDurationMs: 3000,
     inputSchema: {
       type: "object",

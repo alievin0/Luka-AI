@@ -58,6 +58,41 @@ export const adaptiveGrasp: Ability<GraspInput, GraspReport> = {
     tags: ["manipulation", "force-control", "perception"],
     risk: "contact",
     requires: ["arm", "gripper", "tactile", "camera"],
+    // Force is the whole point: this derives stiffness by squeezing and holds at
+    // the least force that works. A gripper that does not measure force reports
+    // zero, and a controller squeezing an egg reads zero as "I have not started".
+    evidence: [
+      {
+        source: "gripper" as const,
+        because: "the least force that works can only be found by measuring the force",
+      },
+      { source: "arm" as const, because: "it has to know where the hand is before closing it" },
+    ],
+    proof: {
+      status: "SIMULATED" as const,
+      basis:
+        "Holds a tin and a peach at the least force that works and refuses the egg, because no " +
+        "safe force exists for it — that refusal is the result worth having. Simulated contact " +
+        "and yield model.",
+      verification:
+        "Grip objects of known crush strength with an in-line force gauge and compare the held " +
+        "force against the gauge. The egg is the test: it should be refused, not crushed slowly.",
+      failureModes: [
+        "A gripper with no force sensing cannot run this at all, and the evidence layer is what " +
+          "stops it pretending otherwise.",
+        "Stiffness is derived from the first squeeze, so an object that yields non-linearly — a " +
+          "sealed cup, a spring-loaded clip — is modelled wrongly after the first millimetre.",
+        "Slip is detected after it starts. A smooth heavy object can be dropped before the " +
+          "correction lands.",
+      ],
+      degradedModes: [
+        "On a gripper that reports position but not force, the evidence is degraded and this " +
+          "refuses. Position-only grasping is a different capability and should be written as one.",
+      ],
+      safetyBoundary:
+        "Never exceeds the governor's contact-force ceiling, and refuses rather than exceeding it " +
+        "when no force below the ceiling will hold the object.",
+    },
     typicalDurationMs: 6000,
     inputSchema: {
       type: "object",

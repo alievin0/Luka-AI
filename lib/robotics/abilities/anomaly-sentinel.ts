@@ -60,6 +60,37 @@ export const anomalySentinel: Ability<AnomalyInput, AnomalyReport> = {
     tags: ["diagnostics", "maintenance", "daemon", "learning"],
     risk: "passive",
     requires: ["battery"],
+    // It learns this robot's own baseline and reports sustained departures, which
+    // means it must not learn a baseline out of a channel that has stopped
+    // reporting — a dead channel is extremely consistent.
+    evidence: [
+      {
+        source: "battery" as const,
+        because: "draw against the learned baseline is the main thing it watches",
+      },
+      { source: "velocity" as const, because: "power draw only means something next to what the robot is doing" },
+    ],
+    proof: {
+      status: "SIMULATED" as const,
+      basis:
+        "Detects injected health-channel faults in the simulator after they persist, against a " +
+        "baseline it learned rather than a fixed threshold. Injected faults are not real ones.",
+      verification:
+        "Run a real robot long enough to establish a baseline, then degrade something physical " +
+        "and measurable — a dragging brake, an under-inflated tyre — and check both that it " +
+        "reports and how long it took.",
+      failureModes: [
+        "A fault present during baseline learning becomes the baseline.",
+        "Slow degradation is exactly the case a learned baseline follows rather than reports.",
+        "A frozen channel has zero variance and reads as a very healthy one.",
+      ],
+      degradedModes: [
+        "It reports on the channels that are reporting and says which those are, rather than " +
+          "treating a silent channel as a quiet one.",
+      ],
+      safetyBoundary:
+        "Reports only. It escalates to the operator and never commands the robot.",
+    },
     typicalDurationMs: 0,
     daemon: true,
     inputSchema: {

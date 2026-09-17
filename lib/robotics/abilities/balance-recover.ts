@@ -53,6 +53,48 @@ export const balanceRecover: Ability<BalanceInput, BalanceReport> = {
     tags: ["safety", "control", "critical"],
     risk: "critical",
     requires: ["drive", "imu"],
+    // The one capability where a missing sensor is unambiguous: a robot cannot
+    // catch a fall it cannot measure. A dead IMU used to read as a perfectly
+    // upright robot, which produced "caught the fall, peak lean 0.0°" from a robot
+    // lying flat on the floor. It refuses rather than reporting that again.
+    evidence: [
+      {
+        source: "imu" as const,
+        because: "tilt and tilt rate are the entire input to the capture-point calculation",
+        maxAgeMs: 200,
+      },
+      {
+        source: "velocity" as const,
+        because: "the recovery drives the base under the centre of mass and has to know its speed",
+      },
+    ],
+    proof: {
+      status: "SIMULATED" as const,
+      basis:
+        "Holds to a 1.6 rad/s shove and fails at 2.0, ten seeds per level with intervals. At " +
+        "n=10 nothing under about 50 percentage points apart is distinguishable, which is stated " +
+        "in the demo rather than rounded away. Simulated inverted pendulum only.",
+      verification:
+        "This is the one that should not be verified by pushing a real robot until somebody has " +
+        "rehearsed the catch in simulation with that robot's measured mass and centre-of-mass " +
+        "height. Then, on a tether, apply a measured impulse and compare peak lean against the " +
+        "predicted capture point.",
+      failureModes: [
+        "Centre-of-mass height and foot half-length are platform constants; wrong ones make the " +
+          "capture point wrong in the direction that says a lost fall is recoverable.",
+        "Past the tip angle the drive needs emergency torque the platform may not have, in which " +
+          "case the manoeuvre is computed, commanded and does not happen.",
+        "A frozen IMU reports a constant tilt, which looks like a stable lean rather than a " +
+          "sensor that has stopped — freshness is checked for exactly this.",
+      ],
+      degradedModes: [
+        "None. There is no useful half-measure between measuring the fall and not measuring it, " +
+          "so this refuses rather than bracing on a guess.",
+      ],
+      safetyBoundary:
+        "Braces when the fall is past recovery instead of continuing to drive, and never uses " +
+        "emergency acceleration outside the tip angle.",
+    },
     typicalDurationMs: 2000,
     inputSchema: {
       type: "object",

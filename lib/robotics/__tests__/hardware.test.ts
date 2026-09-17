@@ -586,14 +586,26 @@ test("balance refuses to judge a fall it cannot see", async () => {
     "the robot did not actually fall, so this proves nothing",
   );
 
-  // Freeze the IMU at its initialisation values, timestamp included.
+  // Freeze the IMU at its initialisation values, timestamp included — and keep
+  // `stamp: "sensor"`, because a stalled driver is one that is still stamping
+  // its own clock and republishing the same instant. Dropping the field would
+  // model an IMU that never stamped anything, which is a different fault with
+  // a different refusal.
   const stamp = robot.imu().t;
-  Object.assign(robot, { imu: () => ({ tilt: 0, tiltRate: 0, accel: 0, yawRate: 0, t: stamp }) });
+  Object.assign(robot, {
+    imu: () => ({ tilt: 0, tiltRate: 0, accel: 0, yawRate: 0, t: stamp, stamp: "sensor" as const }),
+  });
 
   const result = await rig.runtime.run("balance.recover", { timeoutMs: 4000 });
   assert.equal(result.ok, false, "claimed a recovery while lying on the floor");
   assert.equal(result.failure, "precondition");
-  assert.match(result.summary, /not produced a new sample/);
+  // Either refusal is correct and the gate now gets there first: it rejects a
+  // reading whose age has run past what the capability declared, before the
+  // ability's own liveness check has had a tick to notice. What matters is that
+  // the refusal names the IMU and says the reading is old, rather than a
+  // recovery being reported from a sensor that stopped.
+  assert.match(result.summary, /imu|IMU/);
+  assert.match(result.summary, /old|not produced a new sample/);
 });
 
 test("a gripper with no force sensor does not report zero force", async () => {

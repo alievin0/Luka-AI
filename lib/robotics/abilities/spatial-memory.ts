@@ -62,6 +62,37 @@ export const spatialMemory: Ability<SpatialInput, SpatialReport> = {
     tags: ["memory", "perception", "learning"],
     risk: "passive",
     requires: ["camera"],
+    // It learns per object how fast its own knowledge goes stale, which is only
+    // meaningful if an observation is distinguishable from the absence of one.
+    evidence: [
+      {
+        source: "detections" as const,
+        because: "a memory of where things are is built from having seen them there",
+      },
+      { source: "pose" as const, because: "a detection is only a location once you know where you were" },
+    ],
+    proof: {
+      status: "SIMULATED" as const,
+      basis:
+        "Learns different staleness rates for objects that move and objects that do not, in the " +
+        "simulator, where the ground truth of which is which is available to check against.",
+      verification:
+        "Place known objects in a real room, move some of them on a known schedule, and check " +
+        "the learned half-lives against that schedule. The claim is about the rates, not about " +
+        "recall.",
+      failureModes: [
+        "A detector that misses an object reads as the object having moved, so a flaky detector " +
+          "teaches this that everything is volatile.",
+        "It learns per object class, so one unusually mobile sofa poisons the class.",
+        "Nothing distinguishes an object that moved from one that was occluded.",
+      ],
+      degradedModes: [
+        "Fewer detections mean slower learning rather than wrong learning, because an absent " +
+          "observation is recorded as absent.",
+      ],
+      safetyBoundary:
+        "Passive; it records and answers questions and never moves anything.",
+    },
     typicalDurationMs: 400,
     inputSchema: {
       type: "object",
