@@ -379,6 +379,43 @@ The tests are behavioural, not smoke tests. They assert things like:
 أكبر كائن عنده خريطة عصبية **كاملة بدقّة المشبك** لليوم هو ذبابة الفاكهة. لهيك
 جبت الذبابة وما جبت القطة: الذبابة موجودة، والقطة لأ.
 
+### والدائرة التانية — البوصلة، وشو صار فيها
+
+جرّبت الدائرة التانية اللي رشّحها البحث: حلقة الاتجاه بالمجمّع المركزي (٢٨٣ خلية).
+النتيجة: **موصولة صح، وما بتشتغل.** ما في قدرة مسجّلة فوقها لأنه ما في شي يستاهل
+التسجيل.
+
+بتمسك النتوء لما شي خارجي يشغّله، وبتقرا مكانه صح (قوة ٠٫٩٥، وضمن ٣ درجات).
+والمحرّكات موصولة صح كمان — تشغيل نصف كرة بيخلّيها ٤٧ هرتز والتانية ٨.
+
+بس ما بتمسك النتوء لحالها. شلت التشغيل، الحلقة إما بتسكت أو بتشتعل كلها بالتساوي.
+جرّبت مدى واسع من الأوزان والعتبات — ولا تركيبة مسكت نتوء موضعي.
+
+**والأهم: نسخة أقدم كانت «بتشتغل» — قوة ٠٫٨٦ ونتوء نظيف. وطلعت وهم.** الخلايا
+كانت موزّعة على الأسافين من الصفر، فالباقي بيتكدّس على الأسافين الأولى، والنشاط
+بيتجمّع وين الخلايا أكتر. لما وزّعتهم بالتساوي، النتوء اختفى — وهيك بتعرف إنه ما
+كان ديناميكا أصلاً.
+
+السبب الحقيقي: **الكونكتوم بيثبّت الرسم البياني، وما بيثبّت ولا رقم من اللي
+بيقرّروا إذا الحلقة رح تصير جاذب.** دائرة الهروب اشتغلت لأنها أمامية — عتبة وحدة
+لازم تنضبط. الحلقة الراجعة بدها **توازن**، والتوازن بينلاقى بالتحسين مو بالتخمين.
+كل نتيجة منشورة طلّعت وظيفة من كونكتوم ثبّتت الرسم من البيانات و**حسّنت** الباقي
+بالتدرّج.
+
+خلّيت الكود والنتيجة السلبية مكتوبة، مع اختبار بيفشل إذا حدا لقى إعدادات بتشتغل —
+عشان التوثيق ما يصير غلط بالسكوت.
+
+> The second circuit the research recommended — the central complex heading
+> ring, 283 cells — is wired from measured data and **does not work**. No
+> ability is registered on it. It holds and reads a bump that something else
+> drives, and its shifters are correctly asymmetric, but it will not hold a bump
+> on its own at any parameters found. An earlier version appeared to work and
+> was an artifact of uneven cell layout; spreading the cells evenly made the
+> bump vanish, which is how you can tell it was never attractor dynamics. The
+> connectome fixes the graph and fixes none of the numbers that decide whether a
+> recurrent circuit is an attractor. Kept, with a test that fails if someone
+> finds parameters that work.
+
 > There is no cat connectome and there never has been. What gets called one is
 > either a 65-area matrix from a 1995 meta-analysis of tract-tracing papers — 65
 > nodes against the fly's 139,255, and areal rather than cellular — or the 2009

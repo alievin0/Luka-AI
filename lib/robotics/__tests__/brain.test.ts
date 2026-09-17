@@ -15,6 +15,14 @@ import {
   angularSize,
 } from "../brain/circuits/escape.ts";
 import { signOf } from "../brain/connectome.ts";
+import {
+  CompassCircuit,
+  COMPASS_CELL_COUNTS,
+  COMPASS_EDGES,
+  WEDGES,
+  layOutCompass,
+  angleDelta,
+} from "../brain/circuits/compass.ts";
 import { createSimRig } from "../index.ts";
 import { selfMotionExpansion, type LoomingReport } from "../abilities/looming.ts";
 
@@ -455,4 +463,122 @@ test("the reflex still lets the robot cross a cluttered room", async () => {
     (report.data?.suppressedBySelfMotion ?? 0) > 50,
     `only ${report.data?.suppressedBySelfMotion} expansions were explained by self-motion`,
   );
+});
+
+// ── the central complex, and an honest negative result ─────────────────────
+// These tests pin down a circuit that does NOT work. They exist so the claim
+// in compass.ts stays true: if someone later finds parameters that hold a bump,
+// the negative test fails and the documentation has to be rewritten. A negative
+// result nobody checks rots into a wrong comment.
+
+test("the compass is wired to the measured cell counts", () => {
+  const circuit = new CompassCircuit();
+  const census = circuit.census();
+  assert.equal(census.EPG, 47);
+  assert.equal(census.Delta7, 42);
+  assert.equal(census.PFL3, 24);
+  assert.equal(
+    Object.values(census).reduce((a, b) => a + b, 0),
+    Object.values(COMPASS_CELL_COUNTS).reduce((a, b) => a + b, 0),
+  );
+
+  // Every edge says where it came from, because some of this is measured and
+  // some is only published anatomy with a modelled strength.
+  const measured = COMPASS_EDGES.filter((e) => e.provenance === "measured");
+  assert.ok(measured.length > COMPASS_EDGES.length / 2, "most edges should be measured");
+  for (const edge of COMPASS_EDGES.filter((e) => e.provenance === "described")) {
+    assert.ok(edge.note, `${edge.from}->${edge.to} is described but does not say why`);
+  }
+});
+
+test("the ring is laid out evenly, with hemisphere independent of wedge", () => {
+  // Both of these were bugs, and both produced a circuit that looked like it
+  // worked. Uneven wedges gave a false bump wherever the cells piled up; tying
+  // the hemisphere to the wedge index meant every even wedge held only
+  // left-side cells, so a shifted bump landed somewhere with no shifter to
+  // move it on and stopped dead.
+  const cells = layOutCompass();
+  for (const type of ["EPG", "PEN_a", "PEN_b"]) {
+    const ofType = cells.filter((c) => c.type === type);
+    const perWedge = new Array(WEDGES).fill(0);
+    for (const c of ofType) perWedge[c.wedge] += 1;
+    const spread = Math.max(...perWedge) - Math.min(...perWedge);
+    assert.ok(spread <= 2, `${type} occupancy varies by ${spread} across wedges: ${perWedge}`);
+  }
+
+  // The ring itself has to be occupied everywhere, or activity pools where the
+  // cells are and the pooling reads as a heading.
+  const ring = cells.filter((c) => c.type === "EPG");
+  for (let w = 0; w < WEDGES; w += 1) {
+    assert.ok(ring.some((c) => c.wedge === w), `EPG wedge ${w} is empty`);
+  }
+
+  // Every wedge must be reachable by a shifter of each hemisphere, or the bump
+  // can move into a wedge it cannot move out of.
+  const shifters = cells.filter((c) => c.type === "PEN_a" || c.type === "PEN_b");
+  for (const side of ["L", "R"] as const) {
+    const covered = new Set(shifters.filter((c) => c.side === side).map((c) => c.wedge));
+    assert.equal(covered.size, WEDGES, `${side} shifters cover only ${covered.size} of ${WEDGES} wedges`);
+  }
+});
+
+test("a driven bump is read back at the bearing it was driven to", () => {
+  // The readout works, whatever the dynamics do. This is the part of the
+  // circuit that is sound.
+  for (const bearing of [0, Math.PI / 2, -Math.PI / 2, 2.5]) {
+    const circuit = new CompassCircuit();
+    circuit.seed(bearing);
+    const reading = circuit.advance(100, 0);
+    assert.ok(reading.strength > 0.6, `no bump at ${bearing}: strength ${reading.strength}`);
+    assert.ok(
+      Math.abs(angleDelta(reading.heading, bearing)) < 0.35,
+      `read ${reading.heading.toFixed(2)} for a bump driven to ${bearing}`,
+    );
+  }
+});
+
+test("driving one hemisphere's shifters does make them asymmetric", () => {
+  // The rotation mechanism is wired correctly even though there is no bump for
+  // it to act on: turning one way drives one side and leaves the other quiet.
+  const circuit = new CompassCircuit({ tuning: { shiftGain: 40 } }) as unknown as {
+    seed(b: number): void;
+    advance(ms: number, rate: number): unknown;
+    network: { resetCounts(): void; populationRate(n: readonly number[], ms: number): number };
+    shifters: { L: number[]; R: number[] };
+  };
+  circuit.seed(0);
+  circuit.advance(100, 0);
+  circuit.network.resetCounts();
+  for (let i = 0; i < 20; i += 1) circuit.advance(50, 0.4);
+
+  const left = circuit.network.populationRate(circuit.shifters.L, 1000);
+  const right = circuit.network.populationRate(circuit.shifters.R, 1000);
+  assert.ok(left > right * 2, `driven side ${left.toFixed(1)} Hz vs idle ${right.toFixed(1)} Hz`);
+});
+
+test("the ring does NOT hold a bump on its own — the documented negative result", () => {
+  // If this test starts failing, someone has found a working parameter set and
+  // the warning at the top of compass.ts is now wrong. Fix the documentation,
+  // do not delete the test.
+  const settings = [
+    { weightScale: 0.6, tonicDrive: 1.2 },
+    { weightScale: 0.9, tonicDrive: 1.2 },
+    { weightScale: 1.5, tonicDrive: 1.45 },
+    { weightScale: 4, tonicDrive: 1.2 },
+  ];
+
+  for (const tuning of settings) {
+    const circuit = new CompassCircuit({ tuning });
+    circuit.seed(0);
+    circuit.advance(100, 0);
+    let reading = circuit.advance(100, 0);
+    for (let i = 0; i < 20; i += 1) reading = circuit.advance(100, 0);
+
+    assert.ok(
+      reading.strength < 0.5,
+      `a bump survived 2 s at ${JSON.stringify(tuning)} with strength ` +
+        `${reading.strength.toFixed(3)} — the compass may actually work now, ` +
+        "which means the negative result documented in compass.ts needs rewriting.",
+    );
+  }
 });
