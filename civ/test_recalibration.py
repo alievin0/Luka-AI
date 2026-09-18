@@ -527,5 +527,130 @@ class Campaign3Preflight(unittest.TestCase):
         self.assertEqual(len(V2.TASKS_V2) * 5 * 2, 90)
 
 
+import bench_seal as S                           # noqa: E402
+
+
+class HarnessReSeal(unittest.TestCase):
+    """The re-seal of 2026-09-18. It records that the INSTRUMENT changed and
+    proves that nothing scientific did."""
+
+    def setUp(self):
+        with open(S.MANIFEST, encoding="utf-8") as fh:
+            self.sealed = json.load(fh)
+        with open(S.C3_MANIFEST, encoding="utf-8") as fh:
+            self.c3 = json.load(fh)
+
+    def test_the_re_seal_altered_nothing_scientific(self):
+        for key in ("task_set", "tasks", "evaluators", "metrics_sha",
+                    "statistical_rule"):
+            self.assertEqual(self.sealed[key], self.c3[key],
+                             "the re-seal moved %s" % key)
+
+    def test_campaign_threes_seal_is_untouched_by_the_re_seal(self):
+        """The re-seal is a NEW file. Campaign #3's manifest is history."""
+        self.assertNotEqual(os.path.basename(S.MANIFEST),
+                            os.path.basename(S.C3_MANIFEST))
+        self.assertEqual(self.sealed["supersedes"],
+                         os.path.basename(S.C3_MANIFEST))
+        self.assertEqual(self.sealed["campaign3_sealed_commit"],
+                         self.c3["sealed_commit"])
+
+    def test_the_live_code_still_matches_both_seals(self):
+        current = PF.build_manifest()
+        for tid, sha in self.sealed["tasks"].items():
+            self.assertEqual(current["tasks"][tid], sha, tid)
+        for name, sha in self.sealed["evaluators"].items():
+            self.assertEqual(current["evaluators"][name], sha, name)
+        self.assertEqual(M.dimensions_sha(), self.sealed["metrics_sha"])
+        self.assertEqual(dict(I.OPTION_A), dict(self.sealed["statistical_rule"]))
+
+    def test_alpha_and_the_sign_test_are_the_ones_campaign_three_sealed(self):
+        rule = self.sealed["statistical_rule"]
+        self.assertEqual(rule["alpha"], 0.05)
+        self.assertIn("exact binomial sign test", rule["test"])
+        self.assertEqual(rule["min_runs_per_cell"], 5)
+        self.assertEqual(rule["min_tasks_with_signal"], 3)
+        self.assertEqual(rule["decided_needed_for_significance"], 6)
+        self.assertEqual(rule["discriminating_tasks"], 8)
+
+    def test_the_harness_is_now_inside_the_seal(self):
+        """The gap the re-seal exists to close: campaign #3's manifest could
+        report MATCH while the execution model was rewritten underneath it."""
+        self.assertNotIn("harness_sha", self.c3)
+        self.assertIn("harness_sha", self.sealed)
+        self.assertEqual(S.harness_sha(), self.sealed["harness_sha"])
+        self.assertEqual(S.drift(self.sealed), [])
+
+    def test_the_fingerprint_covers_the_loop_the_grants_and_the_gateway(self):
+        parts = self.sealed["harness_parts"]
+        for required in ("agent_turn", "run_condition", "clip", "invoke_with_retry",
+                         "is_transport_failure", "render_observation", "verify",
+                         "bench_crew", "gateway_call", "gateway_scope",
+                         "gateway_paths", "limits", "prompts", "principals",
+                         "max_tokens_per_role"):
+            self.assertIn(required, parts)
+
+    def test_a_harness_change_is_detected_rather_than_reported_as_a_match(self):
+        tampered = json.loads(json.dumps(self.sealed))
+        tampered["harness_parts"]["agent_turn"] = "0" * 64
+        moved = S.drift(tampered)
+        self.assertTrue(moved)
+        self.assertTrue(any("agent_turn" in m for m in moved))
+
+    def test_the_re_seal_refuses_to_be_built_if_the_science_moved(self):
+        real = PF.build_manifest
+        try:
+            PF.build_manifest = lambda: dict(real(), metrics_sha="0" * 64)
+            with self.assertRaises(RuntimeError) as e:
+                S.build_reseal_manifest()
+            self.assertIn("REFUSING TO RE-SEAL", str(e.exception))
+        finally:
+            PF.build_manifest = real
+
+    def test_the_execution_model_change_is_recorded(self):
+        em = self.sealed["execution_model"]
+        self.assertIn("model -> tool -> observation -> model", em["shape"])
+        self.assertIn("reachable on none", em["previous"])
+        self.assertEqual(em["single"], "one agent_turn")
+        self.assertIn("builder -> critic -> reviser", em["multi"])
+        self.assertTrue(len(em["supported"]) >= 5)
+        self.assertEqual(sorted(self.sealed["harness_commits"]),
+                         sorted(["8312f3cc8705a7d49fd4f3d54bf89a74580880c0",
+                                 "68721df08e0ac340bb5ca96f17f8e8d81b3a89fa"]))
+
+    def test_all_seven_confounds_are_declared_before_any_run(self):
+        """A confound named in advance cannot be discovered afterwards in a
+        result's favour."""
+        ids = [c["id"] for c in self.sealed["confounds"]]
+        self.assertEqual(ids, ["C1-critic-token-budget", "C2-no-os-sandbox",
+                               "C3-roles-rebuilt-per-run", "C4-no-persistence",
+                               "C5-no-dynamic-team-formation",
+                               "C6-no-parallel-execution",
+                               "C7-no-long-horizon-replanning"])
+        for c in self.sealed["confounds"]:
+            for field in ("what", "scope", "direction", "why_not_fixed", "resolve_by"):
+                self.assertTrue(c.get(field), "%s lacks %s" % (c["id"], field))
+
+    def test_the_token_confound_records_the_numbers_not_a_claim_of_equality(self):
+        budgets = self.sealed["harness_parts"]["max_tokens_per_role"]
+        self.assertEqual(json.loads(budgets),
+                         {"SOLO": 900, "BUILDER": 900, "CRITIC": 500, "REVISER": 900})
+        c1 = [c for c in self.sealed["confounds"] if c["id"] == "C1-critic-token-budget"][0]
+        self.assertIn("MULTI-internal", c1["scope"])
+        self.assertIn("CONSTRAIN", c1["direction"])
+
+    def test_the_re_seal_authorises_no_campaign_by_itself(self):
+        """Sealing an instrument is not permission to run it."""
+        self.assertEqual(self.sealed["authorises"], [])
+
+    def test_the_preflight_verifies_the_harness_fingerprint(self):
+        src = inspect.getsource(PF.preflight)
+        self.assertIn("4b. HARNESS FINGERPRINT", src)
+        self.assertIn("bench_seal", src)
+
+    def test_sealing_never_overwrites_an_existing_seal(self):
+        self.assertEqual(S.main(["--write"]), 1)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

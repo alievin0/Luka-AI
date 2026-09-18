@@ -166,6 +166,44 @@ def preflight(verbose=True, require_provider=True):
         fails.append("no sealed manifest at %s — nothing to verify against" % MANIFEST)
         say("   FAIL           : sealed manifest missing")
 
+    # ── 4b. the harness fingerprint ───────────────────────────────────
+    # Checks 3 and 4 seal the science. They said MATCH throughout the harness
+    # rewrite, and they were telling the truth: no task, reference answer or
+    # evaluator had moved. What had moved was the thing that EXECUTES them — a
+    # condition that could not reach a tool became one that can. A seal that
+    # cannot see that is the same defect the campaigns kept finding in
+    # themselves, so the execution model is sealed too.
+    say("\n4b. HARNESS FINGERPRINT")
+    try:
+        import bench_seal as S
+        if os.path.exists(S.MANIFEST):
+            sealed = json.load(open(S.MANIFEST, encoding="utf-8"))
+            moved = S.drift(sealed)
+            say("   re-seal        : %s" % os.path.relpath(S.MANIFEST, HERE))
+            say("   pre-registered : %s" % sealed["harness_sha"])
+            say("   computed       : %s" % S.harness_sha())
+            if moved:
+                fails.append("the harness changed since the re-seal: %s"
+                             % "; ".join(moved[:4]))
+                say("   FAIL           : %d component(s) moved" % len(moved))
+                for m in moved[:6]:
+                    say("     - %s" % m)
+            else:
+                say("   MATCH          : %d components, execution model unchanged"
+                    % len(sealed.get("harness_parts", {})))
+            say("   declared confounds: %s"
+                % ", ".join(c["id"] for c in sealed.get("confounds", [])))
+            if not sealed.get("authorises"):
+                notes.append("the re-seal authorises no campaign yet: `authorises` is "
+                             "empty, so a comparison run needs the owner to say so")
+                say("   authorises     : (none yet — owner authorisation required)")
+        else:
+            fails.append("no harness re-seal at %s" % os.path.relpath(S.MANIFEST, HERE))
+            say("   FAIL           : the execution model is not sealed")
+    except ImportError as e:
+        fails.append("harness seal unavailable: %r" % e)
+        say("   FAIL           : %r" % e)
+
     # ── 5. provider and model ─────────────────────────────────────────
     say("\n5. PROVIDER AND MODEL")
     prov = P.from_env()
