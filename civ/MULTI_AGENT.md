@@ -1,11 +1,14 @@
 # A world of agents on one model
 
-**STATUS: the code is in the repository and tested. The run is RECORDED, NOT
-REPRODUCED.** A run on 2026-09-18 reported `20 of 20` and is quoted in commit
-`2d62429`. Nothing since has re-run it: this container holds no credential, and
-the environment's key was removed by the Owner afterwards. Treat the recorded
-output as recorded — and read §7 before citing it, because one of its twenty
-checks was read by a parser that has since been fixed.
+**STATUS: REAL MULTI-AGENT WORLD DEMONSTRATED, WITH REVIEW-QUOTA INTERRUPTION
+AND REJECT PATH STILL UNEXERCISED — 2026-09-18, Google AI Studio free tier,
+reproduced from commit `391a6e4`.**
+
+Three agents each took real turns on a real model, the Researcher's own
+conclusion reached the Builder as the Builder's input, and a Reviewer that had
+read the work returned its own verdict. Then the free tier ran out mid-sequence
+and the second review never happened. Both halves of that sentence are the
+result; §7 is where the second half is kept, and it is longer than this section.
 
 ```
 CIV_PROVIDER=gemini CIV_ASSUME_FREE=1 CIV_MODEL=gemini-3.1-flash-lite \
@@ -14,9 +17,26 @@ CIV_PROVIDER=gemini CIV_ASSUME_FREE=1 CIV_MODEL=gemini-3.1-flash-lite \
 
 [`REAL_INFERENCE.md`](REAL_INFERENCE.md) established that **one** agent's turn
 can be driven by a real model. This is the different and harder claim: that a
-**world** of them runs on one — that the Researcher's real conclusion arrives as
-the Builder's real input, and that a Reviewer which has actually read the work
-decides whether it is acceptable.
+**world** of them runs on one.
+
+## 0. What the reproduction recorded
+
+Every number below is a row in the run's own database, read back after the fact.
+
+| | |
+|---|---|
+| model calls | **17**, all `source='model'` · 14 OK, 3 FAILED on HTTP 429 · cap 35, never reached |
+| model | `gemini-3.1-flash-lite` — the named model answered; no substitution |
+| mock runs | **0** · ReactiveWorker runs: **0** · fallback providers: **0** |
+| tool decisions from model output | **9** (each immediately after a `MODEL_RUN` event) |
+| tool events from the harness | **1** — the bootstrap scan, 28 events before any model turn existed, its discovery row labelled `source='mock'` (§6) |
+| what the gateway actually returned | sha256 `c509a1c5c5510f79a555243c6f81d9987d248bd4515081b0ee5c24582bda976e` — `AGENT_COGNITION.md`, 14676 bytes, verified against the file in the repository |
+| observation dependency | demonstrated: `tokens_in` 930 → 2941 across the gateway's return, and the artifact reconstructs a sentence that is line-wrapped in the source file |
+| the handoff | **16** distinctive words shared with the artifact **after the briefing is subtracted**; longest phrase repeated verbatim: **15 words** |
+| the Reviewer | read-only — `fs.read` only, **zero write capabilities**, zero artifacts, and its verdict came from a run with `source='model'` |
+| artifacts | 2, with different shas — different work, not a copy |
+| `bench_seal.drift()` | **NONE** |
+| the demo's own tally | 20 PASS / 0 FAIL — which is **not** proof that every artifact was reviewed (§7) |
 
 ---
 
@@ -119,7 +139,7 @@ the reviewer actually said, and a person is told. *Could not be reviewed* is not
 *approved*, and picking a side on the reviewer's behalf would be the supervisor
 deciding while the record said the reviewer had.
 
-## 6. The twenty checks
+## 6. The twenty-one checks
 
 The report grades exactly what the rows show, and prints every decision every
 agent made, in order.
@@ -132,6 +152,12 @@ agent made, in order.
 | **the builder** | ran on the model · produced its own artifact · the two artifacts are different work |
 | **the reviewer** | a review was recorded · every verdict came from a model run · never produced the work · never wrote anything |
 | **the world** | the owner gave exactly one instruction · it went quiet on its own · the cap was never exceeded |
+| **the finish** | nothing is left unfinished without the record saying why (§8) |
+
+One caution about reading a full tally, learned from the run in §0: twenty of
+these grade whether real agents did real work, and every one of them can pass
+while the workflow stops short. The twenty-first is the only one that is about
+finishing, and even it passes an honest stop — what it refuses is a silent one.
 
 The report also prints, side by side and ungraded, what the code concluded and
 what the reviewer concluded for each artifact. A reviewer that agrees is not
@@ -140,27 +166,94 @@ both is the only honest way to show the difference.
 
 ## 7. What is NOT established
 
-1. **The recorded run has not been reproduced, and one check in it is suspect.**
-   Its Reviewer verdict was read by the scanning parser described in §5, before
-   that was fixed. If the model's answer did not open with the word, the verdict
-   stored in `reviews` for that run may be the opposite of what it said. The
-   database of that run went with its container, so this cannot be checked —
-   only re-run.
-2. **The REJECT path did not fire.** It is armed and the supervisor routes on
-   it, but nothing in that run forced a rejection and nothing was arranged to
-   provoke one. *Not exercised* is not *not reachable*, and it is not claimed as
-   passing. Manufacturing a rejection to demonstrate the correction loop would
-   make the demonstration worthless.
-3. **Reasoning quality is not measured anywhere.** That the decisions came out
-   of a model is a row in `runs`; that they were *good* decisions is not
-   something this file tests.
-4. **Twenty requests per day, per model.** Google AI Studio's free tier is
-   small. It costs nothing and it is not unlimited, and a run that exhausts it
-   stops at the cap rather than spending.
-5. **Three agents, one objective, one afternoon.** Nothing here says anything
-   about scale, about long-horizon work, or about a world left running for days.
+The run above is the strongest evidence this repository has. It is also a single
+afternoon on a free tier, and the list below is longer than the result.
 
----
+**The interruption, in full.** The second review attempt hit **HTTP 429**. The
+free-tier allowance ended at roughly **15 requests**, not the 20 assumed. **Task
+#3 remained RUNNING with no final review verdict**, and its artifact carries
+none. The workflow state for that run is `QUOTA_EXHAUSTED`, and §8 is the check
+that now makes that impossible to omit.
+
+**The 20/20 is not what it looks like.** A full tally of the demo's own checks is
+**not** proof that every artifact received a review — that run scored 20 PASS
+while an artifact sat unreviewed. The tally measures whether real agents did real
+work; completion is measured separately, by §8.
+
+**`usd = 0.0` is not a verified billing fact.** The run was told
+`CIV_ASSUME_FREE=1` and recorded the assumption it was given. Nothing here reads
+an invoice.
+
+**The REJECT branch was not exercised.** Zero rejections. Nothing provoked one,
+**no artificial rejection was injected**, and a manufactured one would have made
+the demonstration worthless. The path is armed, routed and unit-tested; it has
+not fired against a real model.
+
+This demonstration does **not** establish:
+
+- **model quality** — that a decision came out of a model is a row in `runs`;
+  that it was a *good* decision is not something any test here asks
+- **reliability under quota exhaustion** — the one time it happened, the
+  workflow stopped
+- **successful correction after rejection** — the correction path was not walked
+  end to end on a real model
+- **large-scale autonomy** — three agents, one objective, one afternoon
+- **operation at 100, 1,000 or 10,000 agents**
+- **autonomous business creation**
+- **the Agent Factory or a Skill Factory**
+- **physical embodiment**
+
+Two further limits carried forward from the code itself: `LocalProvider` has
+never been executed against a live runtime, and `ClaudeProvider` has never been
+called at all.
+
+## 8. The completion invariant
+
+A tally of passing checks is not a finished workflow, and until `391a6e4` the
+demo could not tell the difference. `completion_state()` now computes what
+actually happened, from rows:
+
+> **Every artifact carries a terminal verification state; every artifact whose
+> verification PASSED carries a review outcome; and no task is left RUNNING —
+> unless the run terminates explicitly as INCOMPLETE, QUOTA_EXHAUSTED or
+> FAILED.**
+
+Four states, and the verdict line carries the one it reached, so the verdict
+cannot be quoted without it:
+
+| | |
+|---|---|
+| `COMPLETE` | every artifact verified, every passing artifact reviewed, nothing left running |
+| `INCOMPLETE` | something unfinished — including a stop the world escalated to a person |
+| `FAILED` | a run ended badly and the record names it |
+| `QUOTA_EXHAUSTED` | a run ran out of allowance: `HTTP 429`, `RESOURCE_EXHAUSTED`, "exceeded your current quota" |
+
+Three things it deliberately does **not** do:
+
+1. **It does not require APPROVE.** A REJECT is a review outcome and the
+   entrance to the correction path; demanding an approval would be demanding a
+   verdict rather than a review.
+2. **It does not demand a review for an artifact that failed verification.**
+   Verification runs first and a failure routes to correction without a reviewer
+   ever seeing it, so the superseded first attempts in an ordinary run are not
+   unfinished work.
+3. **It does not match a bare `429`.** That number occurs inside token counts,
+   byte counts and shas; each quota marker is matched with its prefix. A guard
+   that reads `$0.50000` as a 500 is a defect this repository has already had
+   once.
+
+The graded check fails on one thing only: something unfinished with **nothing in
+the database accounting for it** — no failed run, no HIGH signal raised to a
+person. An honest stop passes and is named; a silent hole fails. The exit code
+follows: `0` demonstrated and COMPLETE, `2` demonstrated but stopped short, `1`
+not demonstrated.
+
+`test_multi_agent.py` pins all of it: approval completes, rejection is an
+outcome and not a hole, a missing review is INCOMPLETE, a 429 during review is
+QUOTA_EXHAUSTED, a 503 is FAILED, "429 tokens" in an error message is neither,
+no artifact is never a completion, an artifact with no verification evidence is
+not complete, the schema itself refuses an artifact that names no run, and the
+verdict line carries the state.
 
 ## Files
 
@@ -168,6 +261,7 @@ both is the only honest way to show the difference.
 |---|---|
 | `real_world_demo.py` | the run: the Owner's one objective, then the supervisor |
 | `core/world_supervisor.py` | `review_for`, and the escalation when no verdict comes back |
+| `real_world_demo.py` · `completion_state` | the four states, and the invariant in §8 |
 | `core/spend.py` | the cap that refuses the call, and the kill switch |
 | `core/provider.py` | `GeminiProvider`, `OpenAICompatProvider`, and `from_env` |
 | `test_multi_agent.py` | the verdict rule and the handoff measure, pinned |

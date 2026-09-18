@@ -351,6 +351,127 @@ def _verbatim_run(a, b, least=5, most=24):
     return best
 
 
+# ── did the workflow actually finish? ────────────────────────────────
+COMPLETE, INCOMPLETE, FAILED, QUOTA = (
+    "COMPLETE", "INCOMPLETE", "FAILED", "QUOTA_EXHAUSTED")
+
+# What a provider writes into `runs.error` when the allowance is gone. Each is
+# matched WITH its prefix on purpose: a bare "429" also occurs inside token
+# counts, byte counts and shas, and a substring match on a number is exactly how
+# a guard ends up reading "$0.50000" as a 500.
+_QUOTA_MARKS = ("http 429", "resource_exhausted", "exceeded your current quota",
+                "quota exceeded", "rate_limit_exceeded")
+
+
+def _ids(xs):
+    return ", ".join("#%d" % x for x in xs[:6]) + (" …" if len(xs) > 6 else "")
+
+
+def _quota_failure(con):
+    """The first run that died because the allowance ran out, or None."""
+    for r in con.execute("SELECT id, error FROM runs WHERE status<>'OK' "
+                         "AND error IS NOT NULL ORDER BY id"):
+        if any(m in (r["error"] or "").lower() for m in _QUOTA_MARKS):
+            return r["id"], " ".join((r["error"] or "").split())[:140]
+    return None
+
+
+def completion_state(con):
+    """Did the workflow finish — and if it did not, does the record say why?
+
+    THE INVARIANT: every artifact carries a terminal verification state; every
+    artifact whose verification PASSED carries a review outcome; and no task is
+    left RUNNING — unless the run terminates explicitly as INCOMPLETE,
+    QUOTA_EXHAUSTED or FAILED.
+
+    A review outcome is APPROVE **or** REJECT. A rejection is an outcome and not
+    a failure — it is the entrance to the correction path — so a checker that
+    demanded APPROVE would be demanding a verdict rather than a review.
+
+    An artifact whose verification FAILED needs no review, and requiring one
+    would misread the workflow: verification runs first, and a failure routes to
+    correction without a reviewer ever seeing it. Such an artifact is terminal
+    through its correction, which is why the superseded first attempts in an
+    ordinary run are not counted as unfinished work.
+
+    Returns (state, why, accounted). `accounted` is whether the database itself
+    carries a reason for stopping — a failed run, or a signal raised to a
+    person. An unfinished run that is accounted for is an honest stop; one that
+    is not is a hole, and that is the only thing the graded check fails on.
+    This function exists because a tally of passing checks is not a finished
+    workflow: a task left RUNNING on a quota error sat behind twenty green
+    checks with nothing saying so.
+    """
+    arts = [dict(a) for a in con.execute(
+        "SELECT id, run_id FROM artifacts ORDER BY id")]
+    reviewed = {r["artifact_id"] for r in con.execute(
+        "SELECT DISTINCT artifact_id FROM reviews "
+        "WHERE verdict IN ('APPROVE','REJECT')")}
+    # Each artifact's terminal verification state, read back from its evidence
+    # row: True when every declared requirement was met, False when one was not.
+    verdict_of_code = {}
+    for e in con.execute("SELECT external_provenance, detail FROM evidence "
+                         "WHERE external_provenance LIKE 'artifact:%' ORDER BY id"):
+        try:
+            art = int((e["external_provenance"] or "").split("@")[0].split(":")[1])
+        except (IndexError, ValueError):
+            continue
+        checks = json.loads(e["detail"] or "{}").get("checks", [])
+        verdict_of_code[art] = bool(checks) and all(c["passed"] for c in checks)
+
+    running = [t["id"] for t in con.execute(
+        "SELECT id FROM tasks WHERE status='RUNNING' ORDER BY id")]
+    unprovenanced = [a["id"] for a in arts if not a["run_id"]]
+    unverified = [a["id"] for a in arts if a["id"] not in verdict_of_code]
+    # Only an artifact that PASSED verification is owed a review.
+    unreviewed = [a["id"] for a in arts
+                  if verdict_of_code.get(a["id"]) and a["id"] not in reviewed]
+
+    quota = _quota_failure(con)
+    broke = con.execute("SELECT id, status, error FROM runs WHERE status<>'OK' "
+                        "ORDER BY id LIMIT 1").fetchone()
+    # HIGH only. A MEDIUM signal is a notification — "Project #1 completed" is
+    # one — and letting it count would mean any finished project explained away
+    # every hole after it.
+    raised = con.execute("SELECT id, priority, headline FROM signals "
+                         "WHERE priority='HIGH' ORDER BY id LIMIT 1").fetchone()
+    accounted = bool(quota or broke or raised)
+
+    def explained(short):
+        """Unfinished, with whatever reason the record itself carries."""
+        if quota:
+            return (QUOTA, "%s — run #%d ran out of allowance: %s"
+                    % (short, quota[0], quota[1]), True)
+        if broke:
+            return (FAILED, "%s — run #%d ended %s: %s"
+                    % (short, broke["id"], broke["status"],
+                       " ".join((broke["error"] or "").split())[:120]
+                       or "no error recorded"), True)
+        if raised:
+            return (INCOMPLETE, "%s — raised to a person: %s"
+                    % (short, raised["headline"]), True)
+        return INCOMPLETE, short, False
+
+    # Provenance is never excused. A quota failure explains a missing review; it
+    # explains nothing about an artifact that names no run, because that
+    # artifact was untraceable before anything ran out.
+    if unprovenanced:
+        return (INCOMPLETE, "artifact(s) %s name no run, so nothing ties them to "
+                "a decision" % _ids(unprovenanced), False)
+    if not arts:
+        return explained("no artifact was produced")
+    if unverified:
+        return explained("artifact(s) %s carry no verification evidence"
+                         % _ids(unverified))
+    if unreviewed:
+        return explained("artifact(s) %s passed verification and reached no "
+                         "review outcome" % _ids(unreviewed))
+    if running:
+        return explained("task(s) %s were left RUNNING" % _ids(running))
+    return (COMPLETE, "every artifact is verified, every artifact that passed "
+            "carries a review outcome, and no task was left running", True)
+
+
 # ── the run ──────────────────────────────────────────────────────────
 def main(argv=None):
     ap = argparse.ArgumentParser()
@@ -611,17 +732,38 @@ def report(con, cap, res, rec=None):  # noqa: C901
                             (e["text"] or "(%s)" % e["status"]).strip()
                             .replace("\n", " ")[:190]))
 
+    # ── did it finish? ───────────────────────────────────────────────
+    head("11. DID THE WORKFLOW ACTUALLY FINISH?")
+    state, why, accounted = completion_state(con)
+    say("  workflow state    %s" % state)
+    say("  because           %s" % why)
+    say("  accounted for     %s" % ("yes" if accounted else "NO — nothing in the "
+                                    "record explains the stop"))
+    # The graded check fails ONLY in the silent case: something unfinished with
+    # nothing in the record accounting for it. A run stopped by quota or by a
+    # transport failure PASSES it — the reason is recorded — and carries its
+    # state into the verdict line below, where no one can quote the verdict
+    # without it. What is no longer possible is a full tally standing in for a
+    # workflow that never finished.
+    ok["nothing is left unfinished without the record saying why"] = (
+        state == COMPLETE or accounted)
+
     head("VERDICT")
     for k, v in ok.items():
         say("  [%s] %s" % ("PASS" if v else "FAIL", k))
     passed = all(ok.values())
     say("")
     if passed:
-        say("  REAL MULTI-AGENT WORLD DEMONSTRATED")
+        say("  REAL MULTI-AGENT WORLD DEMONSTRATED · workflow %s" % state)
         say("    %s and %s each decided on %s; %s judged the result."
             % (RES, BUILD, runs[0]["model"], REV))
-        return 0
-    say("  REAL MULTI-AGENT WORLD NOT DEMONSTRATED")
+        if state != COMPLETE:
+            say("    The demonstration stands and the workflow does not: %s." % why)
+        # 0 means demonstrated AND finished. 2 means the agents did the work and
+        # the workflow stopped before the end — a distinction a script gating on
+        # the exit code has to be able to make.
+        return 0 if state == COMPLETE else 2
+    say("  REAL MULTI-AGENT WORLD NOT DEMONSTRATED · workflow %s" % state)
     for k, v in ok.items():
         if not v:
             say("    failed: %s" % k)

@@ -19,12 +19,21 @@ file before it was a test.
 Reading one word instead cannot make that mistake, and the price is that an
 answer in some other shape yields no verdict at all. That is the right price:
 the supervisor escalates to a person rather than picking a side, which is what
-"the reviewer did not answer the question" actually means. The second half of
+"the reviewer did not answer the question" actually means. The second part of
 the suite checks that it does.
+
+The third part is about a different way to be wrong: reporting a finish that
+never happened. A run whose reviewer ran out of quota left a task RUNNING and an
+artifact unreviewed, and twenty passing checks carried it along as though it had
+completed. `completion_state` computes what actually happened from rows, in four
+states — COMPLETE, INCOMPLETE, FAILED, QUOTA_EXHAUSTED — and the verdict line
+now carries it, so the verdict cannot be quoted without it.
 
 No model is called, no network is touched, and nothing is spent.
 """
+import io
 import os
+import sqlite3
 import sys
 import tempfile
 import unittest
@@ -73,6 +82,18 @@ def reviews(con):
 def signals(con):
     return [(r["priority"], r["headline"], r["detail"])
             for r in con.execute("SELECT * FROM signals")]
+
+
+
+QUOTA_RUN = (
+    "INSERT INTO runs(principal_id,task_id,source,provider,model,prompt_sha,status,"
+    "tokens_in,tokens_out,usd,latency_ms,error,started_at) VALUES"
+    "(?,1,'mock','g','x','abc','FAILED',0,0,0,12,?,'now')")
+
+
+def silent_reviewer(w, art, task, ver, unmet):
+    """A reviewer that answers without deciding. The supervisor escalates."""
+    return None, "the reviewer answered without a verdict", None
 
 
 # ── 1. reading one word ──────────────────────────────────────────────
@@ -249,6 +270,152 @@ class TheSupervisorNeverSuppliesTheVerdict(unittest.TestCase):
         self.assertEqual(verdict, "REJECT")
         self.assertIn("a section headed Sources", why)
         self.assertIsNone(run, "no model was consulted, so no run may be cited")
+
+
+
+
+# ── 4. the run cannot claim a finish it did not reach ────────────────
+class TheRunCannotClaimAFinishItDidNotReach(unittest.TestCase):
+    """THE INVARIANT, in one sentence:
+
+        every artifact carries a terminal verification state; every artifact
+        whose verification PASSED carries a review outcome; and no task is left
+        RUNNING — unless the run terminates explicitly as INCOMPLETE,
+        QUOTA_EXHAUSTED or FAILED.
+
+    Twenty passing checks are not a finished workflow. A task left RUNNING
+    because the model hit its daily quota used to sit behind a full tally with
+    nothing in the report saying so, which is the whole reason this exists.
+    """
+
+    def test_an_approval_completes_the_workflow(self):
+        con, _ = ran()
+        state, why, accounted = RWD.completion_state(con)
+        self.assertEqual(state, RWD.COMPLETE, why)
+        self.assertTrue(accounted)
+
+    def test_a_rejection_is_an_outcome_not_a_hole(self):
+        """The checker asks for a review, not for an approval."""
+        con, _ = ran(review_for=lambda *a, **k:
+                     ("REJECT", "the summary cites nothing", None))
+        rejected = [r["artifact_id"] for r in
+                    con.execute("SELECT artifact_id FROM reviews WHERE verdict='REJECT'")]
+        self.assertTrue(rejected, "no rejection was recorded to test with")
+        state, why, accounted = RWD.completion_state(con)
+        # Nothing here is unreviewed: every artifact that passed verification
+        # carries a REJECT, and REJECT counts. What is unfinished is the
+        # correction chain, which the world escalated to a person.
+        self.assertNotIn("reached no review outcome", why)
+        self.assertTrue(accounted, "an escalated rejection chain is an honest stop")
+
+    def test_an_artifact_with_no_review_outcome_is_incomplete(self):
+        con, _ = ran(review_for=silent_reviewer)
+        state, why, _ = RWD.completion_state(con)
+        self.assertEqual(state, RWD.INCOMPLETE, why)
+        self.assertIn("no review outcome", why)
+
+    def test_a_quota_failure_during_review_is_named_as_such(self):
+        con, _ = ran(review_for=silent_reviewer)
+        con.execute(QUOTA_RUN, ("AGT-REVIEWER",
+                                "HTTP 429: You exceeded your current quota"))
+        con.commit()
+        state, why, accounted = RWD.completion_state(con)
+        self.assertEqual(state, RWD.QUOTA, why)
+        self.assertIn("ran out of allowance", why)
+        self.assertTrue(accounted)
+
+    def test_a_number_that_merely_contains_429_is_not_a_quota_failure(self):
+        """The `$0.50000` lesson: a substring match on a number reads a token
+        count as an HTTP status."""
+        con, _ = ran(review_for=silent_reviewer)
+        con.execute(QUOTA_RUN, ("AGT-REVIEWER", "empty completion after 429 tokens"))
+        con.commit()
+        state, _, _ = RWD.completion_state(con)
+        self.assertEqual(state, RWD.FAILED,
+                         "a failed run without a quota marker is FAILED, not QUOTA")
+
+    def test_a_transport_failure_is_FAILED_and_says_so(self):
+        con, _ = ran(review_for=silent_reviewer)
+        con.execute(QUOTA_RUN, ("AGT-REVIEWER", "HTTP 503: upstream unavailable"))
+        con.commit()
+        state, why, accounted = RWD.completion_state(con)
+        self.assertEqual(state, RWD.FAILED, why)
+        self.assertTrue(accounted)
+
+    def test_no_artifact_is_never_a_completion(self):
+        con = store.connect(os.path.join(tempfile.mkdtemp(), "empty.db"))
+        store.found(con, mode="simulation")
+        W.found_agents(con)
+        POL.seed(con)
+        state, why, accounted = RWD.completion_state(con)
+        self.assertEqual(state, RWD.INCOMPLETE, why)
+        self.assertIn("no artifact", why)
+        self.assertFalse(accounted, "nothing in an empty world explains the silence")
+
+    def test_an_artifact_with_no_verification_evidence_is_not_complete(self):
+        """Missing provenance never reads as finished, and is never excused."""
+        con, _ = ran()
+        self.assertEqual(RWD.completion_state(con)[0], RWD.COMPLETE)
+        r = con.execute("SELECT id, source FROM runs ORDER BY id DESC LIMIT 1").fetchone()
+        con.execute(
+            "INSERT INTO artifacts(task_id,run_id,principal_id,kind,name,path,body,"
+            "sha,source,created_at) VALUES(2,?,'AGT-RESEARCHER','doc','untraced.md',"
+            "'artifacts/research/untraced.md','x','deadbeef',?,?)",
+            (r["id"], r["source"], store.now()))
+        con.commit()
+        state, why, accounted = RWD.completion_state(con)
+        self.assertEqual(state, RWD.INCOMPLETE, why)
+        self.assertIn("no verification evidence", why)
+        self.assertFalse(accounted)
+
+    def test_provenance_is_enforced_one_level_below_this_checker(self):
+        """An artifact that names no run cannot be written at all: the schema
+        refuses it, so the checker's own guard is a second line, not the only
+        one."""
+        con, _ = ran()
+        r = con.execute("SELECT id, source FROM runs ORDER BY id DESC LIMIT 1").fetchone()
+        with self.assertRaises(sqlite3.IntegrityError):
+            con.execute(
+                "INSERT INTO artifacts(task_id,run_id,principal_id,kind,name,path,"
+                "body,sha,source,created_at) VALUES(2,NULL,'AGT-RESEARCHER','doc',"
+                "'y.md','artifacts/research/y.md','b','s2',?,?)",
+                (r["source"], store.now()))
+
+    def test_a_superseded_first_attempt_is_not_unfinished_work(self):
+        """An artifact that FAILED verification never reaches a reviewer — it is
+        routed to correction — so demanding a review for it would misread the
+        workflow and call every ordinary run incomplete."""
+        con, _ = ran()
+        failed = [a for a in con.execute("SELECT id FROM artifacts")
+                  if not con.execute("SELECT 1 FROM reviews WHERE artifact_id=?",
+                                     (a["id"],)).fetchone()]
+        self.assertTrue(failed, "this run had no superseded attempt to test with")
+        self.assertEqual(RWD.completion_state(con)[0], RWD.COMPLETE)
+
+    def test_the_verdict_line_carries_the_state(self):
+        """The protection that matters: no one can quote the verdict without
+        the workflow state attached to it."""
+        con, _ = ran(review_for=silent_reviewer)
+        con.execute(QUOTA_RUN, ("AGT-REVIEWER",
+                                "HTTP 429: You exceeded your current quota"))
+        con.commit()
+
+        class Cap:
+            calls, max_calls, refusals = 17, 35, []
+
+        out, real = io.StringIO(), sys.stdout
+        try:
+            sys.stdout = out
+            RWD.report(con, Cap(), {"ticks": 20, "quiet": True, "seconds": 1.0,
+                                    "steps": []}, None)
+        finally:
+            sys.stdout = real
+        printed = out.getvalue()
+        self.assertIn("workflow state    QUOTA_EXHAUSTED", printed)
+        for line in printed.splitlines():
+            if "REAL MULTI-AGENT WORLD" in line:
+                self.assertIn("QUOTA_EXHAUSTED", line,
+                              "the verdict line can be quoted without the state")
 
 
 if __name__ == "__main__":
