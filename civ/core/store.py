@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 SCHEMA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "schema.sql")
 ORG_SCHEMA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "org_schema.sql")
 BENCH_SCHEMA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bench_schema.sql")
+WORLD_SCHEMA = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            "agent_world_schema.sql")
 DEFAULT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "civ.db")
 
 MODES = ("simulation", "live", "hybrid")
@@ -30,7 +32,7 @@ def connect(path=None):
     con = sqlite3.connect(path, isolation_level=None)
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA foreign_keys=ON")
-    for path in (SCHEMA, ORG_SCHEMA, BENCH_SCHEMA):
+    for path in (SCHEMA, ORG_SCHEMA, BENCH_SCHEMA, WORLD_SCHEMA):
         with open(path, encoding="utf-8") as fh:
             con.executescript(fh.read())
     # Organisational lifecycle is a DIFFERENT axis from runtime status:
@@ -59,6 +61,7 @@ def connect(path=None):
     # Each rebuild verifies itself before it drops anything. See _widen_check.
     _widen_check(con, BENCH_SCHEMA, "bench_runs", "'INCOMPLETE'")
     _widen_check(con, SCHEMA, "tool_calls", "'ERROR'")
+    _widen_check(con, SCHEMA, "tasks", "'ARCHIVED'")
     return con
 
 
@@ -137,7 +140,7 @@ def _widen_check(con, schema_path, table, marker):
         con.execute("PRAGMA foreign_keys=ON")
         raise
     con.execute("PRAGMA foreign_keys=ON")
-    for path in (SCHEMA, ORG_SCHEMA, BENCH_SCHEMA):
+    for path in (SCHEMA, ORG_SCHEMA, BENCH_SCHEMA, WORLD_SCHEMA):
         with open(path, encoding="utf-8") as fh:
             con.executescript(fh.read())
     return True

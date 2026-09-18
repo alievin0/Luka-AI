@@ -134,8 +134,15 @@ CREATE TABLE IF NOT EXISTS tasks (
   kind           TEXT NOT NULL,
   required_caps  TEXT NOT NULL DEFAULT '[]',
   priority       INTEGER NOT NULL DEFAULT 5,
+  -- Two vocabularies, deliberately. QUEUED/LEASED/DONE is the runtime's own
+  -- claim-and-release cycle and is untouched. The rest is the AGENT WORLD
+  -- lifecycle: a task is DISCOVERED before anyone agrees it matters, APPROVED
+  -- before anyone works on it, and REVIEWED before anyone calls it done.
+  -- Widening this CHECK is what `_widen_check` exists for; no row moves.
   status         TEXT NOT NULL DEFAULT 'QUEUED' CHECK (status IN
-                   ('QUEUED','LEASED','DONE','FAILED','BLOCKED','CANCELLED')),
+                   ('QUEUED','LEASED','DONE','FAILED','BLOCKED','CANCELLED',
+                    'DISCOVERED','PROPOSED','APPROVED','ASSIGNED','RUNNING',
+                    'COMPLETED','REVIEW','ACCEPTED','REJECTED','ARCHIVED')),
   evidence_required INTEGER NOT NULL DEFAULT 1,
   token_budget   INTEGER NOT NULL DEFAULT 20000,
   attempts       INTEGER NOT NULL DEFAULT 0,

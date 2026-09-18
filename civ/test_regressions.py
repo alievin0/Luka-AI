@@ -162,9 +162,16 @@ class R6_ADeclaredTableNothingWrites(unittest.TestCase):
         declared-but-unused. A schema promising what the code never does is F3."""
         import bench_run as BR
         import org_demo
+        import agent_world_demo
+        from core import provider as _P
         con = fresh()
         org_demo.run(con, verbose=False)
         BR.dry_run_into(con)          # exercises the benchmark tables too
+        # V0 added task_transitions, task_conditions, agent_messages and
+        # memories. They are written by the agent world, so the full run has to
+        # include the agent world — the rule is "use it or remove it", and the
+        # right way to satisfy it is to exercise the user, not to excuse the table.
+        agent_world_demo.run(con, _P.MockProvider(), verbose=False)
         empty = []
         for (t,) in con.execute("SELECT name FROM sqlite_master WHERE type='table' "
                                 "AND name NOT LIKE 'sqlite_%' ORDER BY name"):
