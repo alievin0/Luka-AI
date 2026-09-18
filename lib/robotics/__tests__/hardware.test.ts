@@ -817,3 +817,54 @@ test("the state between two shapes is an unknown, not one of the two", () => {
   );
   assert.ok(!auditProfile(measured).map((f) => f.code).includes("transition-limits-unknown"));
 });
+
+test("a fraction of body weight needs a body weight", () => {
+  // The defect the ARC-2 audit found, and it was mine: `normalForceAuthority`
+  // is defined as a fraction of the machine's weight, and `massKg` was not a
+  // field. The one number the surviving hypothesis turns on had no denominator
+  // from the moment it was added, which is how a structural gap hides — the
+  // figure looks measurable and the thing it divides by is missing.
+  const claimed: RobotProfile = {
+    ...ARC2_TEMPLATE,
+    morphology: { ...ARC2_TEMPLATE.morphology!, normalForceAuthority: 0.4 },
+  };
+  assert.match(
+    validateProfile(claimed).join(" "),
+    /no massKg/,
+    "a weight fraction passed validation on a profile with no weight",
+  );
+
+  const weighed: RobotProfile = { ...claimed, massKg: 48, massSource: "measured" };
+  assert.deepEqual(validateProfile(weighed), [], validateProfile(weighed).join(" "));
+});
+
+test("the audit names every measurement nobody has taken", () => {
+  // The calibration plan as findings rather than prose, so that "assumed →
+  // measured" is a list that shrinks rather than a paragraph somebody reads once.
+  const codes = auditProfile(ARC2_TEMPLATE).map((f) => f.code);
+  for (const expected of [
+    "mass-unknown",
+    "leg-geometry-unknown",
+    "actuator-limits-unknown",
+    "sensor-uncertainty-unknown",
+    "energy-capacity-unknown",
+    "transition-limits-unknown",
+  ]) {
+    assert.ok(codes.includes(expected), `the audit was quiet about ${expected}: ${codes.join(", ")}`);
+  }
+
+  // And it goes quiet as the measurements arrive, which is the point.
+  const measured: RobotProfile = {
+    ...ARC2_TEMPLATE,
+    massKg: 48,
+    massSource: "measured",
+    legs: { count: 4, reach: 0.31, maxFootForce: 220, source: "measured" },
+    actuators: { maxWheelTorque: 18, maxLegForce: 260, source: "measured" },
+    sensorUncertainty: { lidarRangeSigma: 0.02, timestamps: "sensor", source: "measured" },
+    batteryWh: 340,
+  };
+  const after = auditProfile(measured).map((f) => f.code);
+  for (const gone of ["mass-unknown", "leg-geometry-unknown", "actuator-limits-unknown"]) {
+    assert.ok(!after.includes(gone), `${gone} survived being measured`);
+  }
+});

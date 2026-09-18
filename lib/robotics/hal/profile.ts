@@ -42,6 +42,14 @@ export type LinkProfile = {
 export type Kinematics = {
   /** Drive wheel radius, metres. */
   wheelRadius: number;
+  /**
+   * Drive wheel width, metres.
+   *
+   * Absent from this type until the ARC-2 audit, and the omission was not
+   * cosmetic: it is the `b` in the Bekker pressure-sinkage equations, so
+   * without it nothing can compute how far this machine sinks into anything.
+   */
+  wheelWidth?: number;
   /** Distance between the drive wheels, metres. */
   trackWidth: number;
   /**
@@ -234,6 +242,84 @@ export type RobotProfile = {
   batteryScale?: "fraction" | "percent" | "unknown";
   /** Gripper force ceiling in newtons, when there is a gripper. */
   maxContactForce?: number;
+  /**
+   * Mass of the machine as it drives, kilograms, and what it may carry.
+   *
+   * These were missing, which mattered more than a missing field usually does:
+   * `normalForceAuthority` is defined as a fraction of body weight, so the one
+   * number the reversibility hypothesis turns on had no denominator. Every
+   * force, every energy figure and every contact pressure needs this.
+   */
+  massKg?: number;
+  payloadKg?: number;
+  /** Where the mass figure came from, since a datasheet mass is a dry mass. */
+  massSource?: "measured" | "datasheet" | "assumed";
+  /**
+   * The limbs, when there are limbs. `count` alone is not enough to predict
+   * anything: where a foot can be placed is a function of the linkage, and
+   * "can it reach out of the rut the wheel dug" is a reach question.
+   */
+  legs?: {
+    count: number;
+    /** Link lengths from the hip outward, metres. */
+    segmentLengths?: number[];
+    /** Horizontal reach of a foot from its hip, metres. */
+    reach?: number;
+    /** Most a single foot can push into the ground, newtons. */
+    maxFootForce?: number;
+    source: "measured" | "datasheet" | "assumed";
+  };
+  /**
+   * What the actuators can do, below the vehicle level.
+   *
+   * `maxAccel` and `maxDecel` describe the whole machine. They do not say
+   * whether a single wheel can be stalled against a rock without tripping a
+   * current limit, or whether a leg can lift a corner of the robot — and both
+   * of those are the questions a shape-changing machine gets asked.
+   */
+  actuators?: {
+    maxWheelTorque?: number;
+    maxLegForce?: number;
+    maxCurrentPerActuator?: number;
+    source: "measured" | "datasheet" | "assumed";
+  };
+  /**
+   * The lidar's geometry. `lidarHeight` says where the plane is; this says how
+   * much of the world that plane covers, which is what the coverage arithmetic
+   * in the governor needs to be about this machine rather than about the
+   * simulator's defaults.
+   */
+  lidar?: {
+    beams?: number;
+    /** Angular span, radians. */
+    fov?: number;
+    maxRange?: number;
+    source: "measured" | "datasheet" | "assumed";
+  };
+  /**
+   * How wrong each channel is. Until now these lived in the simulator, which
+   * means every claim about degraded sensing was a claim about the simulator's
+   * noise settings rather than about a machine.
+   *
+   * Absent means nobody characterised it, which is different from clean.
+   */
+  sensorUncertainty?: {
+    /** Standard deviation of a lidar range return, metres. */
+    lidarRangeSigma?: number;
+    /** Fraction of beams that return nothing on an ordinary scan. */
+    lidarDropout?: number;
+    /** Person-track velocity error, m/s — the figure the corridor rests on. */
+    trackVelocitySigma?: number;
+    /** Gyro bias, rad/s, and accelerometer turn-on bias, m/s². */
+    gyroBias?: number;
+    accelBias?: number;
+    /** Sensor-to-host delay, ms, and whether stamps are the sensor's own. */
+    latencyMs?: number;
+    timestamps?: "sensor" | "arrival" | "unknown";
+    source: "measured" | "datasheet" | "assumed";
+  };
+  /** Usable energy on board, watt-hours. */
+  batteryWh?: number;
   /**
    * The shapes this machine can take, when it can take more than one.
    *
@@ -572,7 +658,14 @@ export const ARC2_TEMPLATE: RobotProfile = {
   },
   absent: [
     "Every number in this profile. No ARC-2 has been built.",
+    "Mass and payload — and so, by arithmetic, normalForceAuthority as well.",
     "normalForceAuthority — what the legs can actually take off a wheel.",
+    "Leg geometry: link lengths, reach, and what one foot can push with.",
+    "Per-actuator torque, force and current limits.",
+    "Wheel width, which is the b in the pressure-sinkage equations.",
+    "How wrong each sensing channel is: lidar noise and dropout, track velocity " +
+      "error, gyro and accelerometer bias, latency, timestamp provenance.",
+    "Usable energy on board, and draw as a function of load rather than a nominal figure.",
     "The energy cost of a mode change, as opposed to its duration.",
     "What the machine can do while it is changing shape, as opposed to at either end of it.",
     "Whether the leg mode can be entered from a standstill only, or while moving.",
@@ -736,6 +829,17 @@ export function validateProfile(profile: RobotProfile): string[] {
     ) {
       problems.push("normalForceAuthority is a fraction of body weight and must be within 0..1.");
     }
+    // A fraction of body weight, on a profile with no body weight, is not a
+    // quantity. This was true of the field from the moment it was added, which
+    // is how a structural gap hides: the number looks measurable and its
+    // denominator is missing.
+    if (morphology.normalForceAuthority !== undefined && profile.massKg === undefined) {
+      problems.push(
+        "normalForceAuthority is a fraction of body weight and this profile has no massKg. " +
+          "Without the denominator the figure cannot be turned into newtons, which is the only " +
+          "form anything downstream can use.",
+      );
+    }
     if (morphology.contacts && morphology.contacts.liftable > morphology.contacts.count) {
       problems.push("More contacts are declared liftable than exist.");
     }
@@ -819,6 +923,39 @@ export function auditProfile(profile: RobotProfile): Finding[] {
         `This platform will not move below ${floor} m/s and its speed limit is ` +
         `${profile.maxLinear} m/s. There is no speed it is both allowed and able to travel at.`,
     });
+  }
+
+  // The calibration plan, as findings rather than prose: each of these is a
+  // measurement somebody has to take before a claim rests on it.
+  const unmeasured: Array<[boolean, string, string]> = [
+    [profile.massKg === undefined, "mass-unknown", "the machine's mass, which every force and energy figure divides by"],
+    [
+      profile.kinematics !== undefined && profile.kinematics.wheelWidth === undefined,
+      "wheel-width-unknown",
+      "the drive wheel's width, which is the b in the pressure-sinkage equations",
+    ],
+    [
+      profile.morphology !== undefined && profile.legs === undefined,
+      "leg-geometry-unknown",
+      "the leg linkage, without which where a foot can be placed is not predictable",
+    ],
+    [profile.actuators === undefined, "actuator-limits-unknown", "per-actuator torque, force and current limits"],
+    [
+      profile.sensorUncertainty === undefined,
+      "sensor-uncertainty-unknown",
+      "how wrong each sensing channel is — until this is filled in, every claim about degraded " +
+        "sensing is a claim about the simulator's noise settings",
+    ],
+    [profile.batteryWh === undefined, "energy-capacity-unknown", "usable energy on board"],
+  ];
+  for (const [missing, code, what] of unmeasured) {
+    if (missing) {
+      findings.push({
+        level: "warn",
+        code,
+        message: `Nobody has measured ${what}.`,
+      });
+    }
   }
 
   for (const transition of profile.morphology?.transitions ?? []) {
