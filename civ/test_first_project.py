@@ -118,6 +118,47 @@ class TheOpportunityIsJudgedByWhoeverTheWorldWasBuiltWith(unittest.TestCase):
         self.assertEqual(runs, [4242])
 
 
+class TheBriefingNamesTheSourceTheOwnerSupplied(unittest.TestCase):
+    """A run reached a real model, formed a team, wrote a task graph, and then
+    spent six model calls and two corrections on `READ_REPO MULTI_AGENT.md` —
+    which resolved against the repository root, in scope, allowed, and the wrong
+    file. The runtime had the full path in its own queue payload throughout; no
+    task objective carried it, so the agent never saw it.
+
+    The Owner supplies the source to work from. Withholding it is not restraint,
+    it is an unperformable task."""
+
+    def brief(self):
+        return FP._instruction_for({"objective": "Investigate the claim.",
+                                    "id": 1, "project_id": 1})
+
+    def test_it_names_the_source_file_in_full(self):
+        self.assertIn(FP.SIGNAL, self.brief())
+        self.assertTrue(os.path.isabs(FP.SIGNAL))
+        self.assertTrue(os.path.exists(FP.SIGNAL),
+                        "the briefing names a file that is not there")
+
+    def test_the_path_it_names_is_the_one_the_world_scans(self):
+        """The same string the Owner's objective puts on the queue."""
+        self.assertEqual(FP.SIGNAL, os.path.join(HERE, "MULTI_AGENT.md"))
+
+    def test_it_states_the_bar_the_artifact_is_checked_against(self):
+        brief = self.brief()
+        for r in FP._requirements_for({"objective": "x"}):
+            self.assertIn(r["requirement"], brief)
+
+    def test_it_still_names_no_tool(self):
+        """Telling an agent where the source is must not turn into telling it
+        what to call."""
+        brief = self.brief()
+        for tool in ("READ_REPO", "WRITE_ARTIFACT", "SEND_MESSAGE",
+                     "EXECUTE_SANDBOX"):
+            self.assertNotIn(tool, brief)
+
+    def test_it_still_says_writing_is_not_submitting(self):
+        self.assertIn("Writing a file is NOT submitting it", self.brief())
+
+
 class TheEvaluatorIsToldWhatToJudge(unittest.TestCase):
     """A real run refused the opportunity for the wrong reason, and the reason
     is worth keeping: the Orchestrator read its contract's line "Capabilities

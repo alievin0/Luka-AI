@@ -592,10 +592,16 @@ def h_correction_needed(w, item):
             W.transition(con, tid, "RUNNING", OWNER, "closing out a rejected attempt")
         W.transition(con, tid, "FAILED", OWNER, p.get("reason", "rejected"))
 
-    A.record_failure(con, "task %d did not pass" % tid, p.get("reason", ""),
+    # The lesson is what actually went wrong, not a sentence written in advance.
+    # A run whose agent could not find the file it was sent to read recorded
+    # "an artifact that omits a declared section is rejected by verification" —
+    # describing something that never happened, in a world that had produced no
+    # artifact and run no verification. A lesson with nothing under it is
+    # decoration, and decoration in a memory is worse than an empty memory.
+    why = " ".join((p.get("reason") or "").split())
+    A.record_failure(con, "task %d did not pass" % tid, why,
                      by=OWNER, project_id=task["project_id"], task_id=tid,
-                     lesson="an artifact that omits a declared section is rejected "
-                            "by verification before a reviewer reads it",
+                     lesson=why or "the attempt did not pass and recorded no reason",
                      evidence_id=p.get("evidence_id"))
 
     conds = [c["description"] for c in con.execute(

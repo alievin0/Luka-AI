@@ -430,11 +430,30 @@ def completion_state(con):
     quota = _quota_failure(con)
     broke = con.execute("SELECT id, status, error FROM runs WHERE status<>'OK' "
                         "ORDER BY id LIMIT 1").fetchone()
-    # HIGH only. A MEDIUM signal is a notification — "Project #1 completed" is
-    # one — and letting it count would mean any finished project explained away
-    # every hole after it.
-    raised = con.execute("SELECT id, priority, headline FROM signals "
-                         "WHERE priority='HIGH' ORDER BY id LIMIT 1").fetchone()
+    # An account has to be OPEN or terminal. HIGH only — a MEDIUM signal is a
+    # notification, and "Project #1 completed" explaining away every later hole
+    # is exactly the failure this guards against. But priority alone is not
+    # enough: a real run reported `accounted=True` off signal #1, "Open a
+    # project for opportunity #1?", a question the Owner had already answered
+    # APPROVE. An answered question accounts for nothing, and a run that raised
+    # no escalation at all would have inherited that stale one.
+    #
+    # So: a question still waiting on a person, or failing that, an escalation
+    # raised AFTER the last thing a person answered.
+    raised = con.execute(
+        "SELECT a.id, 'HIGH' priority, a.question headline FROM approvals a "
+        "WHERE a.decision IS NULL ORDER BY a.id LIMIT 1").fetchone()
+    if raised is None:
+        # Compared by TIME, not by id: signals and events number separately, and
+        # comparing one table's id against another's is a coincidence waiting to
+        # be wrong. An empty answer sorts before every timestamp, so a world
+        # where nobody has answered anything treats every escalation as open.
+        answered_at = con.execute(
+            "SELECT COALESCE(MAX(at),'') m FROM events WHERE kind='OWNER_DECIDED'"
+        ).fetchone()["m"]
+        raised = con.execute(
+            "SELECT id, priority, headline FROM signals WHERE priority='HIGH' "
+            "AND at > ? ORDER BY id LIMIT 1", (answered_at,)).fetchone()
     accounted = bool(quota or broke or raised)
 
     def explained(short):

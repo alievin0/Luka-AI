@@ -367,6 +367,74 @@ class TheRunCannotClaimAFinishItDidNotReach(unittest.TestCase):
         self.assertTrue(accounted, "a deliberate refusal read as an unexplained hole")
         self.assertEqual([], [a for a in con.execute("SELECT * FROM artifacts")])
 
+    def test_an_answered_question_accounts_for_nothing(self):
+        """A real run read `accounted=True` off "Open a project for opportunity
+        #1?" — a question the Owner had already answered APPROVE. An answer
+        closes a question; it does not explain a later silence."""
+        con = store.connect(os.path.join(tempfile.mkdtemp(), "answered.db"))
+        store.found(con, mode="simulation")
+        W.found_agents(con)
+        POL.seed(con)
+        store.signal(con, "HIGH", "Open a project for opportunity #1?", "asked")
+        aid = con.execute(
+            "INSERT INTO approvals(at,question,why,options,decision,decided_at) "
+            "VALUES(?,?,?,'[]','APPROVE',?)",
+            (store.now(), "Open a project for opportunity #1?", "asked",
+             store.now())).lastrowid
+        store.event(con, "OWNER_DECIDED", actor="OWNER",
+                    subject="approval:%d" % aid, payload={"decision": "APPROVE"})
+        con.commit()
+        state, why, accounted = RWD.completion_state(con)
+        self.assertEqual(state, RWD.INCOMPLETE, why)
+        self.assertFalse(accounted,
+                         "an answered question was mistaken for an open one")
+
+    def test_a_question_still_waiting_on_a_person_does_account(self):
+        con = store.connect(os.path.join(tempfile.mkdtemp(), "waiting.db"))
+        store.found(con, mode="simulation")
+        W.found_agents(con)
+        POL.seed(con)
+        con.execute("INSERT INTO approvals(at,question,why,options) "
+                    "VALUES(?,?,?,'[]')",
+                    (store.now(), "Project #1 cannot pass review — continue?",
+                     "two corrections and no artifact"))
+        con.commit()
+        state, why, accounted = RWD.completion_state(con)
+        self.assertEqual(state, RWD.INCOMPLETE, why)
+        self.assertTrue(accounted, "an open question to a person is an account")
+        self.assertIn("cannot pass review", why)
+
+    def test_an_escalation_raised_after_the_last_answer_accounts(self):
+        con = store.connect(os.path.join(tempfile.mkdtemp(), "after.db"))
+        store.found(con, mode="simulation")
+        W.found_agents(con)
+        POL.seed(con)
+        aid = con.execute(
+            "INSERT INTO approvals(at,question,why,options,decision,decided_at) "
+            "VALUES(?,?,?,'[]','APPROVE',?)",
+            (store.now(), "Open a project?", "asked", store.now())).lastrowid
+        store.event(con, "OWNER_DECIDED", actor="OWNER",
+                    subject="approval:%d" % aid, payload={"decision": "APPROVE"})
+        store.signal(con, "HIGH", "The reviewer returned no usable verdict",
+                     "artifact #1")
+        con.commit()
+        state, why, accounted = RWD.completion_state(con)
+        self.assertTrue(accounted, "a fresh escalation after the answer is an account")
+        self.assertIn("no usable verdict", why)
+
+    def test_a_lesson_carries_what_actually_failed(self):
+        """A run recorded "an artifact that omits a declared section is rejected
+        by verification" in a world that produced no artifact and ran no
+        verification. That was a sentence written in advance."""
+        con, _ = ran(review_for=lambda *a, **k:
+                     ("REJECT", "the summary cites nothing", None))
+        lessons = [dict(l) for l in con.execute("SELECT * FROM lessons ORDER BY id")]
+        self.assertTrue(lessons, "the rejection produced no lesson to check")
+        for l in lessons:
+            self.assertNotIn("omits a declared section", l["text"],
+                             "the canned lesson is back")
+            self.assertTrue(l["failure_id"], "a lesson with no failure under it")
+
     def test_no_artifact_is_never_a_completion(self):
         con = store.connect(os.path.join(tempfile.mkdtemp(), "empty.db"))
         store.found(con, mode="simulation")

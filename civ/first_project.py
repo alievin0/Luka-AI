@@ -372,12 +372,25 @@ def _requirements_for(task):
 
 
 def _instruction_for(task):
-    """The objective and the bar. It names no tool, no path and no content."""
-    return ("%s\n\nYour briefing lists the tools you hold and what you have "
-            "already done. Decide what to do next.\n\n"
+    """The objective, the source, and the bar — and nothing beyond them.
+
+    The source path is here because the Owner supplies the source to work from;
+    that is part of the specification, not a decision taken away from the agent.
+    Leaving it out is not restraint, it is an unperformable task: the first real
+    run spent six model calls and two corrections on `READ_REPO MULTI_AGENT.md`,
+    which resolved against the repository root — in scope, allowed, and the
+    wrong file — while the runtime had the full path in its own queue payload
+    the whole time. The agent still chooses every tool, every path it reads
+    beyond this one, and every word it writes."""
+    bar = ", ".join(r["requirement"] for r in _requirements_for(task))
+    return ("%s\n\nThe source file is at: %s\n\n"
+            "Your artifact is checked by code you cannot reach, which tests for "
+            "exactly this and nothing else: %s.\n\n"
+            "Your briefing lists the tools you hold and what you have already "
+            "done. Decide what to do next.\n\n"
             "Writing a file is NOT submitting it: the artifact counts only once "
             "you declare it by name, and your turn ends when you do."
-            % task["objective"])
+            % (task["objective"], SIGNAL, bar))
 
 
 def _review_for(w, art, task, ver, unmet):
