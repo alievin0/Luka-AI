@@ -400,6 +400,28 @@ The tests are behavioural, not smoke tests. They assert things like:
 > every case the fix is the same shape — make the absence an explicit value, and
 > resolve the ambiguity in the direction that costs least when wrong.
 
+### ونفس الغلط وصل للشاشة — and the same bug reached the display
+
+لما انبنى العرض ثلاثي الأبعاد، طلع إنه نفس العائلة موجودة بآخر مكان بينتبهله حدا:
+الرسم. المحوّل (`adapter`) بيرجّع `NaN` للشعاع اللي ما رجع — لا صفر ولا أقصى مدى —
+وهاد مقصود ومكتوب بالكود. بس الراسمين، التنين، كانوا بياخدوا هالـ`NaN` وبيرسموه
+شعاع كامل لحدّ ١٢ متر. يعني الحرص كله بينهدم بآخر خطوة قبل العين.
+
+| القناة | الغياب كان بينقرا كـ | ليش خطر |
+|---|---|---|
+| **شعاع ما رجع (رسم)** | **«فاضي لحدّ ١٢ متر»** | العين بتصدّق الصورة؛ منطقة عمياء بتبيّن مفحوصة |
+
+الحل نفس الشكل: تلت حالات منفصلة بدل تنتين — سطح انقاس، وشعاع وصل لسقف مداه بدون
+ما يلاقي شي (معلومة سلبية حقيقية، بتنرسم باهتة وبتختفي)، وشعاع ما رجع أصلاً (ما
+بينرسم ولا شي). الحساب هاد صار بملف واحد مشترك بين الراسمين، و`beams.test.ts`
+بيمسكه.
+
+> Worth saying plainly because it is the newest place this bug turned up: the
+> kernel was careful, and the renderer threw that care away one step before the
+> eye. A sensor channel is not safe merely because the code that produces it is
+> honest — every layer between it and the person looking has to preserve the
+> distinction, including the one that only draws pictures.
+
 ## عقل الذبابة — the fly's circuit, and the honest answer about cats
 
 `reflex.looming` مو تشبيه. جوّاته مسار الهروب الحقيقي عند ذبابة الفاكهة، موصول من
@@ -490,3 +512,9 @@ The tests are behavioural, not smoke tests. They assert things like:
 - The safety governor models separation monitoring. It is not a certified
   safety controller, and nothing here should be the only thing between a machine
   and a person.
+- The 3D view on `/robots` is a renderer, not a second simulator. The world and
+  its physics stay two-dimensional: there is no height field, no slope, no
+  ground normal and no foot contact. Every height in that scene — walls,
+  obstacles, the robot's own body — is a choice the renderer made so the picture
+  reads, and the simulator knows none of them. The view says so in a badge, and
+  a test in `physics.test.ts` holds the boundary.
