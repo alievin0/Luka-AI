@@ -38,6 +38,11 @@ CREATE TABLE IF NOT EXISTS world_places (
   capability TEXT NOT NULL DEFAULT '',   -- what work this place serves
   access     TEXT NOT NULL DEFAULT 'OPEN' CHECK (access IN ('OPEN','RESTRICTED')),
   station    TEXT,                       -- the station map's name for it, if any
+  -- WHICH ARCHETYPE this place is an instance of. The renderer draws from the
+  -- type, so a facility type invented next year draws without anybody touching
+  -- the renderer. Resolving it by guessing from the id instead made the Archive
+  -- DISTRICT render as an archive FACILITY, because both were called "archive".
+  type_id    TEXT,
   project_id INTEGER REFERENCES projects(id),
   status     TEXT NOT NULL DEFAULT 'ACTIVE' CHECK (status IN
                ('ACTIVE','RESERVED','CLOSED')),

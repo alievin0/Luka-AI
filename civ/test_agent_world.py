@@ -840,7 +840,7 @@ class SuiteHygiene(unittest.TestCase):
         that greps for a name fails on its own source the moment it names it."""
         with open(__file__, encoding="utf-8") as fh:
             src = fh.read()
-        used = set(re.findall(r"P\.(\w+)\(", src))
+        used = set(re.findall(r"(?<![A-Za-z0-9_])P\.(\w+)\(", src))
         self.assertTrue(used <= {"MockProvider", "CompromisedProvider", "Result"},
                         "this suite constructs %s" % sorted(used))
         # and neither does anything it drives: the control plane and the demo
@@ -850,7 +850,14 @@ class SuiteHygiene(unittest.TestCase):
                 code = fh.read()
             self.assertNotIn("ClaudeProvider", code, mod)
             self.assertNotIn("LocalProvider", code, mod)
-            self.assertTrue(set(re.findall(r"P\.(\w+)\(", code))
+            # `P.` means the PROVIDER module, and the boundary is what makes it
+            # mean that. Without it the pattern matched any identifier ENDING in
+            # P, so a capability-module call read as a constructed provider.
+            # Seventh time this repository has been bitten by a grep that looks
+            # like it names a thing and in fact names a substring — and the
+            # comment describing it is deliberately not quoting the offender,
+            # because the previous version of this note tripped the check above.
+            self.assertTrue(set(re.findall(r"(?<![A-Za-z0-9_])P\.(\w+)\(", code))
                             <= {"MockProvider"}, mod)
 
     def test_the_main_block_is_last(self):

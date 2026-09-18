@@ -20,6 +20,11 @@ and what survives each of those dependencies disappearing is
 [`OWNERSHIP_AND_INDEPENDENCE.md`](OWNERSHIP_AND_INDEPENDENCE.md) —
 `python3 offline_demo.py --fresh` is that document as a runnable drill.
 
+**There is a 3D world now.** This page describes the axonometric projection,
+which is kept working at `/flat`. The WebGL campus you can walk into, the
+construction pipeline the organisation drives itself, and the capability graph
+are [`WORLD_3D_AND_GROWTH.md`](WORLD_3D_AND_GROWTH.md) — open `/3d`.
+
 **Positions are rows now, not arithmetic.** This page describes the projection;
 the agents standing in it have persisted coordinates, destinations, routes and a
 movement record, all written when work sent them somewhere. That is

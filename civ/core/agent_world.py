@@ -221,9 +221,19 @@ def _stand_the_crew(con, ids):
     written the moment the identity is — otherwise the first thing that asks
     where the Researcher is gets no answer, and a world with agents that are
     nowhere is back to being a picture."""
+    from . import capability_graph as CAP
     from . import open_world as OW
+    from . import world_growth as GROW
     from . import world_space as SPACE
+    # The world's own definitions come first: what kinds of place may exist,
+    # what the world can afford, which doors there are, and which capability
+    # needs which door. All of it is state the renderer and the growth pipeline
+    # both read, so neither can hold a private opinion about it.
+    GROW.seed_types(con)
+    GROW.seed_resources(con)
+    CAP.seed_tools(con)
     SPACE.seed_places(con)
+    CAP.seed_capabilities(con)
     for aid in ids:
         if SPACE.locate(con, aid) is None:
             SPACE.stand(con, aid, OW.HOME_WORKSPACE.get(aid, "ws_dispatch"),

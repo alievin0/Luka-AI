@@ -6,8 +6,11 @@ means mechanically, and what it still does not mean.*
 ```
 python3 spatial_demo.py --fresh              # one objective; five agents travel
 python3 spatial_demo.py --fresh --crash-at 6 # killed mid-journey, then resumed
-python3 world_server.py --db spatial-world.db
+python3 world_server.py --db spatial-world.db   # /3d is the WebGL world
 ```
+
+The 3D environment built on this spatial state, and the pipeline that lets the
+world build more of it, are [`WORLD_3D_AND_GROWTH.md`](WORLD_3D_AND_GROWTH.md).
 
 ---
 

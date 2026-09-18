@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent World</title>
+<link rel="stylesheet" href="/three/world3d.css">
+</head>
+<body>
+<canvas id="stage"></canvas>
+
+<header class="chrome">
+  <div class="brand">
+    <svg viewBox="0 0 28 28" width="17" height="17" aria-hidden="true">
+      <circle cx="14" cy="14" r="11" fill="none" stroke="currentColor" stroke-width="1"/>
+      <circle cx="14" cy="14" r="1.8" fill="currentColor"/>
+      <path d="M14 3v4M14 21v4M3 14h4M21 14h4" stroke="currentColor" stroke-width="1"/>
+    </svg>
+    <span>AGENT&nbsp;WORLD</span><span class="rev">3D</span>
+  </div>
+  <nav class="views" id="views"></nav>
+  <div class="strip" id="strip"></div>
+  <div class="cond" id="cond"></div>
+</header>
+
+<div class="hud" id="hud">
+  <div class="lod" id="lod"></div>
+  <div class="hint">drag orbit · wheel zoom · shift-drag pan · click a building or an agent</div>
+</div>
+
+<div class="model" id="model"></div>
+
+<aside class="panel" id="panel" aria-hidden="true">
+  <header>
+    <div>
+      <div class="ptitle" id="ptitle">—</div>
+      <div class="psub" id="psub"></div>
+    </div>
+    <button class="px" id="px" aria-label="Close">×</button>
+  </header>
+  <div class="ptabs" id="ptabs"></div>
+  <div class="pbody" id="pbody"></div>
+</aside>
+
+<div class="boot" id="boot">building the world…</div>
+
+<script type="module" src="/three/world3d.js"></script>
+</body>
+</html>

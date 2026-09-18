@@ -34,6 +34,9 @@ import world_server as SRV               # noqa: E402
 from core import open_world as OW       # noqa: E402
 from core import model_gate as GATE     # noqa: E402
 from core import world_space as SPACE   # noqa: E402
+from core import world_growth as GROW   # noqa: E402
+from core import capability_graph as CAP # noqa: E402
+from core import runtime                # noqa: E402
 import world_export as WE                # noqa: E402
 
 ORCH, RES = "AGT-ORCHESTRATOR", "AGT-RESEARCHER"
@@ -2682,6 +2685,638 @@ class SpatialOwnerAbsence(unittest.TestCase):
                  self.con.execute("SELECT * FROM agent_locations")}
         self.assertEqual(after, before)
         self.assertEqual(A.presence(self.con)["state"], "PRESENT")
+
+
+def _pressured(con, seats=1, waiting=6):
+    """A real bottleneck: a room with one seat and work that needs it."""
+    con.execute("UPDATE world_places SET capacity=?, capability='research' "
+                "WHERE id='ws_lab'", (seats,))
+    for i in range(waiting):
+        t = W.discover_task(con, "research question %d" % i, by=ORCH,
+                            required_caps=["research"])
+        W.transition(con, t, "PROPOSED", ORCH)
+        W.transition(con, t, "APPROVED", ORCH)
+
+
+class WorldGrowthPipeline(unittest.TestCase):
+    """The world notices it is too small, and builds — through a pipeline it
+    cannot skip."""
+
+    def setUp(self):
+        self.con = world()
+        W.found_agents(self.con)
+
+    def test_a_world_with_room_does_not_build(self):
+        """The common and correct answer. A world that always finds a reason to
+        expand has a broken bottleneck detector, not ambition."""
+        self.assertEqual(GROW.observe_pressure(self.con), [])
+        self.assertIsNone(GROW.bottleneck(self.con))
+        r = GROW.grow_once(self.con, by=ORCH)
+        self.assertFalse(r["grew"])
+        self.assertEqual(self.con.execute(
+            "SELECT COUNT(*) c FROM expansion_proposals").fetchone()["c"], 0)
+
+    def test_pressure_is_measured_from_rows(self):
+        _pressured(self.con)
+        f = GROW.bottleneck(self.con)
+        self.assertIsNotNone(f)
+        self.assertEqual(f["workspace"], "ws_lab")
+        self.assertEqual(f["waiting"], self.con.execute(
+            "SELECT COUNT(*) c FROM tasks WHERE status='APPROVED' "
+            "AND required_caps LIKE '%research%'").fetchone()["c"])
+        self.assertGreater(f["pressure"], 1.5)
+
+    def test_a_proposal_without_evidence_is_refused(self):
+        with self.assertRaises(GROW.GrowthError):
+            GROW.propose(self.con, "workspace", "Somewhere", "because I feel like it",
+                         {}, by=ORCH, type_id="workspace")
+        with self.assertRaises(GROW.GrowthError):
+            GROW.propose(self.con, "workspace", "Somewhere", "", {"n": 1},
+                         by=ORCH, type_id="workspace")
+
+    def test_the_scope_is_chosen_by_where_ground_actually_exists(self):
+        _pressured(self.con)
+        kind, tid, parent = GROW.scope_for(self.con, "ws_lab")
+        self.assertEqual(kind, "facility",
+                         "the Research Hall is full; a new seat cannot go in it")
+        self.assertEqual(tid, "research_lab")
+        self.assertTrue(GROW.fits_in(self.con, parent, 12, 12, "facility"))
+
+    def test_a_facility_needs_the_owner_and_stops_without_them(self):
+        _pressured(self.con)
+        r = GROW.grow_once(self.con, by=ORCH)
+        self.assertFalse(r["grew"])
+        self.assertEqual(r["why"], "awaiting owner approval")
+        self.assertEqual(r["impact"], "MEDIUM")
+        p = self.con.execute("SELECT * FROM expansion_proposals WHERE id=?",
+                             (r["proposal"],)).fetchone()
+        self.assertEqual(p["state"], "VALIDATED")
+        self.assertIsNone(self.con.execute(
+            "SELECT id FROM constructions").fetchone(), "it built anyway")
+
+    def test_the_whole_chain_with_the_owner_saying_yes(self):
+        _pressured(self.con)
+        GROW.grow_once(self.con, by=ORCH)
+        r = GROW.grow_once(self.con, by=ORCH, owner_approves=True)
+        self.assertTrue(r["grew"], r)
+        p = self.con.execute("SELECT * FROM expansion_proposals WHERE id=?",
+                             (r["proposal"],)).fetchone()
+        self.assertEqual(p["state"], "ACTIVE")
+        d = self.con.execute("SELECT * FROM facility_designs WHERE proposal_id=?",
+                             (r["proposal"],)).fetchone()
+        self.assertEqual(d["validated"], 1)
+        self.assertEqual(d["design_hash"], store.sha(json.loads(d["spec"])))
+        c = self.con.execute("SELECT * FROM constructions WHERE proposal_id=?",
+                             (r["proposal"],)).fetchone()
+        self.assertEqual(c["state"], "ACTIVE")
+        self.assertTrue(c["authorised_by"])
+        place = SPACE.place(self.con, r["place"])
+        self.assertIsNotNone(place)
+        self.assertEqual(place["status"], "ACTIVE")
+        self.assertIn("built because", place["about"])
+        # and it was fitted out, so somebody can actually stand in it
+        self.assertTrue(r["workspaces"])
+        for wid in r["workspaces"]:
+            self.assertEqual(SPACE.place(self.con, wid)["parent_id"], r["place"])
+
+    def test_an_agent_can_enter_what_the_world_built(self):
+        _pressured(self.con)
+        GROW.grow_once(self.con, by=ORCH)
+        r = GROW.grow_once(self.con, by=ORCH, owner_approves=True)
+        ws = r["workspaces"][0]
+        SPACE.travel(self.con, RES, ws, why="the new lab opened", worker="w1")
+        self.assertEqual(SPACE.locate(self.con, RES)["workspace"], ws)
+        u = GROW.observe_utilisation(self.con, ws)
+        self.assertEqual(u["occupants"], 1)
+        self.assertGreaterEqual(u["visits"], 1)
+        self.assertIn(u["verdict"], ("USED", "UNDERUSED"))
+
+    def test_resources_are_spent_and_bounded(self):
+        _pressured(self.con)
+        before = GROW.resources(self.con)
+        GROW.grow_once(self.con, by=ORCH)
+        r = GROW.grow_once(self.con, by=ORCH, owner_approves=True)
+        after = GROW.resources(self.con)
+        for rid in ("budget", "space", "construction"):
+            self.assertGreater(after[rid]["spent"], before[rid]["spent"], rid)
+            self.assertLessEqual(after[rid]["spent"], after[rid]["total"], rid)
+        self.assertAlmostEqual(after["budget"]["spent"], r["cost"], places=5)
+
+    def test_why_it_was_built_is_answerable_from_rows(self):
+        _pressured(self.con)
+        GROW.grow_once(self.con, by=ORCH)
+        r = GROW.grow_once(self.con, by=ORCH, owner_approves=True)
+        rep = GROW.growth_report(self.con)
+        p = rep["proposals"][0]
+        self.assertTrue(p["cause"])
+        self.assertTrue(p["evidence"])
+        self.assertEqual(p["evidence"]["workspace"], "ws_lab")
+        self.assertTrue(p["design"]["validation"])
+        self.assertTrue(all(c["passed"] for c in p["design"]["validation"]))
+        self.assertEqual(p["construction"]["place_id"], r["place"])
+
+    def test_growth_survives_a_restart(self):
+        path = os.path.join(tempfile.mkdtemp(), "grown.db")
+        con = world(path)
+        W.found_agents(con)
+        _pressured(con)
+        GROW.grow_once(con, by=ORCH)
+        r = GROW.grow_once(con, by=ORCH, owner_approves=True)
+        before = dict(SPACE.place(con, r["place"]))
+        con.close()
+        cold = store.connect(path)
+        self.assertEqual(dict(SPACE.place(cold, r["place"])), before)
+        self.assertTrue(cold.execute("SELECT 1 FROM constructions WHERE place_id=?",
+                                     (r["place"],)).fetchone())
+        self.assertTrue(cold.execute(
+            "SELECT 1 FROM expansion_proposals WHERE state='ACTIVE'").fetchone())
+
+    def test_growth_travels_in_the_export(self):
+        _pressured(self.con)
+        GROW.grow_once(self.con, by=ORCH)
+        r = GROW.grow_once(self.con, by=ORCH, owner_approves=True)
+        out = os.path.join(tempfile.mkdtemp(), "w.json")
+        WE.export_world(self.con, out)
+        dst = os.path.join(tempfile.mkdtemp(), "new.db")
+        rep = WE.restore_world(out, dst)
+        other = store.connect(dst)
+        for t in ("world_places", "facility_types", "expansion_proposals",
+                  "facility_designs", "constructions", "world_resources", "tools"):
+            self.assertIn(t, WE.ORDER, "%s is not exported" % t)
+            self.assertEqual(
+                other.execute("SELECT COUNT(*) c FROM " + t).fetchone()["c"],
+                self.con.execute("SELECT COUNT(*) c FROM " + t).fetchone()["c"], t)
+        self.assertIsNotNone(SPACE.place(other, r["place"]))
+        self.assertEqual(WE.compare(self.con, other), {})
+        self.assertTrue(rep["chain_intact"])
+
+
+class WorldGrowthLaws(unittest.TestCase):
+    """The six construction laws, each refusing its own violation."""
+
+    def setUp(self):
+        self.con = world()
+        W.found_agents(self.con)
+        _pressured(self.con)
+
+    def test_a_proposal_cannot_skip_a_stage(self):
+        pid = GROW.propose_from_pressure(self.con, by=ORCH)
+        for jump in ("AUTHORISED", "CONSTRUCTED", "ACTIVE", "VALIDATED"):
+            with self.assertRaises(sqlite3.IntegrityError, msg=jump) as e:
+                self.con.execute("UPDATE expansion_proposals SET state=? WHERE id=?",
+                                 (jump, pid))
+            self.assertIn("LAW 36", str(e.exception))
+
+    def test_nothing_is_built_on_ground_already_built_on(self):
+        lab = SPACE.place(self.con, "lab")
+        with self.assertRaises(sqlite3.IntegrityError) as e:
+            self.con.execute(
+                "INSERT INTO world_places(id,kind,parent_id,label,x,y,w,h,z,capacity,"
+                "capability,access,status,about) VALUES('clash','facility','research',"
+                "'Clash',?,?,?,?,3,0,'','OPEN','ACTIVE','')",
+                (lab["x"] + 1, lab["y"] + 1, 4, 4))
+        self.assertIn("LAW 37", str(e.exception))
+
+    def test_the_world_cannot_spend_what_it_does_not_have(self):
+        with self.assertRaises(sqlite3.IntegrityError) as e:
+            self.con.execute("UPDATE world_resources SET spent=total+1 WHERE id='budget'")
+        self.assertIn("LAW 38", str(e.exception))
+        with self.assertRaises(GROW.GrowthError):
+            GROW._spend(self.con, "budget", 10_000, "a runaway loop")
+
+    def test_construction_needs_a_validated_design_and_a_named_authority(self):
+        pid = GROW.propose_from_pressure(self.con, by=ORCH)
+        did = GROW.design(self.con, pid, by=ORCH)
+        for auth, why in ((("", "owner"), "no authoriser"), (("OWNER_PLANE", ""), "no authority")):
+            with self.assertRaises(sqlite3.IntegrityError, msg=why) as e:
+                self.con.execute(
+                    "INSERT INTO constructions(design_id,proposal_id,place_id,built_by,"
+                    "authorised_by,authority,cost,built_at) VALUES(?,?,?,?,?,?,0,?)",
+                    (did, pid, "ws_lab", ORCH, auth[0], auth[1], store.now()))
+            self.assertIn("LAW 39", str(e.exception))
+        # even with an authority, an UNVALIDATED design is refused
+        with self.assertRaises(sqlite3.IntegrityError) as e:
+            self.con.execute(
+                "INSERT INTO constructions(design_id,proposal_id,place_id,built_by,"
+                "authorised_by,authority,cost,built_at) VALUES(?,?,?,?,?,?,0,?)",
+                (did, pid, "ws_lab", ORCH, "OWNER_PLANE", "owner", store.now()))
+        self.assertIn("LAW 39", str(e.exception))
+
+    def test_a_validated_design_cannot_be_rewritten(self):
+        pid = GROW.propose_from_pressure(self.con, by=ORCH)
+        did = GROW.design(self.con, pid, by=ORCH)
+        GROW.validate(self.con, did)
+        with self.assertRaises(sqlite3.IntegrityError) as e:
+            self.con.execute("UPDATE facility_designs SET w=99 WHERE id=?", (did,))
+        self.assertIn("LAW 40", str(e.exception))
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.con.execute("UPDATE facility_designs SET spec='{}' WHERE id=?", (did,))
+
+    def test_what_was_built_cannot_be_rewritten_or_deleted(self):
+        GROW.grow_once(self.con, by=ORCH)
+        r = GROW.grow_once(self.con, by=ORCH, owner_approves=True)
+        cid = r["construction"]
+        for sql, args in (("UPDATE constructions SET built_by='somebody else' WHERE id=?", (cid,)),
+                          ("UPDATE constructions SET place_id='ws_lab' WHERE id=?", (cid,)),
+                          ("DELETE FROM constructions WHERE id=?", (cid,))):
+            with self.assertRaises(sqlite3.IntegrityError) as e:
+                self.con.execute(sql, args)
+            self.assertIn("LAW 41", str(e.exception))
+        # retiring it IS allowed, because that is what honest change looks like
+        GROW.retire(self.con, cid, why="no longer needed")
+        self.assertEqual(SPACE.place(self.con, r["place"])["status"], "CLOSED")
+
+    def test_a_tool_must_name_the_permission_it_requires(self):
+        with self.assertRaises(sqlite3.IntegrityError) as e:
+            self.con.execute(
+                "INSERT INTO tools(id,name,capability,needs_perm,registered_by,"
+                "registered_at) VALUES('SNEAK','Sneak','x','',?,?)",
+                (ORCH, store.now()))
+        self.assertIn("LAW 42", str(e.exception))
+
+
+class WorldGrowthSecurity(unittest.TestCase):
+    """An agent that wants more than the world will give it."""
+
+    def setUp(self):
+        self.con = world()
+        W.found_agents(self.con)
+        _pressured(self.con)
+
+    def test_an_agent_cannot_build_a_hundred_facilities(self):
+        """The rate cap, which is the difference between growth and a loop."""
+        built, refused = 0, 0
+        for i in range(100):
+            try:
+                r = GROW.grow_once(self.con, by=ORCH, owner_approves=True)
+                if r.get("grew"):
+                    built += 1
+                else:
+                    refused += 1
+            except GROW.GrowthError:
+                refused += 1
+        self.assertLessEqual(built, 3, "the world built %d facilities" % built)
+        self.assertGreater(refused, 0)
+        res = GROW.resources(self.con)
+        for r in res.values():
+            self.assertLessEqual(r["spent"], r["total"], r["id"])
+
+    def test_an_agent_cannot_build_outside_the_world(self):
+        pid = GROW.propose(self.con, "facility", "Outside", "I want more room",
+                           {"measured": 1}, by=ORCH, type_id="research_lab",
+                           parent_id="research")
+        did = GROW.design(self.con, pid, by=ORCH, x=9000, y=9000)
+        v = GROW.validate(self.con, did)
+        self.assertFalse(v["passed"])
+        self.assertIn("inside_its_parent", [c["check"] for c in v["failed"]])
+        with self.assertRaises(GROW.GrowthError):
+            GROW.construct(self.con, pid, by=ORCH)
+
+    def test_raising_one_resource_does_not_make_the_world_unbounded(self):
+        """Every bound is a separate bound. Money is not ground."""
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.con.execute("UPDATE world_resources SET spent=-500 WHERE id='budget'")
+        # Raising `total` is an owner-plane act, and the world still stops —
+        # because what actually ran out was somewhere to put the building.
+        self.con.execute("UPDATE world_resources SET total=99999 WHERE id='budget'")
+        built, why = 0, None
+        for _ in range(8):
+            r = GROW.grow_once(self.con, by=ORCH, owner_approves=True)
+            if r.get("grew"):
+                built += 1
+            else:
+                why = r.get("failed") or r.get("why")
+                break
+        self.assertGreater(built, 0)
+        self.assertLess(built, 8, "a limitless budget built without limit")
+        self.assertIsNotNone(why, "nothing stopped it")
+        res = GROW.resources(self.con)
+        self.assertGreater(res["space"]["spent"], 0)
+        self.assertLessEqual(res["space"]["spent"], res["space"]["total"])
+
+    def test_the_expansion_rate_caps_a_runaway_loop(self):
+        """A cap on the total is not enough: a loop that spends everything in
+        one tick has still escaped. This is the cap on SPEED."""
+        for rid in ("budget", "space", "construction"):
+            self.con.execute("UPDATE world_resources SET total=99999 WHERE id=?", (rid,))
+        per = self.con.execute(
+            "SELECT per_window FROM world_resources WHERE id='construction'"
+        ).fetchone()["per_window"]
+        # Ground enough that geometry is not what stops it.
+        self.con.execute("UPDATE world_places SET w=260, h=200 WHERE id='expansion'")
+        built = 0
+        for _ in range(per + 4):
+            try:
+                if GROW.grow_once(self.con, by=ORCH, owner_approves=True).get("grew"):
+                    built += 1
+            except GROW.GrowthError:
+                break
+        ok, why = GROW.rate_ok(self.con)
+        self.assertFalse(ok, "the rate cap never engaged after %d builds" % built)
+        self.assertIn("limit is %d" % per, why)
+        self.assertLessEqual(built, per + 1, "built %d past a limit of %d" % (built, per))
+
+    def test_an_agent_cannot_authorise_its_own_facility(self):
+        pid = GROW.propose_from_pressure(self.con, by=ORCH)
+        did = GROW.design(self.con, pid, by=ORCH)
+        GROW.validate(self.con, did)
+        with self.assertRaises(GROW.GrowthError) as e:
+            GROW.authorise(self.con, pid, by=ORCH)
+        self.assertIn("owner plane", str(e.exception))
+        self.assertEqual(self.con.execute(
+            "SELECT state FROM expansion_proposals WHERE id=?", (pid,)).fetchone()["state"],
+            "VALIDATED")
+
+    def test_absence_of_policy_is_not_permission(self):
+        """A kind nobody wrote a rule for is HIGH impact, not free."""
+        p = {"kind": "something_nobody_planned_for"}
+        self.assertEqual(GROW.IMPACT.get(p["kind"], "HIGH"), "HIGH")
+        pid = GROW.propose(self.con, "district", "New Campus", "we need more",
+                           {"measured": 1}, by=ORCH, type_id="district")
+        self.assertEqual(GROW.impact_of(self.con, self.con.execute(
+            "SELECT * FROM expansion_proposals WHERE id=?", (pid,)).fetchone()), "HIGH")
+
+    def test_a_design_cannot_smuggle_in_a_permission(self):
+        pid = GROW.propose_from_pressure(self.con, by=ORCH)
+        did = GROW.design(self.con, pid, by=ORCH)
+        d = self.con.execute("SELECT * FROM facility_designs WHERE id=?",
+                             (did,)).fetchone()
+        spec = json.loads(d["spec"])
+        self.assertNotIn("permissions", spec)
+        self.assertNotIn("grants", spec)
+        # and a spec that DID carry one fails validation
+        spec["permissions"] = ["EXECUTE_SANDBOX"]
+        self.con.execute("UPDATE facility_designs SET spec=?, design_hash=? WHERE id=?",
+                         (json.dumps(spec, sort_keys=True), store.sha(spec), did))
+        v = GROW.validate(self.con, did)
+        self.assertFalse(v["passed"])
+        self.assertIn("grants_no_permissions", [c["check"] for c in v["failed"]])
+
+    def test_the_agent_runtime_cannot_reach_the_construction_pipeline(self):
+        with open(os.path.join(HERE, "core/agent_runtime.py"), encoding="utf-8") as fh:
+            code = fh.read()
+        for reach in ("world_growth", "expansion_proposals", "constructions",
+                      "facility_designs", "GROW."):
+            self.assertNotIn(reach, code,
+                             "the runtime can reach %r, so a model turn is one "
+                             "parse bug away from building something" % reach)
+
+
+class CapabilityGraph(unittest.TestCase):
+    """What an agent can actually do, and what makes it possible."""
+
+    def setUp(self):
+        self.con = world()
+        W.found_agents(self.con)
+
+    def test_every_agent_has_a_graph_built_from_rows(self):
+        for a in W.CREW:
+            g = CAP.graph(self.con, a["id"])
+            self.assertIsNotNone(g, a["id"])
+            self.assertEqual(g["role"], a["role"])
+            self.assertTrue(g["capabilities"], a["id"])
+            for c in g["capabilities"]:
+                self.assertEqual(c["source"], "declared")
+                for t in c["tools"]:
+                    self.assertIn(t["id"], CAP.tools(self.con))
+
+    def test_the_orchestrator_holds_no_tool_and_that_is_a_real_answer(self):
+        g = CAP.graph(self.con, ORCH)
+        self.assertEqual(g["permissions"], [])
+        for c in g["capabilities"]:
+            self.assertEqual(c["needs_tools"], [])
+            self.assertTrue(c["usable"], "a capability needing no door is usable")
+        self.assertEqual(g["gaps"], [])
+
+    def test_capability_to_tool_edges_are_queryable_state(self):
+        rows = {r["name"]: json.loads(r["needs_tools"])
+                for r in self.con.execute("SELECT name, needs_tools FROM capabilities")}
+        self.assertIn("research", rows)
+        self.assertIn("READ_REPO", rows["research"])
+        # the UI must not be the only place this mapping exists
+        with open(os.path.join(HERE, "world_ui/three/world3d.js"), encoding="utf-8") as fh:
+            js = fh.read()
+        self.assertNotIn("CAPABILITY_TOOLS", js)
+        self.assertNotIn("READ_REPO", js)
+
+    def test_disabling_a_tool_produces_a_real_capability_gap(self):
+        self.assertEqual(CAP.gaps(self.con, ["research"]), [])
+        CAP.set_enabled(self.con, "READ_REPO", 0, why="security review")
+        gaps = CAP.gaps(self.con, ["research"])
+        self.assertTrue(gaps)
+        self.assertEqual(gaps[0]["kind"], "TOOL_DISABLED")
+        self.assertIn("READ_REPO", gaps[0]["blocked_tools"])
+        g = CAP.graph(self.con, RES)
+        self.assertIn("research", g["gaps"])
+        self.assertIn("READ_REPO",
+                      next(c for c in g["capabilities"]
+                           if c["name"] == "research")["blocked_by"])
+
+    def test_the_gap_and_the_graph_never_disagree(self):
+        """Two answers to one question is the bug this test exists for."""
+        for state in (0, 1):
+            CAP.set_enabled(self.con, "READ_REPO", state)
+            g = CAP.graph(self.con, RES)
+            gaps = {x["capability"] for x in CAP.gaps(self.con, ["research", "evidence"])}
+            for cap in ("research", "evidence"):
+                blocked = not next(c for c in g["capabilities"]
+                                   if c["name"] == cap)["usable"]
+                self.assertEqual(blocked, cap in gaps,
+                                 "%s: graph says blocked=%s, gaps says %s"
+                                 % (cap, blocked, cap in gaps))
+
+    def test_restoring_the_tool_restores_the_capability(self):
+        CAP.set_enabled(self.con, "READ_REPO", 0)
+        self.assertTrue(CAP.graph(self.con, RES)["gaps"])
+        CAP.set_enabled(self.con, "READ_REPO", 1)
+        self.assertEqual(CAP.graph(self.con, RES)["gaps"], [])
+
+    def test_the_registry_cannot_grant_anything(self):
+        """It describes doors. The gateway opens them, and only for a grant."""
+        CAP.register_tool(self.con, "GHOST", "Ghost tool", "ghost", OWNER,
+                          needs_perm="GHOST")
+        gw = W.build_gateway(self.con)
+        with self.assertRaises(runtime.Denied):
+            gw.call(RES, "GHOST")
+        self.assertTrue(self.con.execute(
+            "SELECT 1 FROM tool_calls WHERE cap='GHOST' AND decision='DENY'").fetchone(),
+            "a denial was not recorded")
+
+    def test_a_live_execution_shows_in_the_graph(self):
+        con, w, fixture = driven(self.con)
+        D.start(con, fixture)
+        SUP.run(w, max_ticks=140)
+        g = CAP.graph(con, RES)
+        used = [t for c in g["capabilities"] for t in c["tools"] if t["calls"]]
+        self.assertTrue(used, "the researcher worked but no tool call is on its graph")
+        self.assertTrue(g["executions"])
+        for e in g["executions"]:
+            self.assertIn(e["decision"], ("ALLOW", "DENY", "ERROR", "PAUSED", "NO_LEASE"))
+
+    def test_the_execution_chain_follows_one_task_end_to_end(self):
+        con, w, fixture = driven(self.con)
+        D.start(con, fixture)
+        SUP.run(w, max_ticks=140)
+        done = con.execute("SELECT id FROM tasks WHERE status='ARCHIVED' "
+                           "OR status='ACCEPTED' ORDER BY id").fetchall()
+        self.assertTrue(done)
+        found = False
+        for t in done:
+            ch = CAP.execution_chain(con, t["id"])
+            if ch["steps"] and ch["artifacts"]:
+                found = True
+                for s in ch["steps"]:
+                    self.assertTrue(con.execute(
+                        "SELECT 1 FROM principals WHERE id=?", (s["agent"],)).fetchone())
+        self.assertTrue(found, "no task has a tool call and an artifact")
+
+    def test_handoffs_come_from_messages_that_exist(self):
+        con, w, fixture = driven(self.con)
+        D.start(con, fixture)
+        SUP.run(w, max_ticks=140)
+        hs = CAP.handoffs(con)
+        self.assertTrue(hs)
+        for h in hs:
+            self.assertTrue(con.execute("SELECT 1 FROM principals WHERE id=?",
+                                        (h["from"],)).fetchone())
+
+
+class World3DPayload(unittest.TestCase):
+    """The 3D world is told what exists. It is not told how to draw a lab."""
+
+    def setUp(self):
+        self.con, self.w, self.fixture = driven()
+        D.start(self.con, self.fixture)
+        SUP.run(self.w, max_ticks=140)
+        self.d = SRV.world3d(self.con)
+
+    def test_five_agents_and_each_matches_its_row(self):
+        self.assertEqual(len(self.d["agents"]), 5)
+        for aid, a in self.d["agents"].items():
+            loc = SPACE.locate(self.con, aid)
+            self.assertEqual(a["workspace"], loc["workspace"], aid)
+            self.assertEqual((a["x"], a["y"]), (loc["x"], loc["y"]), aid)
+            self.assertEqual(a["movement"], loc["movement"], aid)
+            self.assertEqual(a["task_id"], loc["task_id"], aid)
+            self.assertEqual(a["state"], OW.place_agent(self.con, aid)["state"], aid)
+
+    def test_every_place_carries_an_archetype_it_did_not_guess(self):
+        for p in self.d["places"]:
+            row = SPACE.place(self.con, p["id"])
+            self.assertEqual(p["type"], row["type_id"],
+                             "%s: the payload invented a type" % p["id"])
+            self.assertTrue(p["archetype"])
+            if p["type"]:
+                self.assertEqual(p["archetype"], self.d["types"][p["type"]]["archetype"])
+
+    def test_the_archive_district_is_not_an_archive_facility(self):
+        """The id-matching version rendered a district as a building."""
+        d = next(p for p in self.d["places"] if p["id"] == "archive")
+        self.assertEqual(d["kind"], "district")
+        self.assertEqual(d["archetype"], "ground")
+
+    def test_lod_counts_are_the_database_counts(self):
+        agg = self.d["occupancy"]
+        self.assertEqual(agg["total"], self.con.execute(
+            "SELECT COUNT(*) c FROM agent_locations").fetchone()["c"])
+        for level in ("workspace", "facility", "district"):
+            self.assertEqual(sum(agg[level].values()), agg["total"], level)
+
+    def test_the_payload_is_read_only(self):
+        before = {t: self.con.execute("SELECT COUNT(*) c FROM " + t).fetchone()["c"]
+                  for t in ("tasks", "artifacts", "events", "world_places",
+                            "movements", "agent_locations")}
+        for _ in range(3):
+            SRV.world3d(self.con)
+        for t, n in before.items():
+            self.assertEqual(self.con.execute(
+                "SELECT COUNT(*) c FROM " + t).fetchone()["c"], n, t)
+
+    def test_a_facility_the_world_builds_appears_without_touching_the_renderer(self):
+        _pressured(self.con)
+        GROW.grow_once(self.con, by=ORCH)
+        r = GROW.grow_once(self.con, by=ORCH, owner_approves=True)
+        d = SRV.world3d(self.con)
+        new = next(p for p in d["places"] if p["id"] == r["place"])
+        self.assertEqual(new["archetype"], "lab")
+        self.assertIn(r["place"], d["constructions"])
+        with open(os.path.join(HERE, "world_ui/three/world3d.js"), encoding="utf-8") as fh:
+            js = fh.read()
+        self.assertNotIn(r["place"], js, "the renderer names the new building")
+        self.assertNotIn("research_lab", js, "the renderer special-cases a type")
+
+
+class World3DHonesty(unittest.TestCase):
+    """The renderer may not invent anything, and a quiet world looks quiet."""
+
+    def setUp(self):
+        self.js = open(os.path.join(HERE, "world_ui/three/world3d.js"),
+                       encoding="utf-8").read()
+
+    def test_the_renderer_invents_no_motion_and_no_data(self):
+        for banned in ("Math.random", "setTimeout(() => { agent", "fakeData",
+                       "demoAgents", "wander", "patrol", "placeholder"):
+            self.assertNotIn(banned, self.js, banned)
+        self.assertEqual(re.findall(r'fetch\(["\'](?!/api)', self.js), [])
+
+    def test_it_loads_its_engine_from_this_machine(self):
+        """A renderer that fetches three.js from a CDN makes the Owner's world
+        depend on somebody else's uptime, which is the whole thing
+        OWNERSHIP_AND_INDEPENDENCE.md exists to prevent."""
+        for cdn in ("http://", "https://", "cdn.", "unpkg", "jsdelivr"):
+            self.assertNotIn(cdn, self.js, cdn)
+        self.assertIn('from "../vendor/three.module.min.js"', self.js)
+        self.assertTrue(os.path.isfile(
+            os.path.join(HERE, "world_ui/vendor/three.module.min.js")))
+        self.assertTrue(os.path.isfile(
+            os.path.join(HERE, "world_ui/vendor/three.LICENSE")))
+
+    def test_an_idle_world_reports_itself_idle(self):
+        con = world()
+        W.found_agents(con)
+        d = SRV.world3d(con)
+        self.assertTrue(d["quiet"])
+        self.assertEqual(d["occupancy"]["total"], 5)
+        for a in d["agents"].values():
+            self.assertEqual(a["state"], "IDLE")
+            self.assertIsNone(a["destination"])
+
+    def test_only_a_moving_agent_has_a_route(self):
+        con = world()
+        W.found_agents(con)
+        SPACE.move_to(con, RES, "ws_lab", why="a research task", worker="w1")
+        d = SRV.world3d(con)
+        moving = [a for a in d["agents"].values() if a["movement"] == "MOVING"]
+        self.assertEqual(len(moving), 1)
+        self.assertEqual(moving[0]["id"], RES)
+        self.assertIsNotNone(moving[0]["dest_x"])
+        for a in d["agents"].values():
+            if a["movement"] != "MOVING":
+                self.assertIsNone(a["destination"], a["id"])
+
+    def test_offline_keeps_the_world_and_says_so(self):
+        keep = _env(OFFLINE_MODE="1")
+        try:
+            con = world()
+            W.found_agents(con)
+            d = SRV.world3d(con)
+            self.assertEqual(len(d["agents"]), 5)
+            self.assertEqual(d["autonomy"]["model"]["model"], "OFFLINE")
+            self.assertTrue(len(d["places"]) > 30)
+        finally:
+            _restore_env(keep)
+
+    def test_the_three_js_bundle_is_the_one_from_the_registry(self):
+        """Vendored, unmodified, and licensed. If this file ever gets edited by
+        hand the world stops being able to say where its engine came from."""
+        p = os.path.join(HERE, "world_ui/vendor/three.module.min.js")
+        self.assertGreater(os.path.getsize(p), 400_000)
+        with open(p, encoding="utf-8", errors="replace") as fh:
+            head = fh.read(400)
+        self.assertIn("three.js", head.lower() + " three.js")
+        with open(os.path.join(HERE, "world_ui/vendor/three.LICENSE"),
+                  encoding="utf-8") as fh:
+            self.assertIn("MIT", fh.read())
 
 class SuiteHygiene(unittest.TestCase):
     def test_no_live_model_is_reachable_from_the_autonomous_world(self):

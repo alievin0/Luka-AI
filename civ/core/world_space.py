@@ -61,15 +61,17 @@ def seed_places(con, districts=None):
     n = 0
     for d in districts:
         n += _place(con, d["id"], "district", None, d["label"], d,
-                    about=d.get("about", ""),
+                    about=d.get("about", ""), type_id=d.get("type", "district"),
                     status="RESERVED" if d.get("expandable") else "ACTIVE")
         for f in d.get("facilities", []):
-            n += _place(con, f["id"], "facility", d["id"], f["label"], f)
+            n += _place(con, f["id"], "facility", d["id"], f["label"], f,
+                        type_id=f.get("type"))
             for w in f.get("workspaces", []):
                 n += _place(con, w["id"], "workspace", f["id"], w["label"], w,
                             capacity=int(w.get("capacity") or _room_for(w)),
                             capability=w.get("capability", ""),
                             access=w.get("access", "OPEN"),
+                            type_id=w.get("type", "workspace"),
                             station=w.get("station"))
     return n
 
@@ -89,11 +91,13 @@ def _place(con, pid, kind, parent, label, src, **kw):
         return 0
     con.execute(
         "INSERT INTO world_places(id,kind,parent_id,label,x,y,w,h,z,capacity,"
-        "capability,access,station,status,about) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "capability,access,station,status,about,type_id) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (pid, kind, parent, label, float(src["x"]), float(src["y"]),
          float(src["w"]), float(src["h"]), float(src.get("z", 0)),
          kw.get("capacity", 0), kw.get("capability", ""), kw.get("access", "OPEN"),
-         kw.get("station"), kw.get("status", "ACTIVE"), kw.get("about", "")))
+         kw.get("station"), kw.get("status", "ACTIVE"), kw.get("about", ""),
+         kw.get("type_id")))
     return 1
 
 

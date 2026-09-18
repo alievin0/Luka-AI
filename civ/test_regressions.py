@@ -190,6 +190,25 @@ class R6_ADeclaredTableNothingWrites(unittest.TestCase):
         lesson = con.execute("SELECT id FROM lessons ORDER BY id LIMIT 1").fetchone()
         if lesson:
             always_on.propose_lesson_promotion(con, lesson["id"], by="AGT-RESEARCHER")
+
+        # The world's own growth leaves four tables, and R6's whole point is
+        # that a declared table nothing writes is either dead or a bug. So the
+        # run has to actually make the world too small and let it build — the
+        # answer to a newly-empty table is to exercise it, never to stop asking.
+        from core import agent_world as _W
+        from core import world_growth as _GROW
+        con.execute("UPDATE world_places SET capacity=1, capability='research' "
+                    "WHERE id='ws_lab'")
+        for i in range(6):
+            t = _W.discover_task(con, "R6 research %d" % i, by="AGT-ORCHESTRATOR",
+                                 required_caps=["research"])
+            _W.transition(con, t, "PROPOSED", "AGT-ORCHESTRATOR")
+            _W.transition(con, t, "APPROVED", "AGT-ORCHESTRATOR")
+        _GROW.grow_once(con, by="AGT-ORCHESTRATOR")
+        grew = _GROW.grow_once(con, by="AGT-ORCHESTRATOR", owner_approves=True)
+        if grew.get("workspaces"):
+            _GROW.observe_utilisation(con, grew["workspaces"][0])
+
         empty = []
         for (t,) in con.execute("SELECT name FROM sqlite_master WHERE type='table' "
                                 "AND name NOT LIKE 'sqlite_%' ORDER BY name"):

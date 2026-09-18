@@ -22,6 +22,8 @@ from core import agent_runtime as RT     # noqa: E402
 from core import always_on as AO        # noqa: E402
 from core import open_world as OW       # noqa: E402
 from core import world_space as SPACE   # noqa: E402
+from core import world_growth as GROW    # noqa: E402
+from core import capability_graph as CAP # noqa: E402
 from core import model_gate as GATE     # noqa: E402
 from core import world_bus as BUS        # noqa: E402
 from core import agent_world as W        # noqa: E402
@@ -344,6 +346,63 @@ def activity(con, limit=60):
     return out
 
 
+def world3d(con):
+    """Everything the 3D world needs, and nothing it could invent.
+
+    The renderer is told WHAT EXISTS and WHAT KIND OF THING each one is. It is
+    never told how to draw a research lab specifically — it looks up the
+    archetype. A facility type registered next year therefore renders without
+    anybody touching the renderer, which is the only way a world that builds
+    itself can also be seen."""
+    places = [dict(r) for r in con.execute(
+        "SELECT * FROM world_places ORDER BY kind, id")]
+    types = GROW.types(con)
+    # Which archetype each place is, from its own `type_id` column. Resolving it
+    # by matching the id against the type registry made the Archive DISTRICT
+    # render as an archive FACILITY, because both happened to be called
+    # "archive" — a guess that looked like knowledge until it was wrong.
+    for p in places:
+        t = types.get(p["type_id"]) if p["type_id"] else None
+        p["type"] = t["id"] if t else None
+        p["archetype"] = t["archetype"] if t else {
+            "district": "ground", "facility": "block", "workspace": "room"}[p["kind"]]
+        p["equipment"] = t["equipment"] if t else []
+    agents = {}
+    for a in W.CREW:
+        if not con.execute("SELECT 1 FROM principals WHERE id=?", (a["id"],)).fetchone():
+            continue
+        sp = SPACE.spatial_report(con, a["id"])
+        if sp is None:
+            continue
+        placed = OW.place_agent(con, a["id"])
+        agents[a["id"]] = {
+            "id": a["id"], "name": a["name"], "role": a["role"],
+            "x": sp["x"], "y": sp["y"], "workspace": sp["workspace"],
+            "destination": sp["destination"], "dest_x": sp["dest_x"],
+            "dest_y": sp["dest_y"], "movement": sp["movement"],
+            "state": placed["state"], "because": placed["because"],
+            "why": sp["why"], "activity": sp["activity"],
+            "task_id": sp["task_id"], "lease_id": sp["lease_id"],
+            "path": sp["path"], "district": sp["place"]["district_id"],
+            "facility": sp["place"]["facility_id"],
+        }
+    built = {r["place_id"]: dict(r) for r in con.execute(
+        "SELECT * FROM constructions ORDER BY id")}
+    return {
+        "places": places,
+        "types": types,
+        "agents": agents,
+        "occupancy": SPACE.aggregate(con),
+        "constructions": built,
+        "resources": GROW.resources(con),
+        "autonomy": autonomy(con),
+        "away": W.while_you_were_away(con),
+        "activity": activity(con, 24),
+        "quiet": BUS.quiet(con),
+        "projects": OW.project_plots(con),
+    }
+
+
 def movements(con, limit=80):
     """The movement record, newest first. What actually happened, in order."""
     return [dict(r) for r in con.execute(
@@ -420,6 +479,21 @@ class Handler(BaseHTTPRequestHandler):
                 payload["autonomy"] = autonomy(con)
                 payload["away"] = W.while_you_were_away(con)
                 return self._send(json.dumps(payload, ensure_ascii=False))
+            if parts[0] == "capability" and len(parts) > 1:
+                return self._send(json.dumps(CAP.graph(con, parts[1]),
+                                             ensure_ascii=False))
+            if parts[0] == "tools":
+                return self._send(json.dumps(
+                    {"tools": CAP.tools(con), "handoffs": CAP.handoffs(con)},
+                    ensure_ascii=False))
+            if parts[0] == "chain" and len(parts) > 1:
+                return self._send(json.dumps(
+                    CAP.execution_chain(con, int(parts[1])), ensure_ascii=False))
+            if parts[0] == "world3d":
+                return self._send(json.dumps(world3d(con), ensure_ascii=False))
+            if parts[0] == "growth":
+                return self._send(json.dumps(GROW.growth_report(con),
+                                             ensure_ascii=False))
             if parts[0] == "space" and len(parts) > 1:
                 return self._send(json.dumps(
                     SPACE.spatial_report(con, parts[1]), ensure_ascii=False))
@@ -444,14 +518,17 @@ class Handler(BaseHTTPRequestHandler):
             rel = "open.html"
         elif path == "/flat":
             rel = "index.html"          # the transitional floor plan, kept working
+        elif path in ("/3d", "/3d/"):
+            rel = "three/world3d.html"
         else:
             rel = path.lstrip("/")
         full = os.path.abspath(os.path.join(UI, rel))
         if not full.startswith(os.path.abspath(UI) + os.sep) or not os.path.isfile(full):
             return self._send("not found", ctype="text/plain", code=404)
         ctype = {"html": "text/html; charset=utf-8", "css": "text/css",
-                 "js": "application/javascript",
-                 "svg": "image/svg+xml"}.get(full.rsplit(".", 1)[-1], "text/plain")
+                 "js": "application/javascript", "mjs": "application/javascript",
+                 "png": "image/png", "svg": "image/svg+xml"}.get(
+                     full.rsplit(".", 1)[-1], "text/plain")
         with open(full, "rb") as fh:
             self._send(fh.read(), ctype=ctype)
 

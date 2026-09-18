@@ -45,6 +45,11 @@ ORDER = [
     # movement record after the tasks and leases it points at. A world that
     # arrives on another machine with its agents nowhere is not the same world.
     "world_places", "agent_locations", "movements",
+    # The world's own definitions and how it grew. Order matters as much here as
+    # anywhere: a construction points at the design that was validated, so a
+    # restore that writes constructions first trips LAW 39 on its own history.
+    "facility_types", "world_resources", "tools",
+    "expansion_proposals", "facility_designs", "constructions", "space_utilization",
     "evidence", "artifacts", "claims", "reviews",
     "discoveries", "ideas", "opportunities", "failures", "lessons",
     "memories", "agent_messages",

@@ -16,6 +16,8 @@ ALWAYS_ON_SCHEMA = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                 "always_on_schema.sql")
 SPACE_SCHEMA = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                             "space_schema.sql")
+GROWTH_SCHEMA = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             "growth_schema.sql")
 DEFAULT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "civ.db")
 
 MODES = ("simulation", "live", "hybrid")
@@ -49,7 +51,7 @@ def connect(path=None):
     if DIALECT.name != "sqlite":                  # pragma: no cover - not deployed
         return con
     for path in (SCHEMA, ORG_SCHEMA, BENCH_SCHEMA, WORLD_SCHEMA,
-                 ALWAYS_ON_SCHEMA, SPACE_SCHEMA):
+                 ALWAYS_ON_SCHEMA, SPACE_SCHEMA, GROWTH_SCHEMA):
         with open(path, encoding="utf-8") as fh:
             con.executescript(fh.read())
     # Organisational lifecycle is a DIFFERENT axis from runtime status:
@@ -81,6 +83,11 @@ def connect(path=None):
     _widen_check(con, SCHEMA, "tasks", "'ARCHIVED'")
     _widen_check(con, ORG_SCHEMA, "opportunities", "'APPROVED'")
     _widen_check(con, ALWAYS_ON_SCHEMA, "world_queue", "'WAITING_FOR_MODEL'")
+    pcols = {r[1] for r in con.execute("PRAGMA table_info(world_places)")}
+    if "type_id" not in pcols:
+        # Which archetype a place is an instance of. Guessing it from the id at
+        # render time made the Archive district draw as an archive facility.
+        con.execute("ALTER TABLE world_places ADD COLUMN type_id TEXT")
     qcols = {r[1] for r in con.execute("PRAGMA table_info(world_queue)")}
     if "caused_by" not in qcols:
         # Causality as a column, not an inference. "Which event caused this one"
@@ -116,7 +123,7 @@ def _table_ddl(schema_path, table):
         # Running always_on_schema.sql alone fails on `REFERENCES tasks(id)`,
         # which is the schema being correct, not the migration being wrong.
         for earlier in (SCHEMA, ORG_SCHEMA, BENCH_SCHEMA, WORLD_SCHEMA,
-                        ALWAYS_ON_SCHEMA, SPACE_SCHEMA):
+                        ALWAYS_ON_SCHEMA, SPACE_SCHEMA, GROWTH_SCHEMA):
             with open(earlier, encoding="utf-8") as fh:
                 tmp.executescript(fh.read())
             if os.path.samefile(earlier, schema_path):
