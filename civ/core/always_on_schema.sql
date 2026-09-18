@@ -21,8 +21,12 @@ CREATE TABLE IF NOT EXISTS world_queue (
   -- duplicates" is exactly the kind of check that stops being true at 3am.
   dedupe_key   TEXT NOT NULL UNIQUE,
   priority     INTEGER NOT NULL DEFAULT 5,
+  -- WAITING_FOR_MODEL: the world is fine and this work is not lost; there is
+  -- simply no inference engine to run it. It is not FAILED and it is not
+  -- pretended to have happened.
   state        TEXT NOT NULL DEFAULT 'READY' CHECK (state IN
-                 ('READY','CLAIMED','DONE','FAILED','DEFERRED','DROPPED')),
+                 ('READY','CLAIMED','DONE','FAILED','DEFERRED','DROPPED',
+                  'WAITING_FOR_MODEL')),
   attempts     INTEGER NOT NULL DEFAULT 0,
   max_attempts INTEGER NOT NULL DEFAULT 3,
   available_at TEXT NOT NULL,
@@ -33,7 +37,10 @@ CREATE TABLE IF NOT EXISTS world_queue (
   chain_id     INTEGER REFERENCES chains(id),
   depth        INTEGER NOT NULL DEFAULT 0,
   emitted_by   TEXT NOT NULL DEFAULT 'OWNER_PLANE',
-  event_id     INTEGER REFERENCES events(id)
+  event_id     INTEGER REFERENCES events(id),
+  -- Causality as a column, not an inference: "which event caused this one" has
+  -- to be answerable from a row when no process is alive to remember.
+  caused_by    INTEGER REFERENCES world_queue(id)
 );
 CREATE INDEX IF NOT EXISTS ix_queue_ready ON world_queue(state, priority DESC, id);
 CREATE INDEX IF NOT EXISTS ix_queue_chain ON world_queue(chain_id);

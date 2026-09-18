@@ -15,6 +15,11 @@ tested; `world_ui/open.{html,css,js}` draws it. The visual language it follows
 was specified first in
 [`AGENT_WORLD_VISUAL_ARCHITECTURE.md`](AGENT_WORLD_VISUAL_ARCHITECTURE.md).
 
+**It runs with no model, and says so.** Who owns this world, what it depends on
+and what survives each of those dependencies disappearing is
+[`OWNERSHIP_AND_INDEPENDENCE.md`](OWNERSHIP_AND_INDEPENDENCE.md) —
+`python3 offline_demo.py --fresh` is that document as a runnable drill.
+
 ---
 
 ## 1. Why the floor plan had to go

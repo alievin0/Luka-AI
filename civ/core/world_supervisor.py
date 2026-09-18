@@ -215,6 +215,13 @@ def h_task_ready(w, item):
         store.signal(con, "HIGH", "Autonomous work paused: budget", why)
         return {"deferred": why}
 
+    # Is there anything to run this at all? Asked of the provider that would
+    # actually be used, and asked BEFORE a lease is taken — a lease held by an
+    # agent that cannot run is a lock on work nobody is doing.
+    prov = w.provider_for(agent, task, task["attempts"] + 1)
+    if not prov.available():
+        return {"waiting_for_model": prov.why_unavailable() or "no inference engine"}
+
     lease = W.claim_task(con, agent, task_id=tid, lease_seconds=LEASE_SECONDS)
     if lease is None:
         return {"deferred": "task %d could not be leased" % tid}
@@ -222,7 +229,6 @@ def h_task_ready(w, item):
     # What this identity already knows, retrieved because it is waking, not
     # because someone passed it along in a prompt from the last run.
     mem = A.wake_memory(con, agent, task["project_id"])
-    prov = w.provider_for(agent, task, task["attempts"] + 1)
     try:
         turn = RT.run_agent_turn(
             con, w.gw, prov, agent, tid, instruction=w.instruction_for(task),
@@ -462,11 +468,47 @@ def tick(w):
     except Exception as e:                                   # noqa: BLE001
         BUS.nack(w.con, item["id"], "%s: %s" % (type(e).__name__, e))
         return {"kind": item["kind"], "result": {"error": repr(e)}}
-    if out.get("deferred"):
+    if out.get("waiting_for_model"):
+        BUS.wait_for_model(w.con, item["id"], out["waiting_for_model"])
+        store.signal(w.con, "MEDIUM", "Work is waiting for an inference engine",
+                     out["waiting_for_model"])
+    elif out.get("deferred"):
         BUS.defer(w.con, item["id"], out["deferred"])
     else:
         BUS.ack(w.con, item["id"], out, worker=w.worker)
     return {"kind": item["kind"], "result": out}
+
+
+def _resume_if_an_engine_exists(w):
+    """Un-park WAITING_FOR_MODEL work, but only once something can actually run it.
+
+    The question is asked of THIS world's own provider factory — the same one
+    `h_task_ready` will use — and not of the global model gate. Those two can
+    disagree: a world injected with a provider of its own is not made runnable
+    by some unrelated engine answering on this machine, and resuming on that
+    basis just parks the work again a tick later.
+
+    The probe uses a task that is actually parked, so what is asked is exactly
+    what will be asked when the work is picked up."""
+    con = w.con
+    if not BUS.waiting_for_model(con):
+        return []
+    row = con.execute(
+        "SELECT payload FROM world_queue WHERE state='WAITING_FOR_MODEL' "
+        "AND kind='TASK_READY' ORDER BY id LIMIT 1").fetchone()
+    if row is None:
+        return []
+    tid = (json.loads(row["payload"] or "{}") or {}).get("task_id")
+    task = con.execute("SELECT * FROM tasks WHERE id=?", (tid,)).fetchone() \
+        if tid else None
+    if task is None:
+        return []
+    agent = _worker_for(con, task)
+    if agent is None:
+        return []
+    if not w.provider_for(agent, task, task["attempts"] + 1).available():
+        return []
+    return BUS.resume_waiting(con)
 
 
 def reconcile(w, reason="periodic"):
@@ -488,6 +530,7 @@ def reconcile(w, reason="periodic"):
             BUS.emit(con, "TASK_READY", "task:%d" % r["id"], {"task_id": r["id"]},
                      by=OWNER)
             unblocked.append(r["id"])
+    resumed = _resume_if_an_engine_exists(w)
     pending = con.execute("SELECT COUNT(*) c FROM approvals WHERE decision IS NULL"
                           ).fetchone()["c"]
     d = BUS.depth(con)
@@ -497,7 +540,8 @@ def reconcile(w, reason="periodic"):
                  len(unblocked), pending, json.dumps({"freed": freed})[:400]))
     return {"freed": freed, "reaped": len(reaped or []), "unblocked": unblocked,
             "queued": d["READY"], "in_flight": d["CLAIMED"], "awaiting_owner": pending,
-            "stale_workers": dead}
+            "stale_workers": dead, "waiting_for_model": BUS.waiting_for_model(con),
+            "resumed": resumed}
 
 
 def run(w, max_ticks=200, until_quiet=True, deadline_seconds=None):

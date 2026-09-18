@@ -21,6 +21,7 @@ sys.path.insert(0, HERE)
 from core import agent_runtime as RT     # noqa: E402
 from core import always_on as AO        # noqa: E402
 from core import open_world as OW       # noqa: E402
+from core import model_gate as GATE     # noqa: E402
 from core import world_bus as BUS        # noqa: E402
 from core import agent_world as W        # noqa: E402
 from core import store                   # noqa: E402
@@ -128,6 +129,7 @@ def autonomy(con):
             r["id"] for r in con.execute(
                 "SELECT id FROM tasks WHERE status IN ('APPROVED','ASSIGNED')")
             if AO.unmet_deps(con, r["id"])],
+        "model": GATE.status(con),
         "last_heartbeat": (lambda r: dict(r) if r else None)(con.execute(
             "SELECT * FROM heartbeats ORDER BY id DESC LIMIT 1").fetchone()),
     }
@@ -323,7 +325,14 @@ def activity(con, limit=60):
         subj = e["subject"] or ""
         for kind in ("task", "artifact", "project"):
             if subj.startswith(kind + ":"):
-                ref = {"type": kind, "id": int(subj.split(":", 1)[1])}
+                # A subject is conventionally `kind:id`, and an id is conventionally
+                # an integer — conventionally. One event whose subject did not
+                # parse took down the whole Owner view: a bad trade for a link.
+                try:
+                    ref = {"type": kind, "id": int(subj.split(":", 1)[1])}
+                except (ValueError, IndexError):
+                    ref = None
+                break
         out.append({"id": e["id"], "at": e["at"], "kind": e["kind"],
                     "actor": e["actor"], "subject": subj, "ref": ref,
                     "payload": json.loads(e["payload"] or "{}")})

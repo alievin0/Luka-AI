@@ -241,6 +241,7 @@ function renderChrome() {
   if (a.awaiting_owner) bits.push(`<span class="away"><b>${a.awaiting_owner}</b> awaiting you</span>`);
   if ((a.owner || {}).state === "AWAY") bits.push(`<span class="away">owner away</span>`);
   $("strip").innerHTML = bits.join(`<span style="opacity:.3">│</span>`);
+  renderModel(a.model || {});
   $("lodtag").innerHTML = `ZOOM <b>${esc(W.lod.label)}</b> · drawing ${
     W.lod.draws.join(" · ")}${W.lod.aggregates.length
       ? ` · aggregating ${W.lod.aggregates.join(" · ")}` : ""}`;
@@ -256,6 +257,25 @@ function renderChrome() {
   }
   $("zooms").querySelectorAll("[data-zoom]").forEach((b) =>
     b.classList.toggle("on", b.dataset.zoom === W.lod.id));
+}
+
+/* The four honest lines. An agent that did not run did not run, and this says
+   so rather than letting an idle world read as a working one. */
+function renderModel(m) {
+  const el = $("model");
+  if (!el) return;
+  const off = m.model !== "ONLINE";
+  el.className = "model" + (off ? " off" : "");
+  el.innerHTML = [
+    ["WORLD", m.world || "ONLINE", false],
+    ["AGENTS", m.agents || "PERSISTENT", false],
+    ["RUNTIME", m.runtime || "ONLINE", false],
+    ["MODEL", m.model || "OFFLINE", off],
+    ["WORK", m.work || "IDLE", (m.work || "") === "WAITING_FOR_MODEL"],
+  ].map(([k, v, bad]) =>
+    `<span class="mrow"><i>${k}</i><b class="${bad ? "bad" : "ok"}">${esc(v)}</b></span>`
+  ).join("") + (m.why ? `<span class="mwhy">${esc(m.why)}</span>` : "")
+  + (m.waiting ? `<span class="mwhy">${m.waiting} item(s) parked, not lost</span>` : "");
 }
 
 const ZOOM_K = { orbit: 0.34, district: 0.62, facility: 1.1, workspace: 1.9 };

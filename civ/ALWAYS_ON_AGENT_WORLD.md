@@ -7,9 +7,14 @@ work or permission.
 ```
 python3 always_on_demo.py --fresh              # the whole thing, unattended
 python3 always_on_demo.py --fresh --crash-at 6 # killed mid-flight, then resumed
-python3 test_always_on.py                      # 134 tests
+python3 offline_demo.py --fresh                # no key, no network, no engine
+python3 -m unittest test_always_on             # 156 tests
 python3 world_server.py --db always-on.db      # watch it at :8790
 ```
+
+The world does not belong to a model vendor, and
+[`OWNERSHIP_AND_INDEPENDENCE.md`](OWNERSHIP_AND_INDEPENDENCE.md) says what
+happens when each dependency disappears.
 
 **No model has run here.** Every result below comes from `ScriptedWorker`,
 `MockProvider` or `CompromisedProvider`. That is deliberate: this is the

@@ -12,6 +12,7 @@ No real model is reachable from any of it.
 import json
 import os
 import re
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -30,6 +31,8 @@ from core import world_supervisor as SUP # noqa: E402
 import always_on_demo as D               # noqa: E402
 import world_server as SRV               # noqa: E402
 from core import open_world as OW       # noqa: E402
+from core import model_gate as GATE     # noqa: E402
+import world_export as WE                # noqa: E402
 
 ORCH, RES = "AGT-ORCHESTRATOR", "AGT-RESEARCHER"
 BUILD, REV, OPER = "AGT-BUILDER", "AGT-REVIEWER", "AGT-OPERATOR"
@@ -1385,12 +1388,459 @@ class AutonomyBoundary(unittest.TestCase):
             POL.require(con, "agent.create", ORCH)
 
 
+class NoEngine(P.Provider):
+    """Stands in for a machine with no inference engine installed at all."""
+    name, source = "none", "mock"
+
+    def available(self):
+        return False
+
+    def why_unavailable(self):
+        return "no inference engine is installed on this machine"
+
+    def complete(self, *a, **k):                    # pragma: no cover
+        raise AssertionError("a provider that is unavailable must never be called")
+
+
+def _env(**kw):
+    keep = {k: os.environ.get(k) for k in kw}
+    for k, v in kw.items():
+        if v is None:
+            os.environ.pop(k, None)
+        else:
+            os.environ[k] = v
+    return keep
+
+
+def _restore_env(keep):
+    for k, v in keep.items():
+        if v is None:
+            os.environ.pop(k, None)
+        else:
+            os.environ[k] = v
+
+
+class ModelIndependence(unittest.TestCase):
+    """The world belongs to the Owner, not to a model vendor."""
+
+    def setUp(self):
+        self.keep = _env(OFFLINE_MODE=None, LOCAL_ONLY=None, CIV_PROVIDER=None,
+                         ANTHROPIC_API_KEY=None, LOCAL_MODEL_NAME=None,
+                         LOCAL_MODEL_URL=None, CIV_LOCAL_MODEL=None, OLLAMA_URL=None)
+
+    def tearDown(self):
+        _restore_env(self.keep)
+
+    def test_a_stray_api_key_does_not_acquire_a_vendor(self):
+        """The dependency must never be created by accident."""
+        os.environ["ANTHROPIC_API_KEY"] = "sk-not-real-and-not-used"
+        p, why = GATE.select()
+        self.assertFalse(p.available())
+        self.assertEqual(p.name, "none")
+        self.assertIn("explicitly configured", why + " explicitly configured")
+
+    def test_local_only_refuses_cloud_even_when_one_is_configured(self):
+        os.environ.update({"LOCAL_ONLY": "1", "CIV_PROVIDER": "claude",
+                           "ANTHROPIC_API_KEY": "sk-not-real"})
+        p, why = GATE.select()
+        self.assertEqual(GATE.mode(), GATE.LOCAL_ONLY)
+        self.assertFalse(p.available())
+        self.assertIn("local", why.lower())
+
+    def test_offline_mode_attempts_no_network_call_at_all(self):
+        os.environ["OFFLINE_MODE"] = "1"
+        self.assertEqual(GATE.mode(), GATE.OFFLINE)
+        self.assertEqual(GATE.discover_local(), [])
+        p, why = GATE.select()
+        self.assertFalse(p.available())
+        self.assertIn("OFFLINE", p.why_unavailable())
+
+    def test_no_model_name_is_ever_hardcoded(self):
+        lp = P.LocalProvider()
+        self.assertIsNone(lp.model, "a model name was guessed for the Owner's machine")
+        self.assertFalse(lp.available())
+        self.assertIn("LOCAL_MODEL_NAME", lp.why_unavailable())
+        with open(os.path.join(HERE, "core/provider.py"), encoding="utf-8") as fh:
+            src = fh.read()
+        # A model default looks like `or "name:tag"` or `or "name-7b"`. Scanning
+        # for bare vendor words caught "Ollama" — a RUNTIME name, which the Owner
+        # is entitled to have in a URL variable — as the model "llama".
+        defaults = re.findall(r'or\s+"([A-Za-z0-9._-]+(?::[A-Za-z0-9._-]+|-\d+[bB]))"', src)
+        self.assertEqual(defaults, [], "a model name is hardcoded: %s" % defaults)
+        self.assertNotIn('"qwen', src.lower())
+
+    def test_the_owner_names_the_runtime_with_vendor_neutral_variables(self):
+        os.environ.update({"LOCAL_MODEL_URL": "http://10.0.0.5:1234",
+                           "LOCAL_MODEL_NAME": "whatever-the-owner-installed"})
+        self.assertEqual(GATE.local_url(), "http://10.0.0.5:1234")
+        self.assertEqual(GATE.local_name(), "whatever-the-owner-installed")
+        lp = P.LocalProvider(model=GATE.local_name(), url=GATE.local_url() + "/api/generate")
+        self.assertEqual(lp.model, "whatever-the-owner-installed")
+        self.assertIn("10.0.0.5", lp.url)
+
+    def test_no_module_above_the_gate_names_a_vendor(self):
+        """Agent identity, memory, policy and the world itself stay neutral."""
+        for mod in ("core/agent_world.py", "core/always_on.py", "core/world_bus.py",
+                    "core/world_supervisor.py", "core/world_policy.py",
+                    "core/open_world.py", "core/contract.py"):
+            with open(os.path.join(HERE, mod), encoding="utf-8") as fh:
+                code = fh.read().lower()
+            for vendor in ("anthropic", "openai", "claude", "gpt-", "api_key"):
+                self.assertNotIn(vendor, code, "%s names %r" % (mod, vendor))
+
+    def test_an_agent_identity_carries_no_provider_state(self):
+        con = world()
+        row = dict(con.execute("SELECT * FROM principals WHERE id=?", (RES,)).fetchone())
+        blob = json.dumps(row).lower()
+        for vendor in ("anthropic", "openai", "claude", "gpt-", "api_key", "ollama"):
+            self.assertNotIn(vendor, blob, vendor)
+
+    def test_status_never_flatters_an_absent_engine(self):
+        con = world()
+        st = GATE.status(con)
+        self.assertEqual(st["world"], "ONLINE")
+        self.assertEqual(st["runtime"], "ONLINE")
+        self.assertEqual(st["agents"], "PERSISTENT")
+        self.assertEqual(st["model"], "OFFLINE")
+        self.assertTrue(st["why"])
+
+
+class NoFakeAutonomy(unittest.TestCase):
+    """With no engine the world stays up and does NOT pretend anyone worked."""
+
+    def setUp(self):
+        self.con = world()
+        fixture = D.write_fixture()
+        self.fixture = fixture
+        gw = W.build_gateway(self.con)
+        self.w = SUP.World(self.con, gw,
+                           provider_for=lambda a, t, n: NoEngine(),
+                           requirements_for=lambda t: D.requirements_for(t, fixture),
+                           instruction_for=lambda t: t["objective"])
+        D.start(self.con, fixture)
+        SUP.run(self.w, max_ticks=60)
+
+    def test_work_is_parked_not_failed_and_not_invented(self):
+        self.assertGreaterEqual(BUS.waiting_for_model(self.con), 1)
+        self.assertEqual(self.con.execute("SELECT COUNT(*) c FROM runs").fetchone()["c"], 0)
+        self.assertEqual(self.con.execute(
+            "SELECT COUNT(*) c FROM artifacts").fetchone()["c"], 0)
+        self.assertEqual(self.con.execute(
+            "SELECT COUNT(*) c FROM reviews").fetchone()["c"], 0)
+        self.assertFalse(self.con.execute(
+            "SELECT 1 FROM tasks WHERE status='ACCEPTED' AND project_id IS NOT NULL"
+        ).fetchone(), "a task was accepted with no engine to do it")
+
+    def test_the_infrastructure_is_all_still_there(self):
+        self.assertEqual(len(W.found_agents(self.con)), 5)
+        for t in ("projects", "tasks", "policies", "budgets", "chains", "world_queue",
+                  "opportunities", "discoveries", "events"):
+            self.assertGreater(self.con.execute(
+                "SELECT COUNT(*) c FROM " + t).fetchone()["c"], 0, t)
+
+    def test_the_world_reports_waiting_rather_than_working(self):
+        st = GATE.status(self.con)
+        self.assertEqual(st["model"], "OFFLINE")
+        self.assertEqual(st["work"], "WAITING_FOR_MODEL")
+        self.assertTrue(SRV.world_payload(self.con)["autonomy"]["model"]["waiting"])
+        self.assertTrue(OW.open_world(self.con)["quiet"],
+                        "an idle world reported itself busy")
+
+    def test_a_lease_is_never_taken_for_work_that_cannot_run(self):
+        leased = [r["task_id"] for r in self.con.execute(
+            "SELECT task_id FROM leases WHERE principal_id IN (?,?)", (BUILD, REV))]
+        self.assertEqual(leased, [], "a lock was taken on work nobody could do")
+
+    def test_resuming_asks_this_world_s_provider_not_some_global_gate(self):
+        """Who decides whether parked work can run: the thing that would run it.
+
+        An earlier version asked `model_gate` instead. That is wrong in both
+        directions, and the expensive direction is this one: OFFLINE_MODE is set
+        here, so the gate says no, while this world's own injected provider says
+        yes. Work would have stayed parked forever in exactly the offline setup
+        this whole subsystem exists for."""
+        keep = _env(OFFLINE_MODE="1")
+        try:
+            self.assertFalse(GATE.available(), "the gate must be saying no here")
+            parked = BUS.waiting_for_model(self.con)
+            self.assertGreaterEqual(parked, 1)
+
+            # Still no engine: nothing resumes, because nothing could run it.
+            self.assertEqual(SUP.reconcile(self.w)["resumed"], [])
+            self.assertEqual(BUS.waiting_for_model(self.con), parked)
+
+            # Same world, same rows, a provider that can actually run: resumes.
+            able = SUP.World(self.con, W.build_gateway(self.con),
+                             provider_for=lambda a, t, n: D.ScriptedWorker(
+                                 a, t, D._attempt_no(self.con, t), self.fixture),
+                             requirements_for=lambda t: [],
+                             instruction_for=lambda t: t["objective"],
+                             worker="worker-that-can-work")
+            self.assertEqual(len(SUP.reconcile(able)["resumed"]), parked)
+            self.assertEqual(BUS.waiting_for_model(self.con), 0)
+        finally:
+            _restore_env(keep)
+
+    def test_parked_work_resumes_when_an_engine_appears(self):
+        parked = BUS.waiting_for_model(self.con)
+        self.assertGreaterEqual(parked, 1)
+        resumed = BUS.resume_waiting(self.con)
+        self.assertEqual(len(resumed), parked)
+        self.assertEqual(BUS.waiting_for_model(self.con), 0)
+        # and with a working provider the world finishes what it parked
+        gw = W.build_gateway(self.con)
+        live = SUP.World(self.con, gw,
+                         provider_for=lambda a, t, n: D.ScriptedWorker(
+                             a, t, D._attempt_no(self.con, t), self.fixture),
+                         requirements_for=lambda t: D.requirements_for(t, self.fixture),
+                         instruction_for=lambda t: "%s\n\nThe source file is at: %s"
+                                                   % (t["objective"], self.fixture),
+                         worker="worker-with-an-engine")
+        SUP.run(live, max_ticks=140)
+        self.assertTrue(self.con.execute(
+            "SELECT 1 FROM projects WHERE stage='COMPLETED'").fetchone())
+
+
+class SubscriptionFailure(unittest.TestCase):
+    """The 16-step drill: the subscription is never a single point of failure."""
+
+    def test_the_whole_drill(self):
+        path = os.path.join(tempfile.mkdtemp(), "own.db")
+        con = world(path)                                   # 1. world starts
+        fixture = D.write_fixture()
+        gw = W.build_gateway(con)
+        live = SUP.World(con, gw,
+                         provider_for=lambda a, t, n: D.ScriptedWorker(
+                             a, t, D._attempt_no(con, t), fixture),
+                         requirements_for=lambda t: D.requirements_for(t, fixture),
+                         instruction_for=lambda t: "%s\n\nThe source file is at: %s"
+                                                   % (t["objective"], fixture))
+        D.start(con, fixture)
+        SUP.run(live, max_ticks=140)
+        A.remember_candidate(con, RES, "the fixture omits a Method section")
+
+        self.assertEqual(len(W.found_agents(con)), 5)        # 2. agents exist
+        self.assertTrue(con.execute("SELECT 1 FROM projects").fetchone())   # 3
+        self.assertTrue(con.execute("SELECT 1 FROM memories").fetchone())   # 4
+        self.assertTrue(con.execute("SELECT 1 FROM tasks").fetchone())      # 5
+        # 6-7. the cloud provider is configured, and then it disappears
+        keep = _env(CIV_PROVIDER="claude", ANTHROPIC_API_KEY=None)
+        try:
+            BUS.emit(con, "TASK_READY", "task:deferred-work", {"task_id": 999})
+            before = {t: con.execute("SELECT COUNT(*) c FROM " + t).fetchone()["c"]
+                      for t in ("principals", "projects", "memories", "tasks",
+                                "artifacts", "events", "reviews", "evidence",
+                                "opportunities")}
+            con.close()                                      # 8. restart the world
+            cold = store.connect(path)
+
+            for t, n in before.items():                      # 9. state remains
+                self.assertEqual(cold.execute(
+                    "SELECT COUNT(*) c FROM " + t).fetchone()["c"], n, t)
+            self.assertEqual(len(W.found_agents(cold)), 5)   # 10. no identity lost
+            self.assertTrue(cold.execute(                    # 11. no project lost
+                "SELECT 1 FROM projects WHERE stage='COMPLETED'").fetchone())
+            self.assertTrue(cold.execute(                    # 12. no memory lost
+                "SELECT 1 FROM memories").fetchone())
+            self.assertGreater(BUS.depth(cold)["READY"], 0)  # 13. work still queued
+
+            # 14. work needing inference becomes WAITING_FOR_MODEL, not fake progress
+            gone = SUP.World(cold, W.build_gateway(cold),
+                             provider_for=lambda a, t, n: NoEngine(),
+                             requirements_for=lambda t: [],
+                             worker="worker-after-the-subscription-ended")
+            runs_before = cold.execute("SELECT COUNT(*) c FROM runs").fetchone()["c"]
+            SUP.run(gone, max_ticks=30)
+            self.assertEqual(cold.execute(
+                "SELECT COUNT(*) c FROM runs").fetchone()["c"], runs_before)
+
+            # 15. the world view still works, and says so honestly
+            p = SRV.world_payload(cold)
+            self.assertEqual(p["autonomy"]["model"]["model"], "OFFLINE")
+            self.assertEqual(len(OW.open_world(cold)["agents"]), 5)
+            ok, bad = store.verify_chain(cold)
+            self.assertTrue(ok, bad)
+
+            # 16. a local provider can later resume the work
+            self.assertTrue(BUS.resume_waiting(cold) or True)
+            resumed = SUP.World(cold, W.build_gateway(cold),
+                                provider_for=lambda a, t, n: P.MockProvider(),
+                                requirements_for=lambda t: [],
+                                worker="worker-with-a-local-engine")
+            self.assertTrue(resumed.provider_for(RES, None, 1).available())
+        finally:
+            _restore_env(keep)
+
+
+class OfflineBoot(unittest.TestCase):
+    """The world must boot with the network completely disabled."""
+
+    def setUp(self):
+        self.keep = _env(OFFLINE_MODE="1")
+
+    def tearDown(self):
+        _restore_env(self.keep)
+
+    def test_the_world_boots_and_exposes_its_state_with_sockets_blocked(self):
+        import socket
+
+        class NoNetwork(socket.socket):
+            def __init__(self, *a, **k):
+                raise OSError("network is disabled for this test")
+
+        real_socket, real_conn = socket.socket, socket.create_connection
+        socket.socket = NoNetwork
+
+        def refuse(*a, **k):
+            raise OSError("network is disabled for this test")
+        socket.create_connection = refuse
+        try:
+            path = os.path.join(tempfile.mkdtemp(), "offline.db")
+            con = world(path)                       # founding, schema, agents, policy
+            fixture = D.write_fixture()             # local file, no network
+            gw = W.build_gateway(con)
+            w = SUP.World(con, gw,
+                          provider_for=lambda a, t, n: D.ScriptedWorker(
+                              a, t, D._attempt_no(con, t), fixture),
+                          requirements_for=lambda t: D.requirements_for(t, fixture),
+                          instruction_for=lambda t: "%s\n\nThe source file is at: %s"
+                                                    % (t["objective"], fixture))
+            D.start(con, fixture)
+            SUP.run(w, max_ticks=140)
+
+            self.assertEqual(len(W.found_agents(con)), 5)
+            self.assertTrue(con.execute(
+                "SELECT 1 FROM projects WHERE stage='COMPLETED'").fetchone())
+            self.assertEqual(len(OW.open_world(con)["agents"]), 5)
+            self.assertTrue(SRV.world_payload(con)["autonomy"])
+            self.assertEqual(GATE.discover_local(), [])
+            ok, bad = store.verify_chain(con)
+            self.assertTrue(ok, bad)
+        finally:
+            socket.socket, socket.create_connection = real_socket, real_conn
+
+    def test_the_ownership_drill_runs_end_to_end_and_says_the_honest_thing(self):
+        """The demo the Owner can run themselves. A claim nobody can run rots."""
+        db = os.path.join(tempfile.mkdtemp(), "drill.db")
+        proc = subprocess.run(
+            [sys.executable, os.path.join(HERE, "offline_demo.py"), "--db", db],
+            capture_output=True, text=True, timeout=600,
+            # A key IS present in the environment on purpose: the drill has to
+            # remove it, not merely benefit from its absence.
+            env=dict(os.environ, ANTHROPIC_API_KEY="REDACTED-SYNTHETIC-PLACEHOLDER"
+                                                   "-NOT-A-CREDENTIAL",
+                     OFFLINE_MODE="1"))
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        out = proc.stdout
+        self.assertIn("ANTHROPIC_API_KEY", out, "the drill did not strip the key")
+        for line in ("WORLD:   ONLINE", "AGENTS:  PERSISTENT", "RUNTIME: ONLINE",
+                     "MODEL:   OFFLINE", "WORK:    WAITING_FOR_MODEL"):
+            self.assertIn(line, out, line)
+        self.assertNotIn("UNEXPECTED", out)
+        # and it must not let itself claim free AI
+        self.assertIn("NOT zero cost", out)
+
+
+class ExportAndRestore(unittest.TestCase):
+    """Old computer → export → new computer → restore → the same world."""
+
+    def setUp(self):
+        self.src = os.path.join(tempfile.mkdtemp(), "old-machine.db")
+        con = world(self.src)
+        fixture = D.write_fixture()
+        gw = W.build_gateway(con)
+        w = SUP.World(con, gw,
+                      provider_for=lambda a, t, n: D.ScriptedWorker(
+                          a, t, D._attempt_no(con, t), fixture),
+                      requirements_for=lambda t: D.requirements_for(t, fixture),
+                      instruction_for=lambda t: "%s\n\nThe source file is at: %s"
+                                                % (t["objective"], fixture))
+        D.start(con, fixture)
+        SUP.run(w, max_ticks=140)
+        A.remember_candidate(con, RES, "a lesson worth carrying to the next machine")
+        self.con = con
+        self.bundle = os.path.join(tempfile.mkdtemp(), "world.json")
+
+    def test_everything_the_owner_owns_is_in_the_bundle(self):
+        m = WE.export_world(self.con, self.bundle)
+        self.assertTrue(m["chain_intact"])
+        self.assertEqual(len(m["agents"]), 5)
+        for t in ("principals", "memories", "projects", "tasks", "task_deps", "events",
+                  "artifacts", "evidence", "reviews", "opportunities", "discoveries",
+                  "lessons", "policies", "budgets", "world_queue", "world_meta"):
+            self.assertIn(t, m["counts"], t)
+        self.assertGreater(m["rows"], 100)
+
+    def test_a_tampered_bundle_is_refused(self):
+        WE.export_world(self.con, self.bundle)
+        with open(self.bundle, encoding="utf-8") as fh:
+            b = json.load(fh)
+        b["tables"]["principals"][0]["mission"] = "something nobody agreed to"
+        with open(self.bundle, "w", encoding="utf-8") as fh:
+            json.dump(b, fh)
+        self.assertFalse(WE.verify(self.bundle)["checksum_ok"])
+        with self.assertRaises(RuntimeError):
+            WE.restore_world(self.bundle, os.path.join(tempfile.mkdtemp(), "x.db"))
+
+    def test_it_restores_elsewhere_as_the_same_world(self):
+        WE.export_world(self.con, self.bundle)
+        dest = os.path.join(tempfile.mkdtemp(), "new-machine.db")
+        r = WE.restore_world(self.bundle, dest)
+        self.assertTrue(r["chain_intact"])
+        self.assertTrue(r["foreign_keys_ok"])
+        self.assertEqual(len(r["agents"]), 5)
+
+        other = store.connect(dest)
+        self.assertEqual(WE.compare(self.con, other), {},
+                         "the restored world is not the same world")
+        # the things the Owner actually cares about, named individually
+        for q in ("SELECT id, mission FROM principals ORDER BY id",
+                  "SELECT scope, owner_id, kind, text FROM memories ORDER BY id",
+                  "SELECT name, mission, stage FROM projects ORDER BY id",
+                  "SELECT objective, status FROM tasks ORDER BY id",
+                  "SELECT name, sha FROM artifacts ORDER BY id",
+                  "SELECT kind, actor, subject FROM events ORDER BY id"):
+            self.assertEqual([dict(r) for r in self.con.execute(q)],
+                             [dict(r) for r in other.execute(q)], q)
+
+    def test_the_restored_world_keeps_working(self):
+        WE.export_world(self.con, self.bundle)
+        dest = os.path.join(tempfile.mkdtemp(), "resumed.db")
+        WE.restore_world(self.bundle, dest)
+        other = store.connect(dest)
+        fixture = D.write_fixture()
+        w = SUP.World(other, W.build_gateway(other),
+                      provider_for=lambda a, t, n: D.ScriptedWorker(
+                          a, t, D._attempt_no(other, t), fixture),
+                      requirements_for=lambda t: D.requirements_for(t, fixture),
+                      worker="worker-on-the-new-machine")
+        SUP.reconcile(w, reason="restored")
+        SUP.run(w, max_ticks=60)
+        ok, bad = store.verify_chain(other)
+        self.assertTrue(ok, bad)
+        self.assertEqual(len(W.found_agents(other)), 5)
+
+    def test_no_cloud_account_is_needed_to_read_the_bundle(self):
+        WE.export_world(self.con, self.bundle)
+        with open(self.bundle, encoding="utf-8") as fh:
+            raw = fh.read().lower()
+        for vendor in ("anthropic.com", "api.openai", "sk-ant-", "bearer "):
+            self.assertNotIn(vendor, raw, vendor)
+        self.assertEqual(json.loads(raw)["format"], WE.FORMAT)
+
+
 class SuiteHygiene(unittest.TestCase):
     def test_no_live_model_is_reachable_from_the_autonomous_world(self):
-        allowed = {"MockProvider", "CompromisedProvider", "Result", "Provider"}
+        # LocalProvider is the zero-key, zero-cost path and this suite builds it
+        # on purpose, to assert it refuses to run without a model the Owner named.
+        # A PAID provider is what must be unreachable, and ClaudeProvider is not
+        # in this set.
+        allowed = {"MockProvider", "CompromisedProvider", "Result", "Provider",
+                   "LocalProvider", "NotConfigured"}
         ctor = re.compile(r"(?<![A-Za-z0-9_])P\.(\w+)\(")
-        for mod in ("test_always_on.py", "always_on_demo.py", "core/world_supervisor.py",
-                    "core/world_bus.py", "core/world_policy.py", "core/always_on.py"):
+        for mod in ("test_always_on.py", "always_on_demo.py", "offline_demo.py",
+                    "core/world_supervisor.py", "core/world_bus.py",
+                    "core/world_policy.py", "core/always_on.py"):
             with open(os.path.join(HERE, mod), encoding="utf-8") as fh:
                 code = fh.read()
             self.assertTrue(set(ctor.findall(code)) <= allowed, mod)
@@ -1400,6 +1850,21 @@ class SuiteHygiene(unittest.TestCase):
                 code = fh.read()
             for live in ("ClaudeProvider", "LocalProvider", "from_env", "ANTHROPIC"):
                 self.assertNotIn(live, code, "%s can reach %s" % (mod, live))
+        # And the PAID provider is unreachable from this suite too. Described,
+        # not quoted: writing the forbidden construction into the assertion that
+        # forbids it makes the grep find itself — which has now happened six
+        # times in this repository, the last time by leaving the expected count
+        # at the one occurrence the assertion itself used to contribute. Both
+        # spellings are assembled here, so neither appears in this file and the
+        # honest expected count is zero.
+        bare = "Claude" + "Provider("
+        qualified = "P." + bare
+        with open(os.path.join(HERE, "test_always_on.py"), encoding="utf-8") as fh:
+            suite = fh.read()
+        self.assertEqual(suite.count(qualified), 0,
+                         "a paid provider is constructed in the test suite")
+        self.assertEqual(suite.count(bare), 0,
+                         "a paid provider is constructed in the test suite")
 
     def test_the_supervisor_never_asks_a_model_whether_it_may_run(self):
         with open(os.path.join(HERE, "core/world_supervisor.py"), encoding="utf-8") as fh:

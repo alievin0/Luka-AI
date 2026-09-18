@@ -184,6 +184,38 @@ def nack(con, qid, why, retry_in_seconds=0):
                 (when, json.dumps({"why": why})[:4000], qid))
 
 
+def wait_for_model(con, qid, why):
+    """Park work that needs inference when no engine exists.
+
+    NOT failed, NOT retried into an error, and above all NOT simulated. The
+    world stays up, the work stays queued, and the record says plainly that an
+    agent did not run because there was nothing to run it."""
+    con.execute("UPDATE world_queue SET state='WAITING_FOR_MODEL', worker=NULL, "
+                "claimed_at=NULL, result=? WHERE id=?",
+                (json.dumps({"why": why})[:4000], qid))
+    store.event(con, "MODEL_UNAVAILABLE", actor=OWNER, subject="queue:%d" % qid,
+                payload={"why": why})
+
+
+def resume_waiting(con, limit=200):
+    """Return parked work to the queue once an engine answers again."""
+    ids = [r["id"] for r in con.execute(
+        "SELECT id FROM world_queue WHERE state='WAITING_FOR_MODEL' "
+        "ORDER BY id LIMIT ?", (limit,))]
+    for qid in ids:
+        con.execute("UPDATE world_queue SET state='READY', available_at=?, result=NULL "
+                    "WHERE id=? AND state='WAITING_FOR_MODEL'", (now(), qid))
+    if ids:
+        store.event(con, "MODEL_RESUMED", actor=OWNER, subject="queue",
+                    payload={"resumed": len(ids)})
+    return ids
+
+
+def waiting_for_model(con):
+    return con.execute("SELECT COUNT(*) c FROM world_queue "
+                       "WHERE state='WAITING_FOR_MODEL'").fetchone()["c"]
+
+
 def defer(con, qid, why):
     """Not now, and not an error: a dependency is unmet or a budget is spent."""
     con.execute("UPDATE world_queue SET state='DEFERRED', finished_at=?, result=? "
@@ -235,7 +267,11 @@ def depth(con):
 
 
 def quiet(con):
-    """True when nothing is queued and nothing is in flight.
+    """True when nothing is READY and nothing is in flight.
+
+    Work parked as WAITING_FOR_MODEL does NOT make the world busy — nothing is
+    happening — but it is not lost either, and `waiting_for_model()` is what the
+    Owner is shown instead of a false sense of progress.
 
     This is the only definition of 'the world is idle' the UI is allowed to use:
     it is a COUNT over rows, not an impression."""

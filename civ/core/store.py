@@ -78,6 +78,7 @@ def connect(path=None):
     _widen_check(con, SCHEMA, "tool_calls", "'ERROR'")
     _widen_check(con, SCHEMA, "tasks", "'ARCHIVED'")
     _widen_check(con, ORG_SCHEMA, "opportunities", "'APPROVED'")
+    _widen_check(con, ALWAYS_ON_SCHEMA, "world_queue", "'WAITING_FOR_MODEL'")
     qcols = {r[1] for r in con.execute("PRAGMA table_info(world_queue)")}
     if "caused_by" not in qcols:
         # Causality as a column, not an inference. "Which event caused this one"
@@ -108,8 +109,16 @@ def _table_ddl(schema_path, table):
     time here, so a migration can never drift from the schema it migrates to."""
     tmp = sqlite3.connect(":memory:")
     try:
-        with open(schema_path, encoding="utf-8") as fh:
-            tmp.executescript(fh.read())
+        # A later schema file references tables an earlier one creates, so the
+        # throwaway database has to be built in the same order the real one is.
+        # Running always_on_schema.sql alone fails on `REFERENCES tasks(id)`,
+        # which is the schema being correct, not the migration being wrong.
+        for earlier in (SCHEMA, ORG_SCHEMA, BENCH_SCHEMA, WORLD_SCHEMA,
+                        ALWAYS_ON_SCHEMA):
+            with open(earlier, encoding="utf-8") as fh:
+                tmp.executescript(fh.read())
+            if os.path.samefile(earlier, schema_path):
+                break
         row = tmp.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name=?",
                           (table,)).fetchone()
         return row[0] if row else None

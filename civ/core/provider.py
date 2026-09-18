@@ -245,10 +245,18 @@ class LocalProvider(Provider):
     source = "model"
 
     def __init__(self, model=None, url=None):
-        self.model = model or os.environ.get("CIV_LOCAL_MODEL") or "qwen2.5:7b"
-        self.url = url or os.environ.get("OLLAMA_URL") or "http://127.0.0.1:11434/api/generate"
+        # NO DEFAULT MODEL. A hardcoded name is a guess about someone else's
+        # machine, and a wrong guess looks exactly like a broken world. The
+        # Owner names the model, or `model_gate` asks the runtime what it has.
+        self.model = (model or os.environ.get("LOCAL_MODEL_NAME")
+                      or os.environ.get("CIV_LOCAL_MODEL") or None)
+        base = (url or os.environ.get("LOCAL_MODEL_URL")
+                or os.environ.get("OLLAMA_URL") or "http://127.0.0.1:11434")
+        self.url = base if base.endswith("/generate") else base.rstrip("/") + "/api/generate"
 
     def available(self):
+        if not self.model:
+            return False
         try:
             urllib.request.urlopen(self.url.rsplit("/api/", 1)[0] + "/api/tags", timeout=2)
             return True
@@ -256,6 +264,9 @@ class LocalProvider(Provider):
             return False
 
     def why_unavailable(self):
+        if not self.model:
+            return ("no local model named: set LOCAL_MODEL_NAME, or start a runtime "
+                    "at %s that can list what it has" % self.url.rsplit("/api/", 1)[0])
         return "no local model server answering at %s" % self.url
 
     def complete(self, system, prompt, model=None, max_tokens=800):

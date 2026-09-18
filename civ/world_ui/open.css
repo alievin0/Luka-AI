@@ -120,3 +120,19 @@ body{background:var(--ground);color:var(--ink);font-family:var(--sans);font-size
   transition:opacity .22s;z-index:8}
 .scrim.on{opacity:1;pointer-events:auto}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+/* ── the four honest lines ─────────────────────────────────────────
+   WORLD and RUNTIME are up because this process is running. MODEL is whatever
+   actually answered. WORK says WAITING_FOR_MODEL when work is parked — which is
+   an honest state, not a failure and not progress. */
+.model{position:absolute;right:20px;bottom:16px;z-index:4;display:flex;
+  flex-direction:column;gap:3px;align-items:flex-end;
+  font-family:var(--mono);font-size:9px;letter-spacing:.16em}
+.model .mrow{display:flex;gap:10px;align-items:baseline}
+.model i{font-style:normal;color:var(--ghost)}
+.model b{font-weight:400;min-width:118px;text-align:right}
+.model b.ok{color:var(--dim)}
+.model b.bad{color:var(--amber)}
+.model.off b.ok{color:var(--faint)}
+.mwhy{color:var(--ghost);letter-spacing:.03em;font-size:8.5px;max-width:320px;
+  text-align:right}
