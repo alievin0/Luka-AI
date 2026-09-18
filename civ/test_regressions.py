@@ -723,7 +723,7 @@ class R21_AKeyThatIsSetIsNotAKeyThatWorks(unittest.TestCase):
     which is the same mistake as R20 wearing different clothes."""
 
     def test_available_is_honest_about_what_it_checks(self):
-        p = P.ClaudeProvider(key="sk-ant-obviously-not-real")
+        p = P.ClaudeProvider(key="REDACTED-SYNTHETIC-PLACEHOLDER-NOT-A-CREDENTIAL")
         self.assertTrue(p.available(), "available() reports presence, by design")
         self.assertIn("does not mean", (p.available.__doc__ or ""),
                       "its docstring must say presence is not health")
