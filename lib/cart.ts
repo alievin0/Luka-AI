@@ -3,7 +3,12 @@
 
 export type ExternalProduct = {
   title: string;
+  /** Link shown to the shopper — affiliate-tagged and click-tracked on the way out. */
   url?: string;
+  /** The store link exactly as the agent found it, before any tagging. */
+  originalUrl?: string;
+  /** Affiliate program credited for this link, when one is configured. */
+  network?: string | null;
   store?: string;
   price?: number;
   currency?: string;
