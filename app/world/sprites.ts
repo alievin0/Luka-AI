@@ -13,6 +13,14 @@
  * The files are fetched by `npm run world:assets`; until they exist the page
  * falls back to the single flat render, so a missing asset can never break the
  * page. See DESK.md.
+ *
+ * One trap, recorded because it cost a whole regeneration round: attaching a
+ * reference image to Soul silently switches its prompt enhancer on, and the
+ * enhancer re-captions the *reference* rather than elaborating the prompt. Ask
+ * it for one isolated pavilion with a picture of the whole campus attached and
+ * every asset comes back as a copy of the whole campus, Arabic signage and
+ * all. These prompts are therefore text-only, which keeps the enhancer off and
+ * the prompt verbatim — check the echoed `params.prompt` if that ever changes.
  */
 
 import { CAMPUS_H, CAMPUS_W } from "./model";
@@ -56,9 +64,9 @@ export const PLACES: Array<Sprite & { key: SpriteKey; zone: string; label: strin
     label: "المعرفة",
     file: "knowledge.png",
     source:
-      "https://d8j0ntlcm91z4.cloudfront.net/user_3FGFAFklFFNNDWgioc8qdFVbWa0/hf_20260918_030534_18dd616e-5a23-4573-b4b6-6574b0c21e51.png",
+      "https://d8j0ntlcm91z4.cloudfront.net/user_3FGFAFklFFNNDWgioc8qdFVbWa0/hf_20260918_123836_261e2abe-3f35-4efb-a60c-a4b539a63ce2.png",
     sourceFlat:
-      "https://d8j0ntlcm91z4.cloudfront.net/user_3FGFAFklFFNNDWgioc8qdFVbWa0/hf_20260918_025514_588df0aa-43bf-4a93-8a8a-be13a7d380ad.png",
+      "https://d8j0ntlcm91z4.cloudfront.net/user_3FGFAFklFFNNDWgioc8qdFVbWa0/hf_20260918_123713_bb061f61-3113-40d2-84a8-4f3316539711.png",
     x: 438,
     y: 110,
     w: 258,
@@ -69,9 +77,9 @@ export const PLACES: Array<Sprite & { key: SpriteKey; zone: string; label: strin
     label: "الحجوزات",
     file: "booking.png",
     source:
-      "https://d8j0ntlcm91z4.cloudfront.net/user_3FGFAFklFFNNDWgioc8qdFVbWa0/hf_20260918_030536_3da90d84-4c8b-4fdf-a23f-44fa760ed240.png",
+      "https://d8j0ntlcm91z4.cloudfront.net/user_3FGFAFklFFNNDWgioc8qdFVbWa0/hf_20260918_123839_d39f102f-2d30-4c71-9fa6-70bae304a198.png",
     sourceFlat:
-      "https://d8j0ntlcm91z4.cloudfront.net/user_3FGFAFklFFNNDWgioc8qdFVbWa0/hf_20260918_025514_890e9128-48d2-4d8f-b195-c735338c9b56.png",
+      "https://d8j0ntlcm91z4.cloudfront.net/user_3FGFAFklFFNNDWgioc8qdFVbWa0/hf_20260918_123713_8719ac85-095f-49a7-af26-58463e855667.png",
     x: 745,
     y: 251,
     w: 258,
@@ -82,9 +90,9 @@ export const PLACES: Array<Sprite & { key: SpriteKey; zone: string; label: strin
     label: "الاستقبال",
     file: "reception.png",
     source:
-      "https://d8j0ntlcm91z4.cloudfront.net/user_3FGFAFklFFNNDWgioc8qdFVbWa0/hf_20260918_030513_0e9c6a69-18d7-42aa-8746-f21253b279f9.png",
+      "https://d8j0ntlcm91z4.cloudfront.net/user_3FGFAFklFFNNDWgioc8qdFVbWa0/hf_20260918_123833_3cfdc4f2-4434-4e6e-abfc-7f9ba75c2faf.png",
     sourceFlat:
-      "https://d8j0ntlcm91z4.cloudfront.net/user_3FGFAFklFFNNDWgioc8qdFVbWa0/hf_20260918_024913_f1a957c0-a2af-46a0-b106-8f7044d2de85.png",
+      "https://d8j0ntlcm91z4.cloudfront.net/user_3FGFAFklFFNNDWgioc8qdFVbWa0/hf_20260918_123712_97c16339-e3dc-4923-838f-88c7769bd560.png",
     x: 218,
     y: 262,
     w: 262,
@@ -95,9 +103,9 @@ export const PLACES: Array<Sprite & { key: SpriteKey; zone: string; label: strin
     label: "مدير المهام",
     file: "orchestrator.png",
     source:
-      "https://d8j0ntlcm91z4.cloudfront.net/user_3FGFAFklFFNNDWgioc8qdFVbWa0/hf_20260918_030546_7df0bd5f-6f55-4b85-ac70-b2c336e0827c.png",
+      "https://d8j0ntlcm91z4.cloudfront.net/user_3FGFAFklFFNNDWgioc8qdFVbWa0/hf_20260918_123946_319efdee-82a9-4973-9ee5-80f861e0839d.png",
     sourceFlat:
-      "https://d8j0ntlcm91z4.cloudfront.net/user_3FGFAFklFFNNDWgioc8qdFVbWa0/hf_20260918_025514_21d80827-b54c-4c32-9923-021aa749295b.png",
+      "https://d8j0ntlcm91z4.cloudfront.net/user_3FGFAFklFFNNDWgioc8qdFVbWa0/hf_20260918_123712_f482bdaf-45c0-46d9-8edd-58be7d6031a8.png",
     x: 544,
     y: 276,
     w: 198,
@@ -108,9 +116,9 @@ export const PLACES: Array<Sprite & { key: SpriteKey; zone: string; label: strin
     label: "الأدوات",
     file: "tools.png",
     source:
-      "https://d8j0ntlcm91z4.cloudfront.net/user_3FGFAFklFFNNDWgioc8qdFVbWa0/hf_20260918_030541_8f1c8db5-88c7-46f1-8e6c-84172fc5763a.png",
+      "https://d8j0ntlcm91z4.cloudfront.net/user_3FGFAFklFFNNDWgioc8qdFVbWa0/hf_20260918_123845_1574bcd6-8320-4c02-a63a-400eb9ab8c43.png",
     sourceFlat:
-      "https://d8j0ntlcm91z4.cloudfront.net/user_3FGFAFklFFNNDWgioc8qdFVbWa0/hf_20260918_025514_f3160930-36c4-48ba-8c8a-1aadfe3e9451.png",
+      "https://d8j0ntlcm91z4.cloudfront.net/user_3FGFAFklFFNNDWgioc8qdFVbWa0/hf_20260918_123712_7957b730-9ac7-4297-8db4-0cc2fd93464d.png",
     x: 896,
     y: 366,
     w: 250,
@@ -121,9 +129,9 @@ export const PLACES: Array<Sprite & { key: SpriteKey; zone: string; label: strin
     label: "الزبون",
     file: "customers.png",
     source:
-      "https://d8j0ntlcm91z4.cloudfront.net/user_3FGFAFklFFNNDWgioc8qdFVbWa0/hf_20260918_030555_fc76489b-e390-4b65-ad15-cccbf4463562.png",
+      "https://d8j0ntlcm91z4.cloudfront.net/user_3FGFAFklFFNNDWgioc8qdFVbWa0/hf_20260918_123927_12d6f261-fd80-4818-af03-b31dedaffddb.png",
     sourceFlat:
-      "https://d8j0ntlcm91z4.cloudfront.net/user_3FGFAFklFFNNDWgioc8qdFVbWa0/hf_20260918_025514_b186810f-79e1-48c7-9365-220220f29c1b.png",
+      "https://d8j0ntlcm91z4.cloudfront.net/user_3FGFAFklFFNNDWgioc8qdFVbWa0/hf_20260918_123713_f0221023-0d2c-46fc-9672-dc6e2314fadb.png",
     x: 137,
     y: 508,
     w: 120,
@@ -134,9 +142,9 @@ export const PLACES: Array<Sprite & { key: SpriteKey; zone: string; label: strin
     label: "بوابة السياسات",
     file: "policy.png",
     source:
-      "https://d8j0ntlcm91z4.cloudfront.net/user_3FGFAFklFFNNDWgioc8qdFVbWa0/hf_20260918_030539_7b2b23f6-c3b2-4b30-b6b7-d8282f056cde.png",
+      "https://d8j0ntlcm91z4.cloudfront.net/user_3FGFAFklFFNNDWgioc8qdFVbWa0/hf_20260918_123842_e92975b0-42aa-46d9-8f51-09bbac44b8b1.png",
     sourceFlat:
-      "https://d8j0ntlcm91z4.cloudfront.net/user_3FGFAFklFFNNDWgioc8qdFVbWa0/hf_20260918_025514_0c611478-9b69-4167-b301-f97804a49374.png",
+      "https://d8j0ntlcm91z4.cloudfront.net/user_3FGFAFklFFNNDWgioc8qdFVbWa0/hf_20260918_123713_b10161e3-37ac-4c58-9c22-b6ff00a36ea0.png",
     x: 536,
     y: 522,
     w: 262,
@@ -147,9 +155,9 @@ export const PLACES: Array<Sprite & { key: SpriteKey; zone: string; label: strin
     label: "واتساب",
     file: "whatsapp.png",
     source:
-      "https://d8j0ntlcm91z4.cloudfront.net/user_3FGFAFklFFNNDWgioc8qdFVbWa0/hf_20260918_030557_ae2b1a94-243d-454c-b872-b94b79affe58.png",
+      "https://d8j0ntlcm91z4.cloudfront.net/user_3FGFAFklFFNNDWgioc8qdFVbWa0/hf_20260918_123929_4b8d6f72-9bd8-42a5-88b3-9652959194b7.png",
     sourceFlat:
-      "https://d8j0ntlcm91z4.cloudfront.net/user_3FGFAFklFFNNDWgioc8qdFVbWa0/hf_20260918_025514_d3e8287c-8822-492d-a8f9-7d08d123e4db.png",
+      "https://d8j0ntlcm91z4.cloudfront.net/user_3FGFAFklFFNNDWgioc8qdFVbWa0/hf_20260918_123712_fb53f793-239e-4f7a-81b2-ce02c8990c11.png",
     x: 209,
     y: 540,
     w: 78,
@@ -160,9 +168,9 @@ export const PLACES: Array<Sprite & { key: SpriteKey; zone: string; label: strin
     label: "الإنسان",
     file: "handoff.png",
     source:
-      "https://d8j0ntlcm91z4.cloudfront.net/user_3FGFAFklFFNNDWgioc8qdFVbWa0/hf_20260918_030544_62a4b7f6-343d-4784-976e-476fb1ea79f5.png",
+      "https://d8j0ntlcm91z4.cloudfront.net/user_3FGFAFklFFNNDWgioc8qdFVbWa0/hf_20260918_123907_1eb0d9ce-9382-4add-a92b-5c92e3ea5b17.png",
     sourceFlat:
-      "https://d8j0ntlcm91z4.cloudfront.net/user_3FGFAFklFFNNDWgioc8qdFVbWa0/hf_20260918_025514_55f5b828-7d2e-4968-90ae-6081d19c8082.png",
+      "https://d8j0ntlcm91z4.cloudfront.net/user_3FGFAFklFFNNDWgioc8qdFVbWa0/hf_20260918_123749_2f77bdc8-3211-4550-8c86-177281cd0121.png",
     x: 881,
     y: 582,
     w: 258,
@@ -177,23 +185,23 @@ export const PODS: Record<
   idle: {
     file: "pod-idle.png",
     source:
-      "https://d8j0ntlcm91z4.cloudfront.net/user_3FGFAFklFFNNDWgioc8qdFVbWa0/hf_20260918_030548_57eb1816-148a-4274-b519-97e998d0edb8.png",
+      "https://d8j0ntlcm91z4.cloudfront.net/user_3FGFAFklFFNNDWgioc8qdFVbWa0/hf_20260918_123948_38961406-bbca-4e0e-8eaa-43de81b8cad1.png",
     sourceFlat:
-      "https://d8j0ntlcm91z4.cloudfront.net/user_3FGFAFklFFNNDWgioc8qdFVbWa0/hf_20260918_025514_4a09fdae-c013-4898-a0a1-91ce91ccc8df.png",
+      "https://d8j0ntlcm91z4.cloudfront.net/user_3FGFAFklFFNNDWgioc8qdFVbWa0/hf_20260918_123713_e050f729-e0b1-44af-ab93-aaa814480a90.png",
   },
   wait: {
     file: "pod-wait.png",
     source:
-      "https://d8j0ntlcm91z4.cloudfront.net/user_3FGFAFklFFNNDWgioc8qdFVbWa0/hf_20260918_030553_c985ec6a-3208-46ca-a4f8-5c5715c8d201.png",
+      "https://d8j0ntlcm91z4.cloudfront.net/user_3FGFAFklFFNNDWgioc8qdFVbWa0/hf_20260918_123917_52d8bb24-5251-4b2c-be1c-4a63b58b19ff.png",
     sourceFlat:
-      "https://d8j0ntlcm91z4.cloudfront.net/user_3FGFAFklFFNNDWgioc8qdFVbWa0/hf_20260918_025514_e1a56dbe-7c75-4cea-ae6b-2c1f2ec95537.png",
+      "https://d8j0ntlcm91z4.cloudfront.net/user_3FGFAFklFFNNDWgioc8qdFVbWa0/hf_20260918_123713_6b7562af-0317-447b-8664-ee573ac4b935.png",
   },
   alert: {
     file: "pod-alert.png",
     source:
-      "https://d8j0ntlcm91z4.cloudfront.net/user_3FGFAFklFFNNDWgioc8qdFVbWa0/hf_20260918_030550_f92d1bea-0dda-457f-9a3a-ed0584cf0bf6.png",
+      "https://d8j0ntlcm91z4.cloudfront.net/user_3FGFAFklFFNNDWgioc8qdFVbWa0/hf_20260918_123921_d75b5c24-b8d5-4aea-828f-d5137dc0c864.png",
     sourceFlat:
-      "https://d8j0ntlcm91z4.cloudfront.net/user_3FGFAFklFFNNDWgioc8qdFVbWa0/hf_20260918_025514_2b3ba687-9889-4f58-accd-4716eeb8440c.png",
+      "https://d8j0ntlcm91z4.cloudfront.net/user_3FGFAFklFFNNDWgioc8qdFVbWa0/hf_20260918_123713_942bc5da-e0d8-4dd1-a455-de84d21d6f45.png",
   },
 };
 
