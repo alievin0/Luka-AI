@@ -66,9 +66,9 @@ const STATE_AR: Record<string, string> = {
  * is deliberately muted so that these carry all the meaning.
  */
 const STATE_COLOR: Record<string, number> = {
-  idle: 0x9bb0c9, working: 0x2f6df0, processing: 0x2f6df0, waiting: 0xe8993a,
-  using_tool: 0x8257e6, escalated: 0xd94a3d, error: 0xd94a3d,
-  offline: 0xc9c2b6, deploying: 0x16a36a,
+  idle: 0x9aa4b2, working: 0x2563eb, processing: 0x2563eb, waiting: 0xd97706,
+  using_tool: 0x7c3aed, escalated: 0xdc2626, error: 0xdc2626,
+  offline: 0xc4c4c4, deploying: 0x059669,
 };
 
 const LEGEND: Array<{ state: string; label: string }> = [
@@ -82,28 +82,28 @@ const LEGEND: Array<{ state: string; label: string }> = [
 
 /** The material palette of the model itself: warm, low-saturation, quiet. */
 /**
- * The material palette of the model itself.
+ * The material palette of the model.
  *
- * Measured, not eyeballed. The rule is that agent state colours are the only
- * saturated things on the board, and the first pass broke it: the oak desks
- * had a chroma of 100 against the `idle` state's 46, so eight desks covering
- * more pixels than every figure combined were the loudest thing in the frame.
- * Everything here now sits below the quietest state colour, and value —
- * near-white floor against mid-tone wood — carries the separation instead.
+ * A true neutral scale, deliberately: warm sand and oak read as a default
+ * rather than as a decision, and they were the loudest thing on a board whose
+ * whole rule is that only the agents carry colour. Every surface here is grey,
+ * separated by value alone, so the state colours are the only chroma in the
+ * frame and nothing competes with them. The one exception is the screen face,
+ * which needs to read as a display.
  */
 const P = {
-  ground: 0xccb99c,
-  floor: 0xfbf8f1,
-  rug: 0xe0d7c6,
-  rim: 0xada08d,
-  wall: 0xe7ddcb,
-  oak: 0xb09b83,
-  oakDark: 0x8d7a62,
-  charcoal: 0x38342e,
-  screen: 0x33465c,
-  plant: 0x7e8f76,
-  plantDark: 0x63755e,
-  ink: 0x574636,
+  ground: 0xd4d4d4,
+  floor: 0xfafafa,
+  rug: 0xededed,
+  rim: 0xa3a3a3,
+  wall: 0xe5e5e5,
+  oak: 0xa8a8a8,
+  oakDark: 0x787878,
+  charcoal: 0x262626,
+  screen: 0x33415a,
+  plant: 0x93a394,
+  plantDark: 0x7a8a7c,
+  ink: 0x525252,
 };
 
 /**
@@ -121,9 +121,9 @@ const ZONE_POS: Record<string, [number, number]> = {
 
 /** Endpoints that are not rooms: the doorway the customer arrives through. */
 const EXTRA_NODES: Record<string, { label: string; pos: [number, number]; color: number }> = {
-  customer: { label: "الزبون", pos: [0, 11.4], color: 0xb3a894 },
-  "channel-web": { label: "المتصفح", pos: [-2.4, 8.2], color: 0xa89e8e },
-  "channel-voice": { label: "الصوت", pos: [2.4, 8.2], color: 0x9c9689 },
+  customer: { label: "الزبون", pos: [0, 11.4], color: 0x8f8f8f },
+  "channel-web": { label: "المتصفح", pos: [-2.4, 8.2], color: 0x9c9c9c },
+  "channel-voice": { label: "الصوت", pos: [2.4, 8.2], color: 0xaaaaaa },
 };
 
 const hex = (n: number) => "#" + n.toString(16).padStart(6, "0");
@@ -223,78 +223,63 @@ export default function WorldPage() {
   const recent = events.slice(0, 40);
 
   return (
-    <div className="flex h-screen flex-col bg-[#efe8dc]">
-      <header className="z-10 flex flex-wrap items-center gap-3 border-b border-[#ddd2be] bg-[#f7f2e9] px-4 py-3">
-        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#38342e] text-lg">🏛️</div>
-        <div className="flex-1">
-          <h1 className="text-base font-bold leading-tight text-[#38342e]">عالم الوكلاء</h1>
-          <p className="text-[11px] text-[#8d8271]">
-            نموذج مصغّر لشركتك — الحالات والمسارات والحركة كلها من نشرتك الحقيقية
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2 text-xs text-[#5c554a]">
-          <span className="rounded-full border border-[#ddd2be] bg-white/70 px-3 py-1.5">
-            🧩 مبني <b className="font-mono">{live.length}</b>
-            <span className="text-[#a89d8b]">/{agents.length}</span>
-          </span>
-          <span className="rounded-full border border-[#ddd2be] bg-white/70 px-3 py-1.5">
-            ⚡️ شغّال الآن <b className="font-mono">{busy.length}</b>
-          </span>
-          <span className="rounded-full border border-[#ddd2be] bg-white/70 px-3 py-1.5">
-            🔗 مسارات <b className="font-mono">{edges.length}</b>
+    <div className="flex h-screen flex-col bg-[#fafafa] text-[#171717]">
+      <header className="z-10 flex h-14 shrink-0 items-center gap-6 border-b border-[#e5e5e5] bg-white px-6">
+        <div className="flex items-baseline gap-3">
+          <h1 className="text-[14px] font-semibold leading-none">عالم الوكلاء</h1>
+          <span className="text-[11px] leading-none text-[#a3a3a3]">
+            مرآة للنظام — من نشرتك الحقيقية
           </span>
         </div>
 
-        <select
-          value={businessId}
-          onChange={(e) => {
-            setBusinessId(e.target.value);
-            seenEvents.current.clear();
-            primed.current = false;
-            setSelected(null);
-          }}
-          className="rounded-xl border border-[#ddd2be] bg-white px-3 py-2 text-sm text-[#38342e] outline-none focus:border-[#c08b5c]"
-        >
-          {businesses.map((b) => (
-            <option key={b.id} value={b.id}>{b.name}</option>
-          ))}
-        </select>
-        <a
-          href="/desk"
-          className="rounded-xl bg-[#38342e] px-4 py-2 text-sm font-semibold text-[#f7f2e9] transition hover:bg-[#4a453d]"
-        >
-          احكي معهم ←
-        </a>
+        <div className="flex items-center gap-5 text-[11px] leading-none text-[#737373] tabular-nums">
+          <Stat label="مبني" value={`${live.length}/${agents.length}`} />
+          <Rule />
+          <Stat label="شغّال" value={busy.length} accent={busy.length > 0} />
+          <Rule />
+          <Stat label="مسارات" value={edges.length} />
+        </div>
+
+        <div className="flex flex-1 items-center justify-end gap-2">
+          <select
+            value={businessId}
+            onChange={(e) => {
+              setBusinessId(e.target.value);
+              seenEvents.current.clear();
+              primed.current = false;
+              setSelected(null);
+            }}
+            className="h-8 rounded-[3px] border border-[#e5e5e5] bg-white px-2 text-[12px] leading-none text-[#171717] outline-none transition focus:border-[#171717]"
+          >
+            {businesses.map((b) => (
+              <option key={b.id} value={b.id}>{b.name}</option>
+            ))}
+          </select>
+          <a
+            href="/desk"
+            className="flex h-8 items-center rounded-[3px] bg-[#171717] px-3 text-[12px] font-medium leading-none text-white transition hover:bg-[#404040]"
+          >
+            لوحة التجربة
+          </a>
+        </div>
       </header>
 
       {storage && !storage.persistent && (
-        <div className="z-10 border-b border-amber-300/60 bg-amber-100/70 px-4 py-1.5 text-center text-[11px] text-amber-900">
-          🗄️ التخزين بالذاكرة — الأحداث والمسارات بتنمسح مع كل نشر.
-        </div>
+        <Banner tone="warn">التخزين بالذاكرة — الأحداث والمسارات بتنمسح مع كل نشر</Banner>
       )}
-      {error && (
-        <div className="z-10 border-b border-red-300/60 bg-red-100/70 px-4 py-1.5 text-center text-[11px] text-red-800">
-          ⚠️ {error}
-        </div>
-      )}
+      {error && <Banner tone="error">{error}</Banner>}
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex min-h-0 flex-1">
         <div ref={mountRef} className="relative flex-1">
-          <div
-            className="pointer-events-none absolute inset-0"
-            style={{ boxShadow: "inset 0 0 160px 50px rgba(120,104,80,0.16)" }}
-          />
-
-          <div className="pointer-events-none absolute right-4 top-4 rounded-2xl border border-[#ddd2be] bg-white/85 p-3 shadow-sm backdrop-blur-sm">
-            <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-[#a89d8b]">
-              الألوان
+          <div className="pointer-events-none absolute right-6 top-6">
+            <p className="mb-3 text-[10px] font-medium leading-none tracking-[0.08em] text-[#a3a3a3]">
+              الحالات
             </p>
-            <ul className="space-y-1">
+            <ul className="space-y-2">
               {LEGEND.map((l) => (
-                <li key={l.state} className="flex items-center gap-2 text-[11px] text-[#5c554a]">
+                <li key={l.state} className="flex items-center gap-2 text-[11px] leading-none text-[#525252]">
                   <span
-                    className="h-2.5 w-2.5 rounded-full"
+                    className="h-2 w-2 shrink-0 rounded-[1px]"
                     style={{ background: hex(STATE_COLOR[l.state]) }}
                   />
                   {l.label}
@@ -304,102 +289,91 @@ export default function WorldPage() {
           </div>
 
           {agents.length > 0 && edges.length === 0 && (
-            <div className="pointer-events-none absolute inset-x-0 bottom-14 flex justify-center px-4">
-              <p className="pointer-events-auto rounded-2xl border border-[#ddd2be] bg-white/90 px-5 py-3 text-center text-xs text-[#5c554a] shadow-sm backdrop-blur-sm">
-                الوكلاء بمكاتبهم، بس ما في مسارات لسّا.
-                <br />
-                <a className="font-semibold text-[#a2713f] underline" href="/desk">افتح لوحة التجربة</a>{" "}
-                واحكي معهم — كل رسالة بترسم مسار جديد هون.
+            <div className="pointer-events-none absolute inset-x-0 bottom-12 flex justify-center px-6">
+              <p className="pointer-events-auto max-w-md rounded-[3px] border border-[#e5e5e5] bg-white px-4 py-3 text-center text-[12px] leading-relaxed text-[#525252]">
+                الوكلاء بمكاتبهم، بس ما في مسارات لسّا —{" "}
+                <a className="font-medium text-[#171717] underline underline-offset-2" href="/desk">
+                  افتح لوحة التجربة
+                </a>{" "}
+                واحكي معهم.
               </p>
             </div>
           )}
 
-          <p className="pointer-events-none absolute bottom-3 right-4 rounded-full border border-[#ddd2be] bg-white/85 px-3 py-1 text-[11px] text-[#8d8271] backdrop-blur-sm">
-            اسحب لتدوير · عجلة الماوس للتقريب · اضغط على وكيل
+          <p className="pointer-events-none absolute bottom-6 right-6 text-[10px] leading-none text-[#a3a3a3]">
+            اسحب لتدوير · عجلة للتقريب · اضغط على وكيل
           </p>
         </div>
 
-        <aside className="flex w-[350px] shrink-0 flex-col overflow-hidden border-r border-[#ddd2be] bg-[#f7f2e9]">
-          <section className="border-b border-[#ddd2be] p-4">
-            <h2 className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-[#a89d8b]">
-              الوكيل المحدّد
-            </h2>
+        <aside className="flex w-80 shrink-0 flex-col border-r border-[#e5e5e5] bg-white">
+          <section className="shrink-0 border-b border-[#e5e5e5] p-6">
+            <SectionLabel>الوكيل المحدّد</SectionLabel>
             {current ? (
               <>
-                <div className="flex items-center gap-2">
-                  <h3 className="text-base font-bold text-[#38342e]">{current.name}</h3>
+                <div className="mt-3 flex items-baseline gap-2">
+                  <h2 className="text-[13px] font-semibold leading-none">{current.name}</h2>
                   <span
-                    className="rounded-md border px-2 py-0.5 text-[10px] font-semibold"
-                    style={{
-                      color: hex(STATE_COLOR[current.state] ?? 0x9bb0c9),
-                      borderColor: "currentColor",
-                    }}
+                    className="text-[11px] leading-none"
+                    style={{ color: hex(STATE_COLOR[current.state] ?? 0x8a8a8a) }}
                   >
                     {STATE_AR[current.state] ?? current.state}
                   </span>
                 </div>
-                <p className="text-xs text-[#8d8271]">{current.role}</p>
-                <dl className="mt-3 space-y-1.5 text-xs">
-                  <div className="flex gap-2">
-                    <dt className="w-16 shrink-0 text-[#a89d8b]">المكتب</dt>
-                    <dd className="text-[#5c554a]">{ZONE_AR[current.zone] ?? current.zone}</dd>
-                  </div>
-                  <div className="flex gap-2">
-                    <dt className="w-16 shrink-0 text-[#a89d8b]">الحالة</dt>
-                    <dd className="text-[#5c554a]">
-                      {current.lifecycle === "live" ? "كوده مكتوب" : "تصميم — ما انبنى"}
-                    </dd>
-                  </div>
+                <p className="mt-2 text-[11px] leading-[1.6] text-[#737373]">{current.role}</p>
+
+                <dl className="mt-4 space-y-2 text-[11px] leading-none">
+                  <Row label="المكتب" value={ZONE_AR[current.zone] ?? current.zone} />
+                  <Row
+                    label="الحالة"
+                    value={current.lifecycle === "live" ? "كوده مكتوب" : "تصميم — ما انبنى"}
+                  />
                 </dl>
+
                 {current.capabilities.length > 0 && (
                   <>
-                    <h4 className="mt-3 text-[10px] font-semibold uppercase tracking-widest text-[#a89d8b]">
-                      بيقدر يعمل
-                    </h4>
-                    <ul className="mt-1 space-y-0.5 text-xs text-[#5c554a]">
-                      {current.capabilities.map((c) => <li key={c}>• {c}</li>)}
+                    <SectionLabel className="mt-6">بيقدر يعمل</SectionLabel>
+                    <ul className="mt-3 space-y-1.5 text-[11px] leading-[1.6] text-[#525252]">
+                      {current.capabilities.map((c) => <li key={c}>{c}</li>)}
                     </ul>
                   </>
                 )}
                 {current.permissions.length > 0 && (
                   <>
-                    <h4 className="mt-3 text-[10px] font-semibold uppercase tracking-widest text-[#a89d8b]">
-                      صلاحياته
-                    </h4>
-                    <p className="mt-1 text-xs text-[#5c554a]">{current.permissions.join(" · ")}</p>
+                    <SectionLabel className="mt-6">صلاحياته</SectionLabel>
+                    <p className="mt-3 text-[11px] leading-[1.6] text-[#525252]">
+                      {current.permissions.join(" · ")}
+                    </p>
                   </>
                 )}
               </>
             ) : (
-              <p className="text-xs text-[#a89d8b]">اضغط على وكيل بالعالم لتشوف تفاصيله.</p>
+              <p className="mt-3 text-[11px] leading-[1.6] text-[#a3a3a3]">
+                اضغط على وكيل بالعالم لتشوف تفاصيله.
+              </p>
             )}
           </section>
 
-          <section className="flex min-h-0 flex-1 flex-col p-4">
-            <h2 className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-[#a89d8b]">
-              الأحداث — مباشرة
-            </h2>
+          <section className="flex min-h-0 flex-1 flex-col p-6">
+            <SectionLabel>الأحداث</SectionLabel>
             {recent.length === 0 ? (
-              <p className="text-xs text-[#a89d8b]">
-                ما في أحداث بعد. افتح{" "}
-                <a className="font-semibold text-[#a2713f] underline" href="/desk">لوحة التجربة</a>{" "}
-                واحكي مع الوكيل — وارجع لهون تشوف الحركة.
+              <p className="mt-3 text-[11px] leading-[1.6] text-[#a3a3a3]">
+                ما في أحداث بعد. احكي مع الوكيل من لوحة التجربة وارجع لهون.
               </p>
             ) : (
-              <ul className="scroll-area -mr-2 flex-1 space-y-1.5 overflow-y-auto pr-2">
+              <ul className="scroll-area -mr-3 mt-3 flex-1 overflow-y-auto pr-3">
                 {recent.map((e) => (
-                  <li key={e.id} className="border-b border-[#e4dbcb] pb-1.5 text-xs last:border-0">
-                    <div className="flex items-baseline justify-between gap-2">
-                      <span className="font-mono text-[10px] text-[#b5aa97]" dir="ltr">
+                  <li key={e.id} className="border-b border-[#f5f5f5] py-3 first:pt-0 last:border-0">
+                    <div className="flex items-baseline justify-between gap-3">
+                      <span className="text-[10px] leading-none text-[#a3a3a3] tabular-nums" dir="ltr">
                         {new Date(e.createdAt).toLocaleTimeString("en-GB")}
                       </span>
                       {e.from && e.to && (
-                        <span className="font-mono text-[10px] text-[#a2713f]" dir="ltr">
+                        <span className="truncate text-[10px] leading-none text-[#737373]" dir="ltr">
                           {e.from} → {e.to}
                         </span>
                       )}
                     </div>
-                    <div className="text-[#5c554a]">{e.summary}</div>
+                    <p className="mt-1.5 text-[11px] leading-[1.6] text-[#404040]">{e.summary}</p>
                   </li>
                 ))}
               </ul>
@@ -407,6 +381,52 @@ export default function WorldPage() {
           </section>
         </aside>
       </div>
+    </div>
+  );
+}
+
+/* ── chrome primitives ────────────────────────────────────────────────
+   Every measurement here is on a 4px grid and every size comes from one
+   type scale. Spacing invented per element is what makes an interface look
+   assembled rather than designed. */
+
+function Stat({ label, value, accent }: { label: string; value: React.ReactNode; accent?: boolean }) {
+  return (
+    <span className="flex items-baseline gap-1.5">
+      <span className="text-[#a3a3a3]">{label}</span>
+      <b className={"font-medium " + (accent ? "text-[#2563eb]" : "text-[#171717]")}>{value}</b>
+    </span>
+  );
+}
+
+function Rule() {
+  return <span className="h-3 w-px bg-[#e5e5e5]" />;
+}
+
+function SectionLabel({ children, className = "" }: { children: React.ReactNode; className?: string }) {
+  return (
+    <p className={`text-[10px] font-medium leading-none tracking-[0.08em] text-[#a3a3a3] ${className}`}>
+      {children}
+    </p>
+  );
+}
+
+function Row({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex gap-3">
+      <dt className="w-14 shrink-0 text-[#a3a3a3]">{label}</dt>
+      <dd className="text-[#404040]">{value}</dd>
+    </div>
+  );
+}
+
+function Banner({ tone, children }: { tone: "warn" | "error"; children: React.ReactNode }) {
+  const skin = tone === "warn"
+    ? "border-[#fde68a] bg-[#fffbeb] text-[#92400e]"
+    : "border-[#fecaca] bg-[#fef2f2] text-[#991b1b]";
+  return (
+    <div className={`z-10 shrink-0 border-b px-6 py-2 text-center text-[11px] leading-none ${skin}`}>
+      {children}
     </div>
   );
 }
@@ -511,7 +531,7 @@ function contactTexture(): THREE.CanvasTexture {
 
 function buildScene(mount: HTMLElement, onPick: (code: string) => void): SceneApi {
   const renderer = new THREE.WebGLRenderer({ antialias: true });
-  renderer.setClearColor(0xefe8dc, 1);
+  renderer.setClearColor(0xfafafa, 1);
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   // Neutral, not ACES. ACES brightens by 67% before its filmic curve even
@@ -565,7 +585,7 @@ function buildScene(mount: HTMLElement, onPick: (code: string) => void): SceneAp
 
   /* One warm key light at a fixed angle, so every shadow in the model falls
      the same way — the thing that most makes a set of boxes look built. */
-  const key = new THREE.DirectionalLight(0xfff4e2, 1.95);
+  const key = new THREE.DirectionalLight(0xfffdf8, 2.05);
   /** Held relative to whatever the camera is framing, so the light direction —
       and every shadow with it — stays put as the view moves. */
   const KEY_OFFSET = new THREE.Vector3(-26, 38, 20);
@@ -586,18 +606,18 @@ function buildScene(mount: HTMLElement, onPick: (code: string) => void): SceneAp
   key.shadow.normalBias = 0.014;
   // Shadows that describe form without becoming holes. Faking this by raising
   // ambient would flatten everything else to get it.
-  key.shadow.intensity = 0.58;
+  key.shadow.intensity = 0.7;
   scene.add(key);
   scene.add(key.target);
   // A cool cast in the shade against the warm bounce off the sand. Kept low:
   // the environment is doing the fill now, and no AmbientLight at all.
-  scene.add(new THREE.HemisphereLight(0xdfeaff, 0xd8c8ae, 0.22));
+  scene.add(new THREE.HemisphereLight(0xe8f0ff, 0xc8c8c8, 0.24));
   const fill = new THREE.DirectionalLight(0xd4e4ff, 0.42);
   fill.position.set(22, 12, -18);
   scene.add(fill);
   // A low bounce from the front, standing in for light coming back off the
   // plinth. It keeps the near faces of the walls from going flat.
-  const bounce = new THREE.DirectionalLight(0xffeedd, 0.22);
+  const bounce = new THREE.DirectionalLight(0xf2f6ff, 0.2);
   bounce.position.set(4, 3, 26);
   scene.add(bounce);
 
@@ -622,7 +642,7 @@ function buildScene(mount: HTMLElement, onPick: (code: string) => void): SceneAp
     plant: surface(P.plant, { roughness: 0.8 }),
     plantDark: surface(P.plantDark, { roughness: 0.82 }),
     shadow: new THREE.MeshBasicMaterial({
-      color: 0x6b5d49, alphaMap: contactMap, transparent: true,
+      color: 0x404040, alphaMap: contactMap, transparent: true,
       opacity: 0.3, depthWrite: false,
     }),
   };
@@ -643,7 +663,7 @@ function buildScene(mount: HTMLElement, onPick: (code: string) => void): SceneAp
   const groundShade = new THREE.Mesh(
     new THREE.PlaneGeometry(32, 34),
     new THREE.MeshBasicMaterial({
-      color: 0x6b5d49, alphaMap: contactMap, transparent: true,
+      color: 0x404040, alphaMap: contactMap, transparent: true,
       opacity: 0.22, depthWrite: false,
     }),
   );
@@ -870,7 +890,7 @@ function buildScene(mount: HTMLElement, onPick: (code: string) => void): SceneAp
     const color = STATE_COLOR[fig.agent.state] ?? 0x9bb0c9;
     // Solid, not translucent: a see-through figure sorted badly against its
     // own floor ring. Pale and desaturated says "not built" just as clearly.
-    fig.skin.color.setHex(planned ? 0xd8d2c6 : color);
+    fig.skin.color.setHex(planned ? 0xd0d0d0 : color);
     fig.skin.transparent = false;
     fig.skin.opacity = 1;
     (fig.ring.material as THREE.MeshBasicMaterial).color.setHex(color);
@@ -1094,7 +1114,7 @@ function buildScene(mount: HTMLElement, onPick: (code: string) => void): SceneAp
   });
   // Well below full strength: this is contact shade on a bright model, not a
   // dirt pass.
-  gtao.blendIntensity = 0.78;
+  gtao.blendIntensity = 0.9;
   composer.addPass(gtao);
   composer.addPass(new OutputPass());
 
@@ -1285,7 +1305,7 @@ function makeFigure(agent: Agent, picks: THREE.Object3D[]) {
   const contact = new THREE.Mesh(
     new THREE.PlaneGeometry(1.3, 1.3),
     new THREE.MeshBasicMaterial({
-      color: 0x6b5d49, alphaMap: contactTexture(), transparent: true,
+      color: 0x404040, alphaMap: contactTexture(), transparent: true,
       opacity: 0.4, depthWrite: false,
     }),
   );
@@ -1437,9 +1457,9 @@ function coveTexture(): THREE.CanvasTexture {
   const g = c.getContext("2d");
   if (g) {
     const grd = g.createLinearGradient(0, 0, 0, 256);
-    grd.addColorStop(0, "#f6f1e7");
-    grd.addColorStop(0.55, "#eae1d2");
-    grd.addColorStop(1, "#d9cdb8");
+    grd.addColorStop(0, "#f7f7f7");
+    grd.addColorStop(0.42, "#e9e9e9");
+    grd.addColorStop(1, "#cfcfcf");
     g.fillStyle = grd;
     g.fillRect(0, 0, 4, 256);
   }
