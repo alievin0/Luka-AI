@@ -72,7 +72,15 @@ export const MY_ROVER: RobotProfile = {
     robotSideWatchdogMs: 100,   // null إذا ما في — إقرا القسم ٤
   },
 
-  kinematics: { wheelRadius: 0.0, trackWidth: 0.0, source: "assumed" },
+  kinematics: {
+    wheelRadius: 0.0,
+    trackWidth: 0.0,
+    source: "assumed",
+    // أبطأ سرعة بتتحرك فيها فعلاً. تحتها الدواليب ما بتلف أصلاً — احتكاك ساكن
+    // بالتروس. اتركها غير معرّفة لحد ما تقيسها؛ الفحص بيحذّر، وهاد مقصود.
+    // منصّة داخلية صغيرة: بحدود ٠٫٠٣ م/ث. إقرا القسم ٨.
+    // minMovingSpeed: 0.03,
+  },
   lidarHeight: 0.15,
   groundClearance: 0.02,
   batteryScale: "unknown",      // إقرا القسم ٥
@@ -231,6 +239,32 @@ await rig.runtime.run("navigate.to", { x: 2, y: 0 });
 - **التوقف** — سيّر بأقصى سرعة، اضغط إيقاف، قيس. إذا أطول من `maxDecel` بتوعد
   فيه، نزّل الرقم.
 - **البصمة** — قيس شامل أي شي مركّب.
+- **أبطأ سرعة بتتحرك فيها** — مُرها بـ٠٫٠٢ م/ث وراقب الدواليب. إذا ما لفّت، اطلع
+  لفوق بخطوات ٠٫٠١ لحد ما تلف. حطّ الرقم بـ`minMovingSpeed`.
+
+  **ليش بيهمّ:** كل وضع تدهور بالحاكم بيجاوب مشكلته **بالزحف** — أعمى عند
+  ٠٫٠٥ م/ث، حواس متناقضة عند ٠٫٢. وزحف **تحت** هالعتبة مو روبوت بطيء، **هو روبوت
+  واقف بيضل يبلّغ إنه عم يزحف**. الفحص بيحجب بروفايل عتبته فوق حدّ سرعته.
+
+- **انحراف الأوديومتري** — سيّر ١٠ م مستقيم وقيس الفرق بين وينك فعلاً ووين
+  `/odom` بيقول. بعدين **لفّ مربّع ورجاع لنفس النقطة** وقيس كمان.
+
+  **ليش الاتنين:** الخطأ المنهجي (نصف قطر عجلة غلطان، عرض قاعدة مقيس غلط)
+  **ما بينلغي بالدوران** — بيتراكم بنفس الاتجاه. توقّع ١–٣٪ من المسافة على منصّة
+  معايرة منيح.
+
+  **والنتيجة العملية:** أي شي بيسوق لإحداثي **متذكَّر** عبر عشرات الأمتار — رجوع
+  لقاعدة الشحن مثلاً — **ما بيوصل بالحساب الميت لحاله**. بدّك منارة، أو معلَّم
+  بصري، أو SLAM. `power.lifeline` بالمحاكي بيسوق ١٨ م ويوقف **حدّ** القاعدة، وكل
+  حساباته عن الهامش مضبوطة.
+
+- **مرشّح الميلان بالـIMU** — **ما بتقيسه، بتسأل عن الدرايفر.** الـIMU **ما بيقيس
+  ميلانًا**؛ بيقيس معدّلًا زاويًا وقوة نوعية، والميلان **اندماج** بينهن.
+
+  **ليش:** نصف الاندماج الي من مقياس التسارع بيقيس **اتجاه القوة النوعية**، وهاد
+  **مو للأسفل** وقت الروبوت بيتسارع — و**التسارع القوي هو بالضبط شو يعني تلقُّف
+  سقطة**. بالمحاكي، هالشي لحاله كلّف **ربع مظروف `balance.recover`**.
+
 - بعدين بس: `verified: "measured"`.
 
 ---
@@ -241,9 +275,16 @@ await rig.runtime.run("navigate.to", { x: 2, y: 0 });
   مستلقي، ولا حافّة درجة.
 - **`reflex.looming` انعكاس فزع مو تفادي اصطدام.** ما بيشتعل تحت ~٠٫٤ م/ث اقتراب
   بالتصميم، وعنده إنذارات كاذبة وقت المناورة.
-- **أمان الروبوت بيعتمد على تعاون الناس.** عرض `measured-crossing`: ٢٠/٢٠ عبور
-  نظيف مع ناس بينتبهوا، **٠/٢٠ مع ناس ما بيرفعوا راسهم**. ولا تحديد سرعة بيغيّر
-  هاد.
+- **أمان الروبوت بيعتمد على تعاون الناس.** عرض `measured-crossing`: عبور نظيف مع
+  ناس بينتبهوا، و**٠/٦٠ مع ناس ما بيرفعوا راسهم**. **ولا تحديد سرعة بيغيّر هاد.**
+
+  الي بيغيّره هو **توقّع مسارهم والتنحّي جانبًا**: ٤١/٦٠ نظيف [٥٦–٧٩٪]، والتلامس
+  من ٣٫٧٣ لـ١٫٦٣ بالعبور، مزدوج على البذرة، p = 0.0000. **يعني تلت العبورات لسا
+  بتنتهي بتلامس** — تحسّن حقيقي، مو حل.
+
+  وكل هالأرقام **محاكاة** وبتفترض تراكر أشخاص بخطأ سرعة ٠٫٢٨ م/ث. إذا تراكرك
+  أسوأ، النتيجة أسوأ — **والقدرة نفسها كانت أسوأ من عدم تشغيلها بالمرة** لما كانت
+  تعيد اختيار جهة التنحّي كل tick على تقدير مشوّش.
 - **زر الطوارئ الفيزيائي.** على خط تغذية المحركات. بإيد حدا.
 
 > **In English, briefly.** Run it in the simulator first; write a profile and
@@ -256,3 +297,14 @@ await rig.runtime.run("navigate.to", { x: 2, y: 0 });
 > lidar cannot see a foot, the looming reflex is a startle rather than collision
 > avoidance, and the safety record depends on people looking where they are
 > going — `measured-crossing` measures exactly how much.
+>
+> Three measurements this document used to omit, each of which changed a result
+> in simulation. The slowest speed the drive actually turns at: every degraded
+> mode answers its problem by crawling, and a crawl below that floor is a stop
+> that reports itself as motion. How far the odometry drifts over ten metres and
+> around a closed loop: systematic error does not cancel, so anything driving to
+> a remembered coordinate over tens of metres needs a beacon or SLAM rather than
+> dead reckoning. And your IMU driver's tilt-filter time constant, which you ask
+> about rather than measure, because an IMU does not measure tilt — the
+> accelerometer half of that fusion is wrong exactly while the robot is
+> accelerating hard, which is what catching a fall is.
