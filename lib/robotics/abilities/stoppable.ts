@@ -42,6 +42,8 @@ export type StoppableReport = {
   escalated: boolean;
   /** Which margin bound it, most of the time. */
   limitedBy: "balance" | "space" | "nothing";
+  /** The braking figure every margin above was computed from, m/s². */
+  assumedDecel: number;
 };
 
 const GRAVITY = 9.81;
@@ -94,11 +96,18 @@ export const safetyStoppable: Ability<StoppableInput, StoppableReport> = {
         "been checked against a real platform's braking, which is the only number that matters.",
       verification:
         "Measure the platform's actual deceleration from full speed on the surface it will work " +
-        "on — loaded and unloaded, because a carried mass changes it — and compare against the " +
-        "`maxDecel` this uses. The assumed figure being optimistic is the failure that matters.",
+        "on — loaded and unloaded, because a carried mass changes it — and compare against both " +
+        "the configured `maxDecel` and what the governor measures at runtime. The rated figure " +
+        "being optimistic is the failure that matters.",
       failureModes: [
-        "`maxDecel` is a configured constant. If the real brakes are worse, every margin here is " +
-          "wrong in the unsafe direction and nothing in the loop will notice.",
+        "The deceleration is no longer a bare constant — the governor measures what the floor " +
+          "actually gives and this asks for that figure every tick — but the measurement needs a " +
+          "surface ahead to measure against. In the middle of an open space there is nothing to " +
+          "read and the configured number stands, which is reported as an assumption rather than " +
+          "as knowledge.",
+        "A measurement may only lower the assumed braking, never raise it. If the configured " +
+          "figure is optimistic and the floor never demonstrates worse — because the robot never " +
+          "brakes hard — every margin here is still wrong in the unsafe direction.",
         "It reasons about the scan plane, so it cannot see a drop, a stair edge or a kerb.",
         "It says whether stopping is possible, not whether stopping is safe for what is being " +
           "carried.",
@@ -118,7 +127,13 @@ export const safetyStoppable: Ability<StoppableInput, StoppableReport> = {
       properties: {
         comHeight: { type: "number", description: "Centre-of-mass height, m.", default: 0.55 },
         footHalf: { type: "number", description: "Support half-length, m.", default: 0.11 },
-        maxDecel: { type: "number", description: "Available braking, m/s².", default: 1.2 },
+        maxDecel: {
+          type: "number",
+          description:
+            "Override the available braking, m/s². Left out, it asks the governor for the " +
+            "figure the separation model is actually using, which is the measured one when " +
+            "the floor has demonstrated worse than the configured limit.",
+        },
         warnSeconds: { type: "number", description: "Warn below this headroom, s.", default: 0.4 },
         escalateAfterMs: {
           type: "number",
@@ -134,7 +149,6 @@ export const safetyStoppable: Ability<StoppableInput, StoppableReport> = {
   async run(input, ctx): Promise<AbilityResult<StoppableReport>> {
     const comHeight = input.comHeight ?? 0.55;
     const footHalf = input.footHalf ?? 0.11;
-    const maxDecel = input.maxDecel ?? 1.2;
     const warnSeconds = input.warnSeconds ?? 0.4;
     const escalateAfterMs = input.escalateAfterMs ?? 1500;
     const periodMs = input.periodMs ?? 50;
@@ -145,8 +159,10 @@ export const safetyStoppable: Ability<StoppableInput, StoppableReport> = {
     // than this throws the body forward faster than the ankle can answer, and
     // the difference has to come out of the balance margin.
     const ankleAuthority = (GRAVITY * footHalf) / comHeight;
+    let assumedDecel = input.maxDecel ?? ctx.safety.effectiveDecel();
 
     const report: StoppableReport = {
+      assumedDecel: input.maxDecel ?? ctx.safety.effectiveDecel(),
       minBalanceMarginRad: Number.POSITIVE_INFINITY,
       minSpaceMarginM: Number.POSITIVE_INFINITY,
       minHeadroomSeconds: Number.POSITIVE_INFINITY,
@@ -166,6 +182,9 @@ export const safetyStoppable: Ability<StoppableInput, StoppableReport> = {
       report.ticks += 1;
 
       const imu = ctx.robot.imu();
+      // Asked every tick rather than read once at the start, because the whole
+      // point of it being measured is that it can change under the robot.
+      const maxDecel = input.maxDecel ?? ctx.safety.effectiveDecel();
       const speed = Math.abs(ctx.robot.velocity().linear);
       const clearance = nearestObstacle(ctx.robot.lidar());
 
@@ -190,6 +209,8 @@ export const safetyStoppable: Ability<StoppableInput, StoppableReport> = {
       if (Number.isFinite(headroom)) {
         report.minHeadroomSeconds = Math.min(report.minHeadroomSeconds, headroom);
       }
+      // Report the worst it ever believed it had, not the last.
+      assumedDecel = Math.min(assumedDecel, maxDecel);
       if (balanceMargin < spaceMargin) balanceBound += 1;
       else spaceBound += 1;
 
@@ -233,6 +254,7 @@ export const safetyStoppable: Ability<StoppableInput, StoppableReport> = {
     }
 
     report.unstoppableFraction = report.ticks > 0 ? unstoppableTicks / report.ticks : 0;
+    report.assumedDecel = assumedDecel;
     report.limitedBy =
       balanceBound === 0 && spaceBound === 0
         ? "nothing"
@@ -250,7 +272,7 @@ export const safetyStoppable: Ability<StoppableInput, StoppableReport> = {
       ok: !report.escalated && report.unstoppableFraction < 0.02,
       summary:
         report.unstoppableFraction === 0
-          ? `Could have stopped safely at every one of ${report.ticks} checks — tightest margin ${fmt(report.minHeadroomSeconds)} s, bounded by ${report.limitedBy}.`
+          ? `Could have stopped safely at every one of ${report.ticks} checks — tightest margin ${fmt(report.minHeadroomSeconds)} s, bounded by ${report.limitedBy}, working from ${assumedDecel.toFixed(2)} m/s² of braking.`
           : `Spent ${(report.unstoppableFraction * 100).toFixed(1)}% of the run in states it could not have stopped out of (worst balance ${report.minBalanceMarginRad.toFixed(3)} rad, worst space ${report.minSpaceMarginM.toFixed(2)} m).`,
       data: report,
       metrics: {

@@ -454,6 +454,15 @@ export type SafetyApi = {
   /** Report a measured sense-to-act latency, seconds. */
   observeLatency(seconds: number): void;
   /**
+   * The deceleration the separation model is currently using, m/s².
+   *
+   * The configured figure unless the robot has demonstrated worse on the floor
+   * it is standing on, in which case it is the demonstrated one. Anything
+   * reasoning about stopping distance has to ask rather than assume: `maxDecel`
+   * is a claim about µ, and µ belongs to the floor.
+   */
+  effectiveDecel(): number;
+  /**
    * Take the base away from whatever else is driving it. Reflexes use this so a
    * deliberative ability cannot overwrite an evasive manoeuvre.
    */

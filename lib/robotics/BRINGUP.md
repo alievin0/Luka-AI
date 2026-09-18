@@ -238,6 +238,28 @@ await rig.runtime.run("navigate.to", { x: 2, y: 0 });
   المخمّن **بيعطي خريطة بمقياس غلط، مو خطأ**.
 - **التوقف** — سيّر بأقصى سرعة، اضغط إيقاف، قيس. إذا أطول من `maxDecel` بتوعد
   فيه، نزّل الرقم.
+
+  **وقيسه على الأرضية اللي رح يشتغل عليها، مبلولة وناشفة.** `maxDecel` مو خاصية
+  بالآلة — هو **ادّعاء عن `µ` تبع الأرض**. `maxDecel = 1.2` يعني حرفيًا «هالأرضية
+  بتعطي `µ ≥ 0.122`». مطّاط على باطون مختوم ناشف ٠٫٧–١٫٠ (ما في مشكلة)، أرضية
+  مصقولة مبلولة ٠٫٢–٠٫٣٥ (عالحدّ)، بقعة سائل ٠٫٠٥–٠٫١ (**تحته**). مقاس بالمحاكي:
+  على `µ=0.06` روبوت بيفترض ١٫٢ بيصطدم بالحيط **٢٠/٢٠**؛ نفس الروبوت وهو عارف
+  الرقم الحقيقي بيوقف **٠/٢٠** بخلوص ٠٫٢٧ م.
+
+  الحاكم هلق **بيقيسه وهو ماشي** — قراءتان لمدى الليدار عبر وقفة أو انطلاقة —
+  و`ctx.safety.effectiveDecel()` بيرجّع الأصغر بين المُعدّ والمقيس. **بس هاد ما
+  بيعفيك من قياس أوّلي**: القياس بيقدر بس **ينزّل** الرقم، فإذا اللي كتبته متفائل
+  والأرضية ما بتبرهن أسوأ منه أبدًا، كل هامش عندك لسا غلط بالاتجاه الخطير.
+
+- **انحياز مقياس التسارع** — خلّي الروبوت واقف تمامًا وسجّل القناة الأمامية
+  (`linear_acceleration.x`) لدقيقة. المتوسّط مو صفر: قطعة MEMS استهلاكية عادية
+  بتعطي ١٠–٥٠ mg، يعني ٠٫١–٠٫٥ م/ث². أي شي بيكامل هالقناة لازم يصفّرها وهي واقفة
+  أول، وهاد شغل الدرايفر.
+
+  **وما تستعملها لقياس الكبح على منصّة موازِنة.** الموازِن بيميل لحد ما تصير
+  القوة النوعية على محور جسمه، فالقناة الأمامية بتقرأ الميلان مو التسارع. مقاس:
+  ١٫٢ م/ث² عند `µ=0.8` **و**١٫٢ عند `µ=0.12` — نفس القراءة على أرضية بتعطي سُدس
+  القبضة.
 - **البصمة** — قيس شامل أي شي مركّب.
 - **أبطأ سرعة بتتحرك فيها** — مُرها بـ٠٫٠٢ م/ث وراقب الدواليب. إذا ما لفّت، اطلع
   لفوق بخطوات ٠٫٠١ لحد ما تلف. حطّ الرقم بـ`minMovingSpeed`.
@@ -297,6 +319,13 @@ await rig.runtime.run("navigate.to", { x: 2, y: 0 });
 > lidar cannot see a foot, the looming reflex is a startle rather than collision
 > avoidance, and the safety record depends on people looking where they are
 > going — `measured-crossing` measures exactly how much.
+>
+> Measure `maxDecel` on the floor the robot will work on, wet as well as dry: it
+> is not a property of the machine but a claim about the ground's µ, and the
+> default 1.2 m/s² is a claim that the floor gives µ ≥ 0.122. The governor now
+> measures what the floor actually delivers and will only ever lower that
+> figure, never raise it — so an optimistic rating that the floor never
+> contradicts stays optimistic.
 >
 > Three measurements this document used to omit, each of which changed a result
 > in simulation. The slowest speed the drive actually turns at: every degraded

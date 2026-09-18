@@ -100,6 +100,39 @@ export type SimRobot = {
   holding: string | null;
   slip: number;
   /**
+   * How fast the body is actually travelling, m/s — distinct from `linear`,
+   * which is how fast the wheels are turning.
+   *
+   * Until this existed the two were the same number scaled by traction, which
+   * quietly asserted that the body has no momentum: command zero and the robot
+   * is stopped, on any floor, in one control cycle. That is the assumption the
+   * whole speed-and-separation model rests on, and it was unfalsifiable here.
+   */
+  bodySpeed: number;
+  /**
+   * The body's own longitudinal acceleration, m/s² — what an accelerometer
+   * bolted to the chassis feels, before its own bias and noise.
+   *
+   * Distinct from the rate of change of `linear`, which is what the motor
+   * controller commanded the wheels to do. On a floor that can deliver it the
+   * two are the same number; on one that cannot, the difference between them is
+   * the only direct evidence the robot has that its brakes are worse than it
+   * thinks.
+   */
+  bodyAccel: number;
+  /**
+   * Friction coefficient between this robot and the ground it is on.
+   *
+   * The ground can change the body's momentum no faster than µ·g, whatever the
+   * wheels are doing. Rubber on dry concrete is 0.7–1.0; a polished floor with
+   * water on it is 0.2–0.35; a spill or wet ice is 0.05–0.15. It bounds braking
+   * and acceleration alike, and it is the number every stopping distance in
+   * this repository silently assumed.
+   */
+  surfaceFriction: number;
+  /** Constant offset on the accelerometer's forward channel, m/s². */
+  accelBias: number;
+  /**
    * Where the robot believes it is, by integrating its own wheel speeds.
    *
    * Kept apart from `pose`, which is the truth. Until this existed the
@@ -190,6 +223,12 @@ export type SimWorldConfig = {
   /** Sensor noise multiplier. 0 = perfect sensors, 1 = realistic, 2 = nasty. */
   noise?: number;
   /**
+   * Friction coefficient of the floor, µ. Defaults to an ordinary indoor
+   * surface. Lower it to put the robot somewhere it cannot stop the way its
+   * safety model assumes it can.
+   */
+  surfaceFriction?: number;
+  /**
    * Fraction of radio frames each listener loses, 0..1.
    *
    * Per receiver, not per message: the failure that matters between robots is
@@ -219,8 +258,17 @@ export type SimSnapshot = {
 export const ROBOT_RADIUS = 0.28;
 export const HUMAN_RADIUS = 0.25;
 
-const GRAVITY = 9.81;
+export const GRAVITY = 9.81;
 const GRIP_FRICTION = 0.6;
+/**
+ * Friction between wheel and floor on an ordinary indoor surface.
+ *
+ * Rubber on dry sealed concrete measures 0.7–1.0. At 0.8 the ground can take
+ * 7.8 m/s² off the body, which is five times what this drive can command, so
+ * on a good floor the body tracks the wheels exactly and nothing below changes.
+ * That is the point: the momentum only becomes visible when the floor is bad.
+ */
+const NOMINAL_FRICTION = 0.8;
 /**
  * Commands below these do not move the robot, m/s and rad/s.
  *
@@ -270,6 +318,8 @@ export class SimWorld {
   readonly dock: Vec2;
   readonly noise: number;
   readonly faults: SimFault[];
+  /** Friction of this world's floor, applied to every robot spawned into it. */
+  readonly surfaceFriction: number;
 
   timeMs = 0;
 
@@ -294,6 +344,7 @@ export class SimWorld {
     this.radioLoss = config.radioLoss ?? 0;
     this.radioSalt = String(config.seed ?? 1);
     this.noise = config.noise ?? 1;
+    this.surfaceFriction = config.surfaceFriction ?? NOMINAL_FRICTION;
     this.faults = config.faults ? [...config.faults] : [];
     this.rng = makeRng(config.seed ?? 1337);
   }
@@ -314,6 +365,7 @@ export class SimWorld {
         height: this.height,
         dock: { ...this.dock },
         noise: this.noise,
+        surfaceFriction: this.surfaceFriction,
         obstacles: this.obstacles.map((o) => ({ ...o, at: { ...o.at } })),
         objects: this.objects.map((o) => ({ ...o, at: { ...o.at } })),
         humans: this.humans.map((h) => ({
@@ -359,7 +411,12 @@ export class SimWorld {
     id: string,
     at: Vec2,
     theta = 0,
-    options: { capacityWh?: number; stance?: Stance; charge?: number } = {},
+    options: {
+      capacityWh?: number;
+      stance?: Stance;
+      charge?: number;
+      surfaceFriction?: number;
+    } = {},
   ): SimRobot {
     const capacityWh = options.capacityWh ?? 180;
     const robot: SimRobot = {
@@ -379,6 +436,9 @@ export class SimWorld {
       gripperForce: 0,
       holding: null,
       slip: 0,
+      bodySpeed: 0,
+      bodyAccel: 0,
+      surfaceFriction: options.surfaceFriction ?? this.surfaceFriction,
       groundTraction: 1,
       odom: { x: at.x, y: at.y, theta },
       // A couple of per cent, which is what a carefully measured wheel gets you.
@@ -398,6 +458,13 @@ export class SimWorld {
         x: this.random() * 0.008 - 0.004,
         y: this.random() * 0.008 - 0.004,
       },
+      // MEMS accelerometer turn-on bias. 15 mg is an ordinary consumer part,
+      // and it does not average away: it is the reason an IMU driver zeroes
+      // itself while the machine is standing still. Drawn last on purpose —
+      // every seeded result in this repository depends on the order of these
+      // draws, so a new one goes at the end of the queue or it silently
+      // rewrites every scenario.
+      accelBias: this.random() * 0.3 - 0.15,
       armTargetReachable: true,
       armHeight: 0.4,
       armTarget: null,
@@ -565,7 +632,6 @@ export class SimWorld {
       Math.abs(robot.tilt) > TIP_ANGLE * 0.9 ? RECOVERY_ACCEL_LIMIT : ACCEL_LIMIT;
     const accelLimit = peakAccel * dt;
     const alphaLimit = 4.0 * dt;
-    const previousLinear = robot.linear;
 
     // Stiction: below some command the wheels do not turn at all.
     //
@@ -580,16 +646,54 @@ export class SimWorld {
       Math.abs(robot.commandedLinear) < STICTION_LINEAR ? 0 : robot.commandedLinear;
     const wantedTurn =
       Math.abs(robot.commandedAngular) < STICTION_ANGULAR ? 0 : robot.commandedAngular;
+    const previousLinear = robot.linear;
     robot.linear += clamp(wanted - robot.linear, -accelLimit, accelLimit);
     robot.angular += clamp(wantedTurn - robot.angular, -alphaLimit, alphaLimit);
-    const actualAccel = (robot.linear - previousLinear) / dt;
+    const wheelAccel = (robot.linear - previousLinear) / dt;
 
     // A tipping robot loses traction, and so does one on a floor that will not
-    // hold it. Both reduce how much of the wheel speed becomes travel; neither
-    // touches `robot.linear`, which is what the encoders read.
+    // hold it. Both reduce how much of the wheel speed the drive can impose on
+    // the body; neither touches `robot.linear`, which is what the encoders read.
     const traction =
       clamp(1 - Math.abs(robot.tilt) / 0.5, 0, 1) * clamp(robot.groundTraction, 0, 1);
-    const effectiveLinear = robot.linear * traction;
+
+    // The body has momentum, and the ground is the only thing that can take it
+    // away.
+    //
+    // This used to read `robot.linear * traction` — the body's speed was a
+    // function of the wheel speed at this instant, with no state of its own. A
+    // robot commanded to zero was stopped in the same tick, from any speed, on
+    // any surface. Every stopping distance in this repository was therefore
+    // computed by the safety governor and never once tested against physics,
+    // and the one failure mode `safety.stoppable` names as the one that matters
+    // — "the assumed figure being optimistic" — could not be reproduced here,
+    // because nothing in the world could disagree with the assumption.
+    //
+    // What the ground can deliver is µ·g. Below the tyre limit the body follows
+    // the wheels exactly, which is why a good floor behaves as before; above it
+    // the wheels win the argument and the body keeps going.
+    //
+    // Two knobs, and they are not the same physical quantity. `groundTraction`
+    // is drive coupling: how much of the wheel's rotation reaches the ground at
+    // all. `surfaceFriction` is µ: how much force that contact can carry. The
+    // model does not derive one from the other, and the honest consequence is
+    // that `groundTraction = 0` here reads as a robot whose body is restrained
+    // — beached on a threshold, wedged, up on a stand — and not as one gliding
+    // free on a frictionless floor. Setting it mid-motion still stops the body
+    // at µ·g, which is the beached reading. A floor with no grip is
+    // `surfaceFriction`, and that is the knob every number below responds to.
+    //
+    // The pitch dynamics are driven by the *wheel* acceleration rather than the
+    // body's, which is a stated limit of this model rather than physics: losing
+    // traction under a balancing robot should pitch it, and here it does not.
+    // Coupling them makes `groundTraction = 0` throw the robot flat on its face
+    // in one tick, which is the beached reading taken further than it earns.
+    const gripLimit = Math.max(robot.surfaceFriction, 0) * GRAVITY * dt;
+    const wheelDemand = robot.linear * traction;
+    const previousBody = robot.bodySpeed;
+    robot.bodySpeed += clamp(wheelDemand - robot.bodySpeed, -gripLimit, gripLimit);
+    robot.bodyAccel = (robot.bodySpeed - previousBody) / dt;
+    const effectiveLinear = robot.bodySpeed;
 
     const nextX = robot.pose.x + Math.cos(robot.pose.theta) * effectiveLinear * dt;
     const nextY = robot.pose.y + Math.sin(robot.pose.theta) * effectiveLinear * dt;
@@ -603,6 +707,7 @@ export class SimWorld {
         robot.inContact = true;
       }
       robot.linear = 0;
+      robot.bodySpeed = 0;
       robot.commandedLinear = 0;
     } else {
       robot.inContact = false;
@@ -644,7 +749,7 @@ export class SimWorld {
       );
       const tiltAccel =
         omega2 * (Math.sin(robot.tilt) - cop / COM_HEIGHT) -
-        (actualAccel / COM_HEIGHT) * Math.cos(robot.tilt);
+        (wheelAccel / COM_HEIGHT) * Math.cos(robot.tilt);
       robot.tiltRate += tiltAccel * dt;
       robot.tilt = clamp(robot.tilt + robot.tiltRate * dt, -Math.PI / 2, Math.PI / 2);
       // Flat on the floor is the end of the fall, not the middle of it.
@@ -667,7 +772,7 @@ export class SimWorld {
       robot.tiltRate = 0;
     }
 
-    this.stepIMU(robot, dt, actualAccel);
+    this.stepIMU(robot, dt, robot.bodyAccel);
     this.stepArm(robot, dt);
     this.stepGripper(robot, dt);
     this.stepBattery(robot, dt);

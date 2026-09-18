@@ -12,6 +12,10 @@
 
 import { clamp } from "../core/math.ts";
 import {
+  GripMonitor,
+  type GripMeasurement,
+} from "../core/grip.ts";
+import {
   ConflictMonitor,
   worstResponse,
   type CrossCheckState,
@@ -103,6 +107,15 @@ export type GovernorOptions = {
    * come apart from the world is the case every other check here passes.
    */
   watchConflicts?: boolean;
+  /**
+   * Measure the braking the floor is actually giving, and never let the
+   * separation model assume more than that.
+   *
+   * On by default, and it is a governor feature rather than an ability on
+   * purpose. A safety parameter that only becomes honest when somebody
+   * remembers to start a daemon is the same bug in a new place.
+   */
+  watchGrip?: boolean;
 };
 
 export type GovernedCommand = {
@@ -140,6 +153,9 @@ export class SafetyGovernor implements SafetyApi {
   private conflictClock: "sensor" | "wall" | null = null;
   /** The instant already sampled, so sampling it again changes nothing. */
   private conflictSampledAt: number | null = null;
+  private readonly gripMonitor: GripMonitor | null;
+  /** Sensor clock the grip measurements are stamped on. */
+  private gripClock: number | null = null;
   /**
    * What was last actually sent to the motors.
    *
@@ -165,6 +181,7 @@ export class SafetyGovernor implements SafetyApi {
     this.allowContact = options.allowContact ?? true;
     this.onChange = options.onChange;
     this.conflictMonitor = (options.watchConflicts ?? true) ? new ConflictMonitor() : null;
+    this.gripMonitor = (options.watchGrip ?? true) ? new GripMonitor() : null;
   }
 
   /**
@@ -240,6 +257,31 @@ export class SafetyGovernor implements SafetyApi {
     );
   }
 
+  /**
+   * Watch the robot stop, and find out what the floor gave it.
+   *
+   * Sampled on the command path rather than in `assess`, because the start of a
+   * stop is defined by the command going to zero and this is the only place
+   * that sees it. It needs the previous command, not the one being governed
+   * now, which is exactly what `lastSentCommand` holds.
+   */
+  private sampleGrip(robot: RobotIO): void {
+    const monitor = this.gripMonitor;
+    if (!monitor || !this.tracksScan(robot)) return;
+    const scan = robot.lidar();
+    const now = scan.stamp === "sensor" ? scan.t : Date.now();
+    this.gripClock = now;
+    const odometry = robot.velocity();
+    if (!Number.isFinite(odometry.linear)) return;
+    monitor.observe({
+      now,
+      speed: odometry.linear,
+      commanded: this.lastSentCommand.linear,
+      turnRate: Number.isFinite(odometry.angular) ? odometry.angular : 0,
+      scan,
+    });
+  }
+
   private tracksScan(robot: RobotIO): boolean {
     return robot.capabilities.includes("lidar" as never);
   }
@@ -304,11 +346,51 @@ export class SafetyGovernor implements SafetyApi {
   }
 
   /**
+   * The deceleration the separation model is actually using, m/s².
+   *
+   * The configured figure, unless the robot has demonstrated worse on the floor
+   * it is standing on. One-way: a measurement may only tighten the envelope,
+   * never widen it. A robot is not allowed to talk itself into believing its
+   * brakes are better than the person who commissioned it said they were, and
+   * `maxDecel` on real hardware is meant to be a rated figure rather than an
+   * estimate. What this adds is the case the rating cannot cover, because it is
+   * not about the machine: the floor changed.
+   */
+  effectiveDecel(): number {
+    const measured = this.gripMonitor?.authority(this.gripClock ?? 0) ?? null;
+    if (measured === null) return this.limits.maxDecel;
+    return Math.min(this.limits.maxDecel, measured);
+  }
+
+  /**
+   * What is known about the braking, and how it is known. Null measurement
+   * means nobody has found out — which is not the same as "it is fine", and is
+   * reported as its own state rather than as the configured number.
+   */
+  gripEvidence(): {
+    assumed: number;
+    measured: number | null;
+    inUse: number;
+    samples: GripMeasurement[];
+    watching: boolean;
+  } {
+    const now = this.gripClock ?? 0;
+    return {
+      assumed: this.limits.maxDecel,
+      measured: this.gripMonitor?.authority(now) ?? null,
+      inUse: this.effectiveDecel(),
+      samples: this.gripMonitor?.measurements(now) ?? [],
+      watching: this.gripMonitor?.watching() ?? false,
+    };
+  }
+
+  /**
    * Protective separation distance for a robot travelling at `speed`: how far
    * away a person has to be for this speed to still be safe.
    */
   protectiveDistance(speed: number): number {
-    const { maxDecel, humanSpeed, uncertainty } = this.limits;
+    const { humanSpeed, uncertainty } = this.limits;
+    const maxDecel = this.effectiveDecel();
     const reactionTime = this.effectiveReactionTime();
     const stoppingTime = Math.abs(speed) / maxDecel;
     const humanTravel = humanSpeed * (reactionTime + stoppingTime);
@@ -322,7 +404,8 @@ export class SafetyGovernor implements SafetyApi {
    * inside `distance`. Solved in closed form from the quadratic above.
    */
   allowedSpeed(distance: number): number {
-    const { maxDecel, humanSpeed, uncertainty, minSeparation, maxLinear } = this.limits;
+    const { humanSpeed, uncertainty, minSeparation, maxLinear } = this.limits;
+    const maxDecel = this.effectiveDecel();
     const reactionTime = this.effectiveReactionTime();
     if (!Number.isFinite(distance)) return maxLinear;
 
@@ -491,6 +574,7 @@ export class SafetyGovernor implements SafetyApi {
     // Sampled here because this is the only place that sees every command on
     // its way to the motors.
     this.sampleConflicts(robot);
+    this.sampleGrip(robot);
     const verdict = this.assess(robot);
 
     // A reflex that has taken the wheel keeps them. Without this, a deliberative
@@ -595,7 +679,8 @@ export class SafetyGovernor implements SafetyApi {
   }
 
   private obstacleSpeedLimit(distance: number): number {
-    const { maxDecel, obstacleClearance, maxLinear } = this.limits;
+    const { obstacleClearance, maxLinear } = this.limits;
+    const maxDecel = this.effectiveDecel();
     const reactionTime = this.effectiveReactionTime();
     const budget = distance - obstacleClearance;
     if (budget <= 0) return 0;

@@ -21,6 +21,7 @@ import type {
   LidarScan,
   RobotIO,
 } from "../core/types.ts";
+import { GRAVITY } from "./world.ts";
 import type { SimRobot, SimWorld } from "./world.ts";
 
 export const FULL_HARDWARE: HardwareCapability[] = [
@@ -325,12 +326,36 @@ export class SimRobotAdapter implements RobotIO {
    * it is the answer. `balance.recover` decides whether a fall is still
    * catchable from this number.
    */
+  /**
+   * The IMU, including the channel that was not one.
+   *
+   * `accel` is declared as forward acceleration in m/s², and the ROS bridge
+   * maps it from `linear_acceleration.x`, which is what an accelerometer
+   * actually publishes. Here it used to be `commandedLinear - linear`: the
+   * difference between what the motor controller was asked for and what the
+   * wheels were doing. That is not an acceleration — the units are m/s — and
+   * more to the point it is computed from the command and the encoders, two
+   * things an accelerometer has no access to. The device measures the force on
+   * the chassis; it cannot know what anyone asked for.
+   *
+   * Nothing read it, which is why it survived. It is also the one channel that
+   * can see the robot's brakes failing to bite, because on a slippery floor the
+   * wheels decelerate exactly as commanded and only the body does not follow.
+   *
+   * What comes back now is specific force along the body's forward axis: the
+   * body's own acceleration, contaminated by gravity when the robot is pitched,
+   * offset by this unit's turn-on bias, and noisy. The gravity term is why an
+   * accelerometer alone cannot tell braking from a downslope, and the bias is
+   * why every IMU driver zeroes itself while the machine is standing still.
+   */
   imu(): ImuSample {
     const robot = this.self;
+    const specificForce =
+      robot.bodyAccel - GRAVITY * Math.sin(robot.tilt) + robot.accelBias;
     return {
       tilt: this.world.noisy(robot.tiltEstimate, 0.003),
       tiltRate: this.world.noisy(robot.tiltRate + robot.gyroBias, 0.01),
-      accel: this.world.noisy(robot.commandedLinear - robot.linear, 0.02),
+      accel: this.world.noisy(specificForce, 0.05),
       yawRate: this.world.noisy(robot.angular + robot.gyroBias, 0.01),
       t: this.world.timeMs,
       stamp: "sensor" as const,

@@ -15,9 +15,14 @@
 //
 // It does not establish that those equations describe any particular robot.
 // `COM_HEIGHT = 0.55` and `FOOT_HALF = 0.11` are constants for a machine that
-// does not exist, and a real platform's mass distribution, compliance and
-// wheel slip are all absent. That gap does not close from this side of the
-// keyboard.
+// does not exist, and a real platform's mass distribution and compliance are
+// absent. That gap does not close from this side of the keyboard.
+//
+// Longitudinal wheel slip used to be on that list. It is now in the model —
+// the body has momentum and the ground can only change it at µ·g — and what it
+// buys is in `braking.test.ts`. The pitch dynamics still do not feel it, which
+// is why a loss of traction here does not throw the robot forward the way it
+// would throw a real one.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";

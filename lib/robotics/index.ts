@@ -16,6 +16,13 @@ export { validate } from "./core/schema.ts";
 export * from "./core/dmp.ts";
 
 export { SafetyGovernor, DEFAULT_LIMITS, nearestObstacle, type SafetyLimits } from "./safety/governor.ts";
+export {
+  GripMonitor,
+  forwardRange,
+  DEFAULT_GRIP_THRESHOLDS,
+  type GripMeasurement,
+  type GripThresholds,
+} from "./core/grip.ts";
 
 export { SimWorld, type SimWorldConfig, type SimRobot, TIP_ANGLE } from "./sim/world.ts";
 export { SimRobotAdapter, FULL_HARDWARE } from "./sim/adapter.ts";
@@ -75,13 +82,24 @@ export type SimRigOptions = {
   blindSector?: { centre: number; width: number };
   /** Fraction of radio frames each listener loses, 0..1. Per receiver. */
   radioLoss?: number;
+  /**
+   * Friction coefficient of the floor, µ. Leave it alone for an ordinary
+   * indoor surface; lower it to stand the robot somewhere it cannot stop as
+   * fast as its safety model assumes.
+   */
+  surfaceFriction?: number;
 };
 
 /** Stand up a complete simulated robot: world, safety, abilities, runtime. */
 export function createSimRig(options: SimRigOptions = {}): SimRig {
   const chosen = scenario(options.scenario ?? "cluttered-office");
   const seed = options.seed ?? chosen.world.seed ?? 1;
-  const world = new SimWorld({ ...chosen.world, seed, radioLoss: options.radioLoss });
+  const world = new SimWorld({
+    ...chosen.world,
+    seed,
+    radioLoss: options.radioLoss,
+    surfaceFriction: options.surfaceFriction ?? chosen.world.surfaceFriction,
+  });
   const registry = options.registry ?? createRegistry();
   const memoryBackend = options.memoryBackend ?? createInMemoryBackend();
 
