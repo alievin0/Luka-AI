@@ -338,6 +338,16 @@ export default function RobotsPage() {
                 <canvas key="2d" ref={canvasRef} className="block h-full w-full bg-slate-950" />
               )}
 
+              {/* The 3D view has no text of its own, so the same prompt the 2D
+                  renderer draws on an empty canvas is an overlay here. */}
+              {view === "3d" && !frame && (
+                <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                  <span className="rounded-xl bg-slate-950/60 px-4 py-2 text-sm text-slate-400 backdrop-blur">
+                    اختر عرضاً أو قدرة وشغّلها
+                  </span>
+                </div>
+              )}
+
               {/* What the picture is and is not. The renderer gives the world a
                   height; the simulator never had one, and hiding that behind a
                   handsome frame would be the whole problem. */}

@@ -88,6 +88,7 @@ export class Studio {
   private readonly canvas: HTMLCanvasElement;
 
   private readonly world = new THREE.Group();
+  private readonly idle = new THREE.Group();
   private readonly dynamic = new THREE.Group();
   private readonly key: THREE.DirectionalLight;
 
@@ -169,7 +170,19 @@ export class Studio {
     this.controls.minDistance = 2.5;
     this.controls.maxDistance = 45;
 
-    this.scene.add(this.world, this.dynamic);
+    this.scene.add(this.world, this.dynamic, this.idle);
+
+    // Before a scenario has sent its world there is nothing to draw, and an
+    // empty scene aimed at the origin looks at the dark underside of the dome —
+    // which is to say, at nothing. An empty stage reads as waiting instead of
+    // as broken.
+    const stage = new THREE.GridHelper(40, 40, 0x35507a, 0x1e2d47);
+    (stage.material as THREE.Material).transparent = true;
+    (stage.material as THREE.Material).opacity = 0.7;
+    this.idle.add(stage);
+    this.controls.target.set(0, 0.6, 0);
+    this.camera.position.set(7, 4.2, 9);
+    this.controls.update();
 
     // --- the lighting rig -------------------------------------------------
     //
@@ -569,6 +582,7 @@ export class Studio {
   sync(state: SceneState, layers: Layers): void {
     if (this.disposed) return;
     if (state.setup && !this.built) this.buildWorld(state.setup);
+    this.idle.visible = !this.built;
     const frame = state.frame;
     if (!frame) return;
 
@@ -880,6 +894,7 @@ export class Studio {
   /** Forget the room so the next scenario builds its own. */
   resetWorld(): void {
     this.built = false;
+    this.idle.visible = true;
     this.world.clear();
     this.dynamic.clear();
     this.robot = null;
