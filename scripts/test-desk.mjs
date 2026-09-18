@@ -52,6 +52,15 @@ try {
      "--esModuleInterop", "--skipLibCheck", "--strict"],
     { stdio: "inherit" },
   );
+  // The world's derivations live under `app/`, so they need their own root.
+  execFileSync(
+    "npx",
+    ["tsc", "app/world/model.ts",
+     "--outDir", outDir, "--rootDir", "app", "--module", "commonjs",
+     "--target", "es2020", "--moduleResolution", "node",
+     "--esModuleInterop", "--skipLibCheck", "--strict"],
+    { stdio: "inherit" },
+  );
 } catch {
   console.error("✗ Could not compile the desk modules.");
   process.exit(1);
@@ -65,6 +74,8 @@ const wa = await load("whatsapp.js");
 const dbmod = await load("db/index.js");
 const mem = await load("db/memory.js");
 const tts = await load("tts.js");
+const world = await import(pathToFileURL(join(outDir, "world", "model.js")).href);
+const roster = await load("agents.js");
 
 const repo = dbmod.getRepo();
 const B = await repo.getBusiness("t");
@@ -427,6 +438,203 @@ await check("empty text is refused", async () => {
 });
 
 clearVoiceEnv();
+
+/* ── the world view: every figure it prints is derived, so every one is here ── */
+
+console.log("\n── the world's derivations ──");
+
+const AMMAN = "Asia/Amman";
+
+await check("a timestamp is bucketed by the business's day, not the viewer's", () => {
+  // 21:30 UTC is already the next day in Amman (+03).
+  assert.strictEqual(world.zoned("2026-09-17T21:30:00Z", AMMAN).day, "2026-09-18");
+  assert.strictEqual(world.zoned("2026-09-17T21:30:00Z", "UTC").day, "2026-09-17");
+});
+
+await check("midnight reports hour 0, not 24", () => {
+  const z = world.zoned("2026-09-17T21:00:00Z", AMMAN);
+  assert.strictEqual(z.hour, 0);
+  assert.strictEqual(z.hhmm, "00:00");
+  assert.strictEqual(z.minutes, 0);
+});
+
+await check("an unparseable instant yields null instead of NaN", () => {
+  assert.strictEqual(world.zoned("not-a-date", AMMAN), null);
+});
+
+await check("an unknown timezone falls back instead of throwing", () => {
+  assert.strictEqual(world.zoned("2026-09-17T12:00:00Z", "Mars/Olympus").day, "2026-09-17");
+});
+
+await check("HH:MM is validated, not merely split", () => {
+  assert.strictEqual(world.parseHHMM("09:30"), 570);
+  assert.strictEqual(world.parseHHMM("24:00"), null);
+  assert.strictEqual(world.parseHHMM("12:60"), null);
+  assert.strictEqual(world.parseHHMM("9:3"), null);
+});
+
+await check("after-hours is judged against the business's own week", () => {
+  const hours = B.hours;
+  // Thursday 2026-09-17, 10:00 Amman — open (09:00-12:00).
+  assert.strictEqual(world.isAfterHours("2026-09-17T07:00:00Z", AMMAN, hours), false);
+  // Same Thursday at 13:00 Amman — closed.
+  assert.strictEqual(world.isAfterHours("2026-09-17T10:00:00Z", AMMAN, hours), true);
+  // Friday — the closed day.
+  assert.strictEqual(world.isAfterHours("2026-09-18T09:00:00Z", AMMAN, hours), true);
+});
+
+await check("an undeclared day counts as closed, never as open", () => {
+  assert.strictEqual(world.isAfterHours("2026-09-17T09:00:00Z", AMMAN, {}), true);
+  assert.strictEqual(world.isAfterHours("2026-09-17T09:00:00Z", AMMAN, undefined), null);
+});
+
+await check("an overnight shift is a wrap, not an empty window", () => {
+  const night = { thu: { open: "22:00", close: "02:00" } };
+  // 23:00 Amman Thursday — inside the shift.
+  assert.strictEqual(world.isAfterHours("2026-09-17T20:00:00Z", AMMAN, night), false);
+  // 12:00 Amman Thursday — outside it.
+  assert.strictEqual(world.isAfterHours("2026-09-17T09:00:00Z", AMMAN, night), true);
+});
+
+await check("hourly buckets land in the right bar and ignore the rest", () => {
+  const now = Date.parse("2026-09-17T12:30:00Z");
+  const bars = world.countByHour(
+    [
+      "2026-09-17T12:05:00Z", // this hour
+      "2026-09-17T11:59:00Z", // the one before
+      "2026-09-17T00:00:00Z", // older than the window
+      "2026-09-17T23:00:00Z", // the future
+    ],
+    "UTC",
+    4,
+    now,
+  );
+  assert.deepStrictEqual(bars, [0, 0, 1, 1]);
+});
+
+await check("a change with no baseline is null, not zero or a hundred", () => {
+  assert.strictEqual(world.changePct(5, 0), null);
+  assert.strictEqual(world.changePct(5, 4), 25);
+  assert.strictEqual(world.changePct(3, 6), -50);
+});
+
+await check("only finished, sane tasks count toward the average", () => {
+  assert.strictEqual(world.averageSeconds([{ startedAt: "2026-09-17T12:00:00Z", steps: [] }]), null);
+  const avg = world.averageSeconds([
+    { startedAt: "2026-09-17T12:00:00Z", endedAt: "2026-09-17T12:00:04Z", steps: [] },
+    { startedAt: "2026-09-17T12:00:00Z", endedAt: "2026-09-17T12:00:08Z", steps: [] },
+    { startedAt: "2026-09-17T12:00:10Z", endedAt: "2026-09-17T12:00:00Z", steps: [] }, // ends first
+  ]);
+  assert.strictEqual(avg, 6);
+});
+
+const SNAP_NOW = Date.parse("2026-09-17T12:00:00Z");
+const emptySnap = {
+  agents: [], events: [], bookings: [], escalations: [], tasks: [], conversations: [],
+};
+
+await check("an empty world prints dashes, never invented figures", () => {
+  const kpis = world.deriveKpis(emptySnap, SNAP_NOW);
+  assert.strictEqual(kpis.length, 5);
+  for (const k of kpis) assert.strictEqual(k.change, null, `${k.key} claimed a trend`);
+  assert.strictEqual(kpis.find((k) => k.key === "latency").value, "—");
+  // No hours known for the business, so after-hours cannot be counted.
+  assert.strictEqual(kpis.find((k) => k.key === "afterhours").value, "—");
+});
+
+await check("open escalations never claim a trend, because only the open ones are fetched", () => {
+  const kpis = world.deriveKpis(
+    {
+      ...emptySnap,
+      business: { id: "t", slug: "t", name: "t", isDemo: false, timezone: AMMAN, hours: B.hours },
+      escalations: [{ id: "e1", reason: "medical", customerMessage: "x", status: "open", createdAt: "2026-09-17T11:00:00Z" }],
+    },
+    SNAP_NOW,
+  );
+  const esc = kpis.find((k) => k.key === "escalations");
+  assert.strictEqual(esc.value, "1");
+  assert.strictEqual(esc.change, null);
+});
+
+await check("today's conversations are counted in the business's day", () => {
+  const kpis = world.deriveKpis(
+    {
+      ...emptySnap,
+      business: { id: "t", slug: "t", name: "t", isDemo: false, timezone: AMMAN, hours: B.hours },
+      conversations: [
+        { id: "c1", channel: "web", status: "open", startedAt: "2026-09-17T08:00:00Z", lastAt: "2026-09-17T08:00:00Z" },
+        { id: "c2", channel: "web", status: "open", startedAt: "2026-09-16T08:00:00Z", lastAt: "2026-09-16T08:00:00Z" },
+        { id: "c3", channel: "web", status: "open", startedAt: "2026-09-16T09:00:00Z", lastAt: "2026-09-16T09:00:00Z" },
+      ],
+    },
+    SNAP_NOW,
+  );
+  const conv = kpis.find((k) => k.key === "conversations");
+  assert.strictEqual(conv.value, "1");
+  assert.strictEqual(conv.change, -50); // one today against two yesterday
+});
+
+await check("the replay strip maps the pipeline's own step names", () => {
+  assert.strictEqual(world.stageOf("message_received"), 0);
+  assert.strictEqual(world.stageOf("get_availability"), 2);
+  assert.strictEqual(world.stageOf("reply_sent"), 4);
+  assert.strictEqual(world.stageOf("something_new"), -1);
+});
+
+await check("a completed task fills the strip; an escalated one does not", () => {
+  const steps = [{ seq: 1, label: "message_received", status: "done", createdAt: "x" }];
+  assert.strictEqual(world.reachedStage({ id: "t", title: "", status: "completed", steps, startedAt: "x" }), 5);
+  assert.strictEqual(world.reachedStage({ id: "t", title: "", status: "escalated", steps, startedAt: "x" }), 0);
+  assert.strictEqual(world.reachedStage(null), -1);
+});
+
+await check("traffic is counted per direction and self-edges are dropped", () => {
+  const edges = world.deriveEdges([
+    { id: "1", kind: "k", from: "reception", to: "booking", summary: "", createdAt: "x" },
+    { id: "2", kind: "k", from: "reception", to: "booking", summary: "", createdAt: "x" },
+    { id: "3", kind: "k", from: "booking", to: "reception", summary: "", createdAt: "x" },
+    { id: "4", kind: "k", from: "policy", to: "policy", summary: "", createdAt: "x" },
+    { id: "5", kind: "k", summary: "", createdAt: "x" },
+  ]);
+  assert.strictEqual(edges.length, 2);
+  assert.strictEqual(edges.find((e) => e.from === "reception").count, 2);
+  assert.strictEqual(edges.find((e) => e.from === "booking").count, 1);
+});
+
+await check("an untraced pair still gets a path; an unknown node gets none", () => {
+  assert.ok(world.routePath("reception", "orchestrator").startsWith("M"));
+  assert.ok(world.routePath("knowledge", "handoff").startsWith("M"));
+  assert.strictEqual(world.routePath("reception", "atlantis"), null);
+});
+
+await check("every agent the roster can produce has somewhere to stand", () => {
+  for (const def of roster.AGENT_ROSTER) {
+    const node = world.nodeForAgent({ ...def, state: "idle", updatedAt: "x" });
+    assert.ok(node, `${def.code} (zone ${def.zone}) has no node on the map`);
+  }
+});
+
+await check("every edge the pipeline can emit resolves to a path", () => {
+  // The node names the pipeline writes into `from`/`to`, in one place.
+  const emitted = [
+    ["customer", "channel-web"], ["customer", "channel-whatsapp"],
+    ["channel-web", "policy"], ["channel-whatsapp", "reception"],
+    ["policy", "handoff"], ["handoff", "business"],
+    ["reception", "booking"], ["reception", "knowledge"],
+    ["booking", "customer"], ["reception", "customer"],
+  ];
+  for (const [from, to] of emitted) {
+    assert.ok(world.routePath(from, to), `no path for ${from} → ${to}`);
+  }
+});
+
+await check("an unknown event kind keeps its name instead of vanishing", () => {
+  assert.strictEqual(world.eventLabel("reply_sent"), "تم إرسال الرد");
+  assert.strictEqual(world.eventLabel("brand_new_kind"), "brand_new_kind");
+  assert.strictEqual(world.eventTone("brand_new_kind"), "grey");
+  assert.strictEqual(world.stateLabel("working"), "يعمل");
+  assert.strictEqual(world.stateLabel("inventing"), "inventing");
+});
 
 console.log(`\n${process.exitCode ? "✗ FAILURES ABOVE" : "✓ all"} — ${passed} checks passed\n`);
 rmSync(outDir, { recursive: true, force: true });
