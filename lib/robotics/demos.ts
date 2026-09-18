@@ -638,12 +638,16 @@ export const DEMOS: Record<DemoName, Demo> = {
           `With people who never look up it got through ${(distractedRate * 100).toFixed(0)}% of the time ` +
           `at ${distractedContacts.toFixed(1)} contacts per crossing — and predicting their path instead ` +
           `of reversing away from it took that to ${(yieldingRate * 100).toFixed(0)}% at ` +
-          `${yieldingContacts.toFixed(1)}. Measured properly over sixty seeds with a paired test it ` +
-          `is 0/60 clean against 41/60, p = 0.0000 — real, and not the 20/20 an earlier version of ` +
-          `this claimed. That number came from the simulator handing out people's true velocities; ` +
-          `on an estimated one the same code was worse than doing nothing, until it stopped ` +
-          `rechoosing which way to dodge every tick. Every one of these numbers is still ` +
-          `simulation, and none of it has met a real corridor.`,
+          `${yieldingContacts.toFixed(1)}. Extended to sixty seeds on this same protocol it is ` +
+          `0/60 clean against 24/60, p = 0.0000 — and it costs arrivals: 56/60 without yielding, ` +
+          `51/60 with it, because a robot stepping aside sometimes steps somewhere it cannot ` +
+          `finish from. Two earlier numbers were higher and both were measured against a tracker ` +
+          `no camera could supply: 20/20 on the simulator's own true velocities, then 41/60 on a ` +
+          `tracker that reported every person in the world however far away and whatever the ` +
+          `camera was pointing at. Gated to six metres and 162 degrees the same code was worse ` +
+          `than standing still, until an escape was allowed to carry on after the robot's own ` +
+          `turn swung the person out of frame. Every one of these numbers is still simulation, ` +
+          `and none of it has met a real corridor.`,
         details,
         metrics,
       };
