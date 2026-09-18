@@ -110,6 +110,10 @@ def autonomy(con):
         "opportunity_states": {r["status"]: r["c"] for r in con.execute(
             "SELECT status, COUNT(*) c FROM opportunities GROUP BY status")},
         "discoveries": con.execute("SELECT COUNT(*) c FROM discoveries").fetchone()["c"],
+        "opportunity_list": _rows(
+            con, "SELECT id, problem, status, confidence, evidence_id, discovered_by, "
+                 "rationale, project_id, decided_by, decision_why, created_at "
+                 "FROM opportunities ORDER BY id DESC LIMIT 8"),
         "lessons": con.execute("SELECT COUNT(*) c FROM lessons").fetchone()["c"],
         "lessons_promoted": con.execute(
             "SELECT COUNT(*) c FROM lessons WHERE state='PROMOTED'").fetchone()["c"],
@@ -330,7 +334,9 @@ def record(con, kind, rid):
     table = {"task": "tasks", "artifact": "artifacts", "review": "reviews",
              "evidence": "evidence", "tool_call": "tool_calls", "project": "projects",
              "memory": "memories", "message": "agent_messages",
-             "event": "events"}.get(kind)
+             "event": "events", "opportunity": "opportunities",
+             "discovery": "discoveries", "lesson": "lessons",
+             "chain": "chains", "queue": "world_queue"}.get(kind)
     if not table:
         return {"error": "unknown record kind %r" % kind}
     row = con.execute("SELECT * FROM %s WHERE id=?" % table, (rid,)).fetchone()

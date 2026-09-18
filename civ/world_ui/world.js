@@ -81,7 +81,7 @@ const SIGNAL = {
 
 let WORLD = null, LAST_PLACEMENT = {}, SELECTED = null;
 const cam = { x: 0, y: 0, k: 1 };
-const PLATE_W = 1480, PLATE_H = 880;
+const PLATE_W = 1480, PLATE_H = 1050;
 /* The scale the plate is ACTUALLY drawn at right now, which is not cam.k while
    the camera is still moving. Every plate-space measurement divides by this. */
 const K = () => ($("plate").getBoundingClientRect().width / PLATE_W) || 1;
@@ -97,6 +97,8 @@ async function load() {
   WORLD = await get("/api/world");
   renderCondition();
   renderObservatory();
+  renderAutonomy();
+  renderIntake();
   renderLine();
   renderYards();
   renderAgents();
@@ -108,9 +110,59 @@ function renderCondition() {
   const running = WORLD.running.length;
   const el = $("condition");
   el.className = "condition" + (running ? " live" : "");
+  const auto = WORLD.autonomy || {};
   el.innerHTML = `<span class="dot"></span>` + (running
     ? `${running} agent${running > 1 ? "s" : ""} working`
-    : `quiet · no agent holds a lease`);
+    : (auto.quiet === false ? `waking · work is queued`
+                            : `quiet · no agent holds a lease`));
+}
+
+/* ── the autonomy strip ────────────────────────────────────────────
+   What the world is doing while nobody is issuing commands. Every figure is a
+   COUNT the server computed over rows; the UI cannot make any of them move. */
+function renderAutonomy() {
+  const a = WORLD.autonomy;
+  if (!a) return;
+  const q = a.queue || {};
+  const chain = (a.chains || []).find((c) => c.state === "RUNNING")
+    || (a.chains || [])[0];
+  const bits = [
+    `queue <b>${q.READY || 0}</b> ready · <b>${q.CLAIMED || 0}</b> in flight`,
+    `<b>${a.opportunities || 0}</b> opportunities · <b>${a.discoveries || 0}</b> discoveries`,
+  ];
+  if (chain) {
+    const cls = chain.state === "HALTED" || chain.state === "ESCALATED" ? "halt"
+      : chain.state === "QUIET" ? "quietw" : "";
+    bits.push(`chain <span class="${cls}">${esc(chain.state.toLowerCase())}</span>` +
+      ` <b>${chain.tasks_created}</b>/${chain.max_tasks} tasks` +
+      ` · <b>$${(chain.usd_spent || 0).toFixed(5)}</b>`);
+  }
+  if (a.awaiting_owner) bits.push(`<span class="away"><b>${a.awaiting_owner}</b> awaiting you</span>`);
+  const own = (a.owner || {}).state;
+  if (own === "AWAY") bits.push(`<span class="away">owner away</span>`);
+  $("autostrip").innerHTML = bits.join(`<span style="opacity:.3">│</span>`);
+}
+
+/* ── intake: what the world noticed, before anyone agreed to it ──── */
+function renderIntake() {
+  const a = WORLD.autonomy || {};
+  const opps = a.opportunity_list || [];
+  const el = $("intake");
+  if (!opps.length) {
+    el.innerHTML = `<div class="intaketag">INTAKE <i>· opportunities the world found on its own</i></div>`
+      + `<div class="emptyintake">NOTHING NOTICED YET</div>`;
+    return;
+  }
+  el.innerHTML = `<div class="intaketag">INTAKE <i>· opportunities the world found on its own</i></div>`
+    + opps.map((o) => `<div class="opp" data-state="${esc(o.status)}" data-opp="${o.id}">
+      <div class="opptop"><span>OPPORTUNITY #${o.id}</span><span>${esc(o.status)}</span></div>
+      <div class="oppobj">${esc(o.problem)}</div>
+      <div class="oppmeta">found by ${esc((o.discovered_by || "—").replace("AGT-", ""))}
+        · confidence ${(o.confidence || 0).toFixed(2)}
+        · ${o.evidence_id ? "evidence #" + o.evidence_id : "NO EVIDENCE"}</div>
+    </div>`).join("");
+  el.querySelectorAll("[data-opp]").forEach((n) =>
+    n.addEventListener("click", () => openRecord("opportunity", n.dataset.opp)));
 }
 
 function renderObservatory() {

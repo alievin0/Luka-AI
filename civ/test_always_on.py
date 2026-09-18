@@ -768,6 +768,218 @@ class WorldUIProjection(unittest.TestCase):
             "SELECT COUNT(*) c FROM lessons").fetchone()["c"])
 
 
+class LetItRun(unittest.TestCase):
+    """THE test: start it, say one thing, take your hands off, kill it, come back.
+
+    Every assertion here is designed to fail if any step needed a manual push.
+    The test never calls a handler, never transitions a task, never emits an
+    event after the objective — it only turns the supervisor's handle, and the
+    handle is allowed to do nothing."""
+
+    def setUp(self):
+        self.path = os.path.join(tempfile.mkdtemp(), "letitrun.db")
+        self.con = world(self.path)
+        _, self.w, self.fixture = driven(self.con)
+
+    def test_the_whole_thing(self):
+        # 1–2. start the world and submit the one objective
+        cid = D.start(self.con, self.fixture)
+        # 3. Owner interaction is over. Nothing below issues a command.
+        A.go_away(self.con, "let it run")
+
+        # 4–6. let the supervisor operate through several event-driven turns
+        first = SUP.run(self.w, max_ticks=8, until_quiet=False)
+        self.assertGreaterEqual(first["ticks"], 8)
+        self.assertGreater(self.con.execute(
+            "SELECT COUNT(*) c FROM runs").fetchone()["c"], 0, "no agent ever woke")
+
+        mid = {t: self.con.execute("SELECT COUNT(*) c FROM " + t).fetchone()["c"]
+               for t in ("tasks", "artifacts", "runs", "events", "leases")}
+        accepted_before = [r["task_id"] for r in self.con.execute(
+            "SELECT task_id FROM task_transitions WHERE to_state='ACCEPTED'")]
+
+        # 7. stop the worker process
+        self.con.close()
+
+        # 8. restart it — a different worker id, a cold connection, no memory
+        con2 = store.connect(self.path)
+        _, w2, _ = driven(con2, worker="worker-restarted")
+        SUP.reconcile(w2, reason="recovery")
+
+        # 9. the world resumes, on its own, to a stable state
+        res = SUP.run(w2, max_ticks=140)
+        self.assertTrue(res["quiet"], "the world did not settle")
+        self.assertTrue(con2.execute(
+            "SELECT 1 FROM projects WHERE stage='COMPLETED'").fetchone(),
+            "the world stopped short of finishing")
+
+        # nothing regressed across the restart
+        for t, before in mid.items():
+            self.assertGreaterEqual(
+                con2.execute("SELECT COUNT(*) c FROM " + t).fetchone()["c"], before, t)
+
+        # 10. no duplicate completion
+        accepted = [r["task_id"] for r in con2.execute(
+            "SELECT task_id FROM task_transitions WHERE to_state='ACCEPTED'")]
+        self.assertEqual(len(accepted), len(set(accepted)))
+        self.assertEqual(accepted[:len(accepted_before)], accepted_before,
+                         "work accepted before the crash was redone")
+
+        # 11. no duplicate billing — one artifact per run, one charge per run
+        for r in con2.execute("SELECT run_id, COUNT(*) c FROM artifacts "
+                              "GROUP BY run_id HAVING c > 1"):
+            self.fail("run %s produced two artifacts" % r["run_id"])
+        charged = con2.execute(
+            "SELECT COUNT(*) c FROM events WHERE kind='BUDGET_CHARGED'").fetchone()["c"]
+        self.assertLessEqual(charged, con2.execute(
+            "SELECT COUNT(*) c FROM runs").fetchone()["c"])
+
+        # 12. provenance is reconstructable from rows, with no process alive
+        have, missing = A.causality_covers(con2)
+        self.assertEqual(missing, [], "causality cannot be rebuilt: %s" % missing)
+        ok, bad = store.verify_chain(con2)
+        self.assertTrue(ok, bad)
+
+        # 13. While You Were Away reports only persisted facts
+        away = W.while_you_were_away(con2)
+        self.assertEqual(away["counts"]["artifacts_created"], con2.execute(
+            "SELECT COUNT(*) c FROM artifacts").fetchone()["c"])
+        self.assertEqual(away["counts"]["reviews_written"], con2.execute(
+            "SELECT COUNT(*) c FROM reviews").fetchone()["c"])
+        self.assertEqual(away["counts"]["tasks_failed"], con2.execute(
+            "SELECT COUNT(*) c FROM task_transitions WHERE to_state='FAILED'"
+        ).fetchone()["c"])
+
+        # THE criterion: exactly one Owner command, ever.
+        self.assertEqual(con2.execute(
+            "SELECT COUNT(*) c FROM world_queue WHERE emitted_by='OWNER'"
+        ).fetchone()["c"], 1)
+        self.assertEqual(con2.execute(
+            "SELECT state FROM chains WHERE id=?", (cid,)).fetchone()["state"], "QUIET")
+
+    def test_no_further_owner_command_is_needed_to_reach_the_end(self):
+        D.start(self.con, self.fixture)
+        A.go_away(self.con, "hands off")
+        before = self.con.execute(
+            "SELECT COUNT(*) c FROM world_queue WHERE emitted_by='OWNER'").fetchone()["c"]
+        SUP.run(self.w, max_ticks=140)
+        after = self.con.execute(
+            "SELECT COUNT(*) c FROM world_queue WHERE emitted_by='OWNER'").fetchone()["c"]
+        self.assertEqual(before, after, "the world needed another Owner command")
+        self.assertEqual(after, 1)
+        self.assertTrue(self.con.execute(
+            "SELECT 1 FROM projects WHERE stage='COMPLETED'").fetchone())
+
+    def test_the_world_is_a_file_not_a_process(self):
+        """Correctness of persisted state does not depend on anything staying up."""
+        D.start(self.con, self.fixture)
+        SUP.run(self.w, max_ticks=10, until_quiet=False)
+        self.con.close()
+        cold = store.connect(self.path)
+        self.assertEqual(len(W.found_agents(cold)), 5)
+        self.assertTrue(cold.execute("SELECT 1 FROM world_queue").fetchone())
+        self.assertTrue(cold.execute("SELECT 1 FROM chains").fetchone())
+        ok, bad = store.verify_chain(cold)
+        self.assertTrue(ok, bad)
+
+
+class PersistedCausality(unittest.TestCase):
+    def setUp(self):
+        self.con, self.w, self.fixture = driven()
+        D.start(self.con, self.fixture)
+        SUP.run(self.w, max_ticks=140)
+
+    def test_every_declared_link_is_in_the_record(self):
+        have, missing = A.causality_covers(self.con)
+        self.assertEqual(missing, [])
+        self.assertEqual(sorted(have), sorted(A.CAUSAL_LINKS))
+
+    def test_the_chain_starts_at_the_owner_and_ends_at_completion(self):
+        chain = A.world_causality(self.con)
+        self.assertEqual(chain[0]["link"], "objective")
+        self.assertEqual(chain[0]["actor"], "OWNER")
+        self.assertEqual(chain[-1]["link"], "completion")
+
+    def test_every_link_points_at_a_row_that_exists(self):
+        table = {"discovery": "discoveries", "opportunity": "opportunities",
+                 "project": "projects", "team": "teams", "task": "tasks",
+                 "correction": "tasks", "lease": "leases", "run": "runs",
+                 "tool_call": "tool_calls", "artifact": "artifacts",
+                 "verification": "evidence", "review": "reviews",
+                 "rejection": "task_transitions", "acceptance": "task_transitions",
+                 "completion": "events", "objective": "world_queue"}
+        for l in A.world_causality(self.con):
+            t = table.get(l["link"])
+            if t:
+                self.assertTrue(self.con.execute(
+                    "SELECT 1 FROM %s WHERE id=?" % t, (l["id"],)).fetchone(),
+                    "%s #%s" % (l["link"], l["id"]))
+
+    def test_a_rejection_and_a_correction_are_both_in_the_record(self):
+        links = [l["link"] for l in A.world_causality(self.con)]
+        self.assertIn("rejection", links)
+        self.assertIn("correction", links)
+        self.assertLess(links.index("rejection"), len(links) - 1)
+
+
+class AutonomyBoundary(unittest.TestCase):
+    """What agents may never do, asserted rather than asserted-to."""
+
+    def test_there_are_exactly_five_agents(self):
+        con = world()
+        self.assertEqual(len(W.CREW), 5)
+        self.assertEqual(con.execute(
+            "SELECT COUNT(*) c FROM principals WHERE id LIKE 'AGT-%'").fetchone()["c"], 5)
+
+    def test_the_orchestrator_holds_no_tool_and_no_permission(self):
+        con = world()
+        row = con.execute("SELECT tools, permissions FROM principals WHERE id=?",
+                          (ORCH,)).fetchone()
+        self.assertEqual(json.loads(row["tools"]), [])
+        self.assertEqual(json.loads(row["permissions"]), [])
+
+    def test_the_orchestrator_stays_toolless_through_a_whole_autonomous_run(self):
+        con, w, fixture = driven()
+        D.start(con, fixture)
+        SUP.run(w, max_ticks=140)
+        row = con.execute("SELECT tools, permissions FROM principals WHERE id=?",
+                          (ORCH,)).fetchone()
+        self.assertEqual(json.loads(row["tools"]), [])
+        self.assertEqual(json.loads(row["permissions"]), [])
+        self.assertFalse(con.execute(
+            "SELECT 1 FROM tool_calls WHERE principal_id=? AND decision='ALLOW'",
+            (ORCH,)).fetchone(), "the coordinator did the work it delegates")
+
+    def test_the_reviewer_can_never_write(self):
+        con = world()
+        perms = json.loads(con.execute(
+            "SELECT permissions FROM principals WHERE id=?", (REV,)).fetchone()["permissions"])
+        self.assertEqual({p["cap"] for p in perms}, {"READ_REPO"})
+
+    def test_the_operator_is_the_only_one_who_may_execute(self):
+        con = world()
+        holders = []
+        for a in (ORCH, RES, BUILD, REV, OPER):
+            perms = json.loads(con.execute(
+                "SELECT permissions FROM principals WHERE id=?", (a,)).fetchone()["permissions"])
+            if "EXECUTE_SANDBOX" in {p["cap"] for p in perms}:
+                holders.append(a)
+        self.assertEqual(holders, [OPER])
+
+    def test_the_world_view_never_writes(self):
+        """A UI event may not create the activity it displays."""
+        with open(os.path.join(HERE, "world_server.py"), encoding="utf-8") as fh:
+            code = fh.read()
+        for verb in ("INSERT ", "UPDATE ", "DELETE ", "DROP ", "ALTER "):
+            self.assertNotIn(verb, code.upper().replace("INSERTED", ""), verb)
+
+    def test_no_agent_can_add_an_agent(self):
+        con = world()
+        self.assertEqual(POL.classify(con, "agent.create")[0], POL.APPROVE)
+        with self.assertRaises(POL.PolicyError):
+            POL.require(con, "agent.create", ORCH)
+
+
 class SuiteHygiene(unittest.TestCase):
     def test_no_live_model_is_reachable_from_the_autonomous_world(self):
         allowed = {"MockProvider", "CompromisedProvider", "Result", "Provider"}

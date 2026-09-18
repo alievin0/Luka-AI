@@ -414,6 +414,62 @@ autonomous. Every run they touch records `source='mock'`, and every artifact say
 
 ---
 
+## 20b. What "alive" means here, precisely
+
+The word is used in this document in exactly one sense, and it is worth stating
+it plainly because the alternative reading is both wrong and easy to reach for.
+
+**It means:** persistent identity · persistent memory · bounded independent
+execution · event-driven awakening · self-initiated work within declared
+permissions · continuity across process restarts · continued operation while the
+Owner is absent.
+
+**It does not mean, and this system provides no evidence for:** consciousness,
+experience, sentience, preference, wanting, suffering, or anything biological.
+The agents are rows in a database and bounded runs of a program. `ScriptedWorker`
+and `MockProvider` produce text by following a script; calling that intelligence
+would be a category error, and calling it life would be a larger one.
+
+The distinction is not decorative. A world that describes itself as alive
+invites decisions — about trust, about autonomy, about what it may be allowed to
+do unattended — that the evidence here does not support. What the evidence
+supports is narrower and more useful: the world keeps working when nobody is
+watching, and everything it did is on the record.
+
+---
+
+## 20c. The Open World
+
+The World UI is a spatial projection, and `AGENT_WORLD_VISUAL_ARCHITECTURE.md`
+specifies where it is going. What exists today:
+
+```
+WORLD
+├── Owner observatory   off the plate, outside the hierarchy
+├── the Line (factory)  six stations: Discovery → Research → Build → Verification → Review → Output
+├── project yards       a project as a place, with its own progress and spend
+├── intake              opportunities the world found on its own, with their evidence
+├── agents              five entities, placed by `stage.placement`
+└── artifacts           slabs in the cells and on the output dock
+```
+
+The autonomy strip in the chrome carries queue depth, opportunity and discovery
+counts, chain state and spend, pending approvals and Owner presence — every one
+a `COUNT` the server computed over rows.
+
+**No UI event creates activity.** `world_server.py` contains no INSERT, UPDATE or
+DELETE, and a test asserts that. An agent appears to be working only where a
+lease row is ACTIVE; a station is occupied only where a task row says so; the
+intake is empty when nothing has been noticed. There is no random movement, no
+idle animation of position, and nothing decorative that moves at all.
+
+The current composition is transitional — the floor plan is being replaced by the
+lit axonometric model in the visual architecture — but the rule it is built on
+does not change: the screen is a projection of rows, and it has no way to show
+anything else.
+
+---
+
 ## 21. Limitations
 
 1. **No model has run inside this.** The first real run is still the first real

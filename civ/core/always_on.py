@@ -525,3 +525,107 @@ def record_tool_evidence(con, tool_call_id, by, kind="tool"):
         "collected_by,collected_at) VALUES(?,?,?,?,?,?)",
         (kind, prov, json.dumps({"tool_call_id": c["id"], "cap": c["cap"]}),
          c["result_sha"] or "", by, now())).lastrowid
+
+
+# ── PERSISTED CAUSALITY ──────────────────────────────────────────────
+# The question this answers is not "what happened" — the event log already says
+# that — but "can the chain from the Owner's one sentence to the finished work
+# be rebuilt from rows alone, with nothing inferred and nothing remembered by a
+# running process?" If it can, the world is genuinely persistent. If it cannot,
+# the world only looked autonomous while the process that ran it was alive.
+CAUSAL_LINKS = (
+    "objective", "discovery", "opportunity", "project", "team", "task", "lease",
+    "run", "tool_call", "observation", "artifact", "verification", "review",
+    "rejection", "correction", "acceptance", "next_task", "completion",
+)
+
+
+def world_causality(con, objective_subject="objective:1"):
+    """Rebuild the whole chain from persisted rows. No process state is used."""
+    out = []
+
+    def link(kind, rid, at, actor, detail):
+        out.append({"link": kind, "id": rid, "at": at, "actor": actor,
+                    "detail": detail})
+
+    q = con.execute("SELECT * FROM world_queue WHERE kind='OWNER_OBJECTIVE' "
+                    "ORDER BY id LIMIT 1").fetchone()
+    if q is None:
+        return out
+    link("objective", q["id"], q["at"], q["emitted_by"],
+         json.loads(q["payload"] or "{}").get("objective", "")[:90])
+
+    for d in con.execute("SELECT * FROM discoveries ORDER BY id"):
+        link("discovery", d["id"], d["created_at"],
+             (json.loads(d["source_agents"] or "[]") or [None])[0],
+             "evidence #%s · confidence %.2f" % (d["evidence_id"], d["confidence"]))
+
+    for o in con.execute("SELECT * FROM opportunities ORDER BY id"):
+        link("opportunity", o["id"], o["created_at"], o["discovered_by"],
+             "%s · decided by %s · %s" % (o["status"], o["decided_by"],
+                                          (o["decision_why"] or "")[:40]))
+        if o["project_id"]:
+            p = con.execute("SELECT * FROM projects WHERE id=?",
+                            (o["project_id"],)).fetchone()
+            link("project", p["id"], p["created_at"], OWNER,
+                 "%s · from %s" % (p["stage"], p["origin"]))
+            for t in con.execute("SELECT * FROM teams WHERE project_id=?", (p["id"],)):
+                members = [r["principal_id"] for r in con.execute(
+                    "SELECT principal_id FROM team_members WHERE team_id=?", (t["id"],))]
+                link("team", t["id"], t["created_at"], ORCH, ", ".join(members))
+
+    for t in con.execute("SELECT * FROM tasks WHERE project_id IS NOT NULL ORDER BY id"):
+        deps = [r["depends_on"] for r in con.execute(
+            "SELECT depends_on FROM task_deps WHERE task_id=?", (t["id"],))]
+        kind = "correction" if t["objective"].startswith("Correct:") else "task"
+        link(kind, t["id"], t["created_at"], t["created_by"],
+             "%s%s" % (t["status"], " · after %s" % deps if deps else ""))
+        for l in con.execute("SELECT * FROM leases WHERE task_id=? ORDER BY id", (t["id"],)):
+            link("lease", l["id"], l["granted_at"], l["principal_id"], l["status"])
+        for r in con.execute("SELECT * FROM runs WHERE task_id=? ORDER BY id", (t["id"],)):
+            link("run", r["id"], r["started_at"], r["principal_id"],
+                 "%s · %s" % (r["source"], r["status"]))
+        for c in con.execute(
+                "SELECT c.* FROM tool_calls c JOIN leases l ON l.id=c.lease_id "
+                "WHERE l.task_id=? ORDER BY c.id", (t["id"],)):
+            link("tool_call", c["id"], c["at"], c["principal_id"],
+                 "%s %s" % (c["cap"], c["decision"]))
+            if c["decision"] == "ALLOW" and c["result_sha"]:
+                link("observation", c["id"], c["at"], c["principal_id"],
+                     "gateway returned sha %s" % c["result_sha"][:12])
+        for a in con.execute("SELECT * FROM artifacts WHERE task_id=? ORDER BY id",
+                             (t["id"],)):
+            link("artifact", a["id"], a["created_at"], a["principal_id"],
+                 "%s · sha %s" % (a["name"], a["sha"][:12]))
+            for e in con.execute("SELECT * FROM evidence WHERE external_provenance "
+                                 "LIKE ? ORDER BY id", ("artifact:%d@%%" % a["id"],)):
+                d = json.loads(e["detail"] or "{}")
+                link("verification", e["id"], e["collected_at"], e["collected_by"],
+                     "passed" if d.get("passed") else "FAILED: " + "; ".join(
+                         c["requirement"] for c in d.get("checks", [])
+                         if not c["passed"])[:60])
+            for r in con.execute("SELECT * FROM reviews WHERE artifact_id=? ORDER BY id",
+                                 (a["id"],)):
+                link("review", r["id"], r["created_at"], r["reviewer_id"],
+                     "%s · %s" % (r["verdict"], (r["rationale"] or "")[:50]))
+        for tr in con.execute("SELECT * FROM task_transitions WHERE task_id=? "
+                              "AND to_state IN ('FAILED','ACCEPTED') ORDER BY id",
+                              (t["id"],)):
+            link("rejection" if tr["to_state"] == "FAILED" else "acceptance",
+                 tr["id"], tr["at"], tr["actor"], tr["why"][:60])
+
+    for e in con.execute("SELECT * FROM events WHERE kind='PROJECT_COMPLETED' ORDER BY id"):
+        link("completion", e["id"], e["at"], e["actor"], e["subject"])
+    return out
+
+
+def causality_covers(con, objective_subject="objective:1"):
+    """Which of the declared causal links the record actually contains."""
+    seen = {l["link"] for l in world_causality(con, objective_subject)}
+    # `next_task` is the second task becoming runnable, which the record shows as
+    # a task with a dependency that is now satisfied.
+    if any(r for r in con.execute(
+            "SELECT d.task_id FROM task_deps d JOIN tasks t ON t.id=d.depends_on "
+            "WHERE t.status='ACCEPTED'")):
+        seen.add("next_task")
+    return sorted(seen), sorted(set(CAUSAL_LINKS) - seen)
