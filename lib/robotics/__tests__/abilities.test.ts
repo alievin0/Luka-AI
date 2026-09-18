@@ -381,9 +381,15 @@ test("hri.handover releases on the pull, and keeps hold when nobody takes it", a
   assert.equal(grasp.ok, true, grasp.summary);
 
   // The host is standing still and paying attention — walk over and offer it.
+  //
+  // In front of the robot, not behind it. This used to put them at x - 0.6,
+  // which with theta = 0 is directly over the robot's shoulder, and it passed
+  // because the person tracker reported everybody in the world regardless of
+  // where the camera was pointing. You do not hand something to someone you
+  // are facing away from.
   const host = rig.world.humans.find((h) => h.id === "host");
   assert.ok(host);
-  host.at = { x: rig.world.robot("luka-1").pose.x - 0.6, y: rig.world.robot("luka-1").pose.y };
+  host.at = { x: rig.world.robot("luka-1").pose.x + 0.6, y: rig.world.robot("luka-1").pose.y };
   host.attentive = true;
 
   const delivered = await rig.runtime.run<Record<string, never>, { delivered: boolean; releasePull: number }>(
@@ -403,7 +409,9 @@ test("hri.handover releases on the pull, and keeps hold when nobody takes it", a
   const host2 = rig2.world.humans.find((h) => h.id === "host");
   assert.ok(host2);
   host2.attentive = false;
-  host2.at = { x: rig2.world.robot("luka-1").pose.x - 0.6, y: rig2.world.robot("luka-1").pose.y };
+  // In front, for the same reason as above: the case being tested is a person
+  // who is visible and not taking it, not a person the camera cannot see.
+  host2.at = { x: rig2.world.robot("luka-1").pose.x + 0.6, y: rig2.world.robot("luka-1").pose.y };
 
   const refused = await rig2.runtime.run<{ timeoutMs: number }, { delivered: boolean; retracted: boolean }>(
     "hri.handover",

@@ -415,8 +415,11 @@ export const DEMOS: Record<DemoName, Demo> = {
       const host = rig.world.humans.find((h) => h.id === "host");
       if (host) {
         host.attentive = true;
+        // In front of the robot. This used to be behind it, and it worked
+        // because the person tracker reported everybody in the world whatever
+        // the camera was pointing at.
         host.at = {
-          x: rig.world.robot("luka-1").pose.x - 0.6,
+          x: rig.world.robot("luka-1").pose.x + 0.6,
           y: rig.world.robot("luka-1").pose.y,
         };
       }
@@ -436,7 +439,7 @@ export const DEMOS: Record<DemoName, Demo> = {
       if (host2) {
         host2.attentive = false;
         host2.at = {
-          x: rig2.world.robot("luka-1").pose.x - 0.6,
+          x: rig2.world.robot("luka-1").pose.x + 0.6,
           y: rig2.world.robot("luka-1").pose.y,
         };
       }

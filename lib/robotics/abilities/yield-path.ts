@@ -98,6 +98,21 @@ export type YieldInput = {
   horizonSeconds?: number;
   /** How fast to step aside, m/s. */
   stepSpeed?: number;
+  /**
+   * How far clear a prediction has to read before an escape already under way
+   * is abandoned, as a multiple of `clearance`.
+   */
+  releaseFactor?: number;
+  /**
+   * The largest velocity uncertainty, relative to the speed being estimated,
+   * that is still worth choosing a side from.
+   */
+  maxUncertaintyRatio?: number;
+  /**
+   * How long to keep executing an escape after losing sight of the person who
+   * caused it, ms. Turning to step aside is what pushes them out of frame.
+   */
+  coastMs?: number;
 };
 
 export type YieldReport = {
@@ -109,6 +124,10 @@ export type YieldReport = {
   tightestPrediction: number;
   /** Times a yield was wanted and there was nowhere to go. */
   trapped: number;
+  /** Ticks where somebody was converging and the estimate was too poor to act on. */
+  tooUncertain: number;
+  /** Ticks spent finishing an escape for somebody no longer in view. */
+  coasting: number;
   ticks: number;
 };
 
@@ -153,11 +172,19 @@ const manifest = {
     status: "SIMULATED" as const,
     basis:
       "Sixty corridor crossings against people who never look up, paired on seed: 0/60 clean " +
-      "and 3.73 contacts per crossing without it, 41/60 clean [56-79%] and 1.63 contacts with " +
-      "it. McNemar gives 41 wins to 0 across 41 disagreements, p = 0.0000. An earlier version " +
-      "claimed 20/20 and zero contacts; that was measured against a simulator handing out " +
-      "people's true velocities, and with an estimated one the same code was worse than doing " +
-      "nothing.",
+      "and 6.97 contacts per crossing without it, 37/60 clean [49-73%] and 2.20 contacts with " +
+      "it. McNemar gives 37 wins to 0 across 37 disagreements, p = 0.0000.\n\n" +
+      "Two earlier numbers were both measured against a tracker no camera could supply. The " +
+      "first claimed 20/20 and zero contacts, on a simulator handing out people's true " +
+      "velocities; with an estimated one the same code was worse than doing nothing. The second " +
+      "claimed 41/60, on a tracker that reported every person in the world regardless of the " +
+      "camera's six metres and 162 degrees, and with a position error that did not grow with " +
+      "range. Gated to what the camera can see, the same code collapsed to 1/60 — worse than " +
+      "standing still, at 8.42 contacts against 6.97 — because stepping aside means turning, " +
+      "and turning swings the camera off the person who caused it, so the escape cancels itself " +
+      "and restarts: 21.4 fresh escapes per crossing. Letting a committed escape outlive the " +
+      "sight of them is what recovers it, and it is a 34-to-1 win over abandoning them, " +
+      "p = 0.0000.",
     verification:
       "A person walking a marked line at a measured pace, crossing a robot on a marked course, " +
       "with the closest approach measured from overhead video. The number to check is the " +
@@ -171,7 +198,18 @@ const manifest = {
       "The simulated people walk at constant speed along straight waypoints and never hesitate " +
         "or change their minds. Real people do, and stepping into somebody who stepped the same " +
         "way is this class of prediction's signature failure.",
-      "A person tracker that drops a track mid-approach looks exactly like a person who left.",
+      "A person tracker that drops a track mid-approach looks exactly like a person who left. " +
+        "An escape already under way carries on for a second and a half without them, which is " +
+        "the right answer when the robot's own turn is what lost them and the wrong one when " +
+        "they genuinely went somewhere else.",
+      "The escape direction is perpendicular to where the person is walking, so it is only as " +
+        "good as the velocity estimate — and a manoeuvre is not started from one whose " +
+        "uncertainty is more than 0.6 of the speed it is estimating, because at a ratio of one " +
+        "the perpendicular is a coin flip and stepping the wrong way is an interception. Ticks " +
+        "refused on that ground are counted rather than hidden.",
+      "The five-second horizon was swept against a tracker with no range limit. A camera that " +
+        "sees six metres gives 3.5 s of warning at worst in this corridor, so the horizon is no " +
+        "longer the binding constraint it was tuned to be.",
       "In a corridor narrow enough that perpendicular is into a wall, it has nowhere to go and " +
         "the prediction is correct and useless.",
     ],
@@ -198,6 +236,26 @@ const manifest = {
         default: 5,
       },
       stepSpeed: { type: "number" as const, description: "Speed to step aside, m/s.", default: 0.8 },
+      releaseFactor: {
+        type: "number" as const,
+        description:
+          "How far clear a prediction must read before an escape already under way is called off, " +
+          "as a multiple of clearance.",
+        default: 1.6,
+      },
+      maxUncertaintyRatio: {
+        type: "number" as const,
+        description:
+          "Largest velocity uncertainty, relative to the speed being estimated, still worth " +
+          "choosing a side from.",
+        default: 0.6,
+      },
+      coastMs: {
+        type: "number" as const,
+        description:
+          "How long an escape keeps running after the person who caused it leaves the camera, ms.",
+        default: 1500,
+      },
     },
     required: [],
   },
@@ -216,18 +274,39 @@ export const yieldPath: Ability<YieldInput, YieldReport> = {
     // Clearance barely moves the result by comparison.
     const horizon = input.horizonSeconds ?? 5;
     const stepSpeed = input.stepSpeed ?? 0.8;
+    // How far clear the prediction has to read before an escape already under
+    // way is called off, as a multiple of `clearance`.
+    const releaseFactor = input.releaseFactor ?? 1.6;
+    // The most a velocity estimate may be wrong, relative to the speed it is
+    // estimating, before it is too poor to pick a side from.
+    //
+    // The direction of the escape is perpendicular to the way the person is
+    // walking, so an error of `u` on a speed of `v` puts roughly `u/v` radians
+    // of error on it. At a ratio of one the perpendicular is a coin flip, and a
+    // robot that steps the wrong way has not yielded, it has intercepted.
+    //
+    // Not the same experiment as the horizon bound below, which was tried and
+    // removed: that used uncertainty to decide *how far ahead* to predict. This
+    // decides whether to act on the prediction at all.
+    const maxUncertaintyRatio = input.maxUncertaintyRatio ?? 0.6;
+    /** How long an escape keeps running after the person who caused it is lost. */
+    const coastMs = input.coastMs ?? 1500;
 
     const report: YieldReport = {
       yields: 0,
       minDistance: Number.POSITIVE_INFINITY,
       tightestPrediction: Number.POSITIVE_INFINITY,
       trapped: 0,
+      tooUncertain: 0,
+      coasting: 0,
       ticks: 0,
     };
 
     let yieldingFor: string | null = null;
     /** The escape direction already chosen for them, kept until it is blocked. */
     let committedSide: Vec2 | null = null;
+    /** When the current escape was committed to, on the robot's clock. */
+    let committedAt = 0;
 
     while (!ctx.signal.aborted) {
       report.ticks += 1;
@@ -265,12 +344,46 @@ export const yieldPath: Ability<YieldInput, YieldReport> = {
 
         // Only paths that are actually converging, and soon enough that moving
         // changes the outcome.
-        if (approach.time < 0 || approach.time > horizon) continue;
-        if (approach.distance >= clearance) continue;
+        //
+        // Wider on both counts for somebody the robot is already stepping out
+        // of the way of. A prediction built from a velocity estimate wobbles,
+        // and a manoeuvre dropped the first tick the wobble reads "fine" is a
+        // manoeuvre that never finishes — the robot steps half out, re-enters
+        // their line, and steps out again. This is the same lesson the conflict
+        // detectors had to learn: a state is held until the evidence clears it
+        // at a magnitude where clearing means something.
+        const engaged = person.id === yieldingFor;
+        if (approach.time < 0 || approach.time > (engaged ? horizon * 1.5 : horizon)) continue;
+        if (approach.distance >= (engaged ? clearance * releaseFactor : clearance)) continue;
         if (!worst || approach.time < worst.approach.time) worst = { person, approach };
       }
 
       if (!worst) {
+        // The escape destroys the evidence for itself.
+        //
+        // Stepping aside means turning, and turning swings a 162° camera off
+        // the person who caused it. They leave the track, nothing is
+        // converging any more, and the manoeuvre is abandoned halfway — then
+        // the robot turns back, sees them again, and starts over. Measured
+        // before this existed: 471 fresh escapes across twenty crossings,
+        // twenty-three per crossing, which is not yielding, it is a dance.
+        //
+        // So a commitment outlives the sight of the person who caused it, for
+        // about as long as the step itself takes. The decision was made from
+        // evidence; losing sight of them afterwards does not unmake it. It is
+        // bounded because a commitment nobody can see the reason for any more
+        // is exactly the thing that must not run indefinitely.
+        if (yieldingFor !== null && committedSide && ctx.now() - committedAt < coastMs) {
+          const bearing = Math.atan2(committedSide.y, committedSide.x);
+          const turn = clamp(wrap(bearing - heading) * 2.4, -1.8, 1.8);
+          const aligned = Math.abs(wrap(bearing - heading));
+          const forward = aligned < 0.9 ? stepSpeed : stepSpeed * 0.25;
+          report.coasting += 1;
+          ctx.safety.takeWheel(forward, turn, "yielding the path");
+          ctx.robot.drive(forward, turn);
+          await ctx.sleep(periodMs);
+          continue;
+        }
         if (yieldingFor !== null) {
           yieldingFor = null;
           committedSide = null;
@@ -353,9 +466,31 @@ export const yieldPath: Ability<YieldInput, YieldReport> = {
         continue;
       }
 
+      // Starting a manoeuvre needs an estimate good enough to choose from;
+      // continuing one does not, because the choice has already been made.
+      if (yieldingFor !== worst.person.id) {
+        const walkingSpeed = Math.hypot(worst.person.velocity.x, worst.person.velocity.y);
+        // An absent uncertainty is not a small one. A tracker that does not
+        // publish its own error gets treated as unusable for choosing a side,
+        // because the alternative is acting on a number nobody vouched for.
+        const reported = worst.person.velocityUncertainty;
+        const ratio =
+          walkingSpeed <= 0.05
+            ? 0 // standing still: the direction comes from geometry, not the estimate
+            : reported === undefined
+              ? Number.POSITIVE_INFINITY
+              : reported / walkingSpeed;
+        if (!Number.isFinite(ratio) || ratio > maxUncertaintyRatio) {
+          report.tooUncertain += 1;
+          await ctx.sleep(periodMs);
+          continue;
+        }
+      }
+
       committedSide = chosen;
       if (yieldingFor !== worst.person.id) {
         yieldingFor = worst.person.id;
+        committedAt = ctx.now();
         report.yields += 1;
         ctx.robot.setLights("yielding", "#f59e0b");
         ctx.emit({
