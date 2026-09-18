@@ -88,3 +88,14 @@ CREATE TRIGGER law_one_agent_per_station BEFORE UPDATE OF occupied_by ON worksta
 WHEN NEW.occupied_by IS NOT NULL AND EXISTS (
   SELECT 1 FROM workstations WHERE occupied_by = NEW.occupied_by AND id <> NEW.id)
 BEGIN SELECT RAISE(ABORT, 'LAW 44: an agent occupies one workstation at a time'); END;
+
+-- The other half of the same law. `occupied_by` holds one value, so seating a
+-- second agent at an occupied station does not fail — it silently EVICTS the
+-- first one, and the evicted agent goes on standing where its seat used to be.
+-- A seat is released before it is taken, never overwritten.
+DROP TRIGGER IF EXISTS law_a_seat_is_released_before_it_is_taken;
+CREATE TRIGGER law_a_seat_is_released_before_it_is_taken
+BEFORE UPDATE OF occupied_by ON workstations
+WHEN NEW.occupied_by IS NOT NULL AND OLD.occupied_by IS NOT NULL
+ AND NEW.occupied_by <> OLD.occupied_by
+BEGIN SELECT RAISE(ABORT, 'LAW 44: a workstation holds one agent at a time'); END;

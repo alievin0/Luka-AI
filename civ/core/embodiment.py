@@ -445,6 +445,7 @@ def embodiment(con, agent_id):
         "agent_id": agent_id,
         "body_id": body["body_id"],
         "appearance": {k: body[k] for k in (
+            "body_id",
             "body_variant", "head_variant", "chest_variant", "sensor_variant",
             "equipment", "build", "height", "palette", "primary_color",
             "secondary_color", "accent_color", "material", "marking", "seed")},

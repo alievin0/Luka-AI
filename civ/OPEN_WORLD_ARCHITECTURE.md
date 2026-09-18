@@ -31,6 +31,11 @@ movement record, all written when work sent them somewhere. That is
 [`SPATIAL_WORLD.md`](SPATIAL_WORLD.md), and `python3 spatial_demo.py --fresh` is
 the proof.
 
+**The agents have bodies now.** Each persistent identity owns a persistent
+physical body and a seat it holds, and its stance comes from the row that says
+what it is doing — [`EMBODIED_WORLD.md`](EMBODIED_WORLD.md), with
+`python3 embodiment_demo.py --fresh` as the proof and `/bodies` as the registry.
+
 ---
 
 ## 1. Why the floor plan had to go

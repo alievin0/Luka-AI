@@ -123,6 +123,81 @@ function primitives(THREE, lod) {
                                                       lod === "far" ? 8 : 20) };
 }
 
+/* ── merging ──────────────────────────────────────────────────────────
+   A body is about fifty parts, and fifty parts is fifty draw calls. Parts that
+   move together never need to be separate meshes, so each rig group is welded
+   into one mesh per material once the body is built. Nothing about the shape
+   changes — the same triangles are submitted, in far fewer calls.
+
+   The welding stops at the rig boundary, because a welded shoulder could not
+   bend. A FAR body is welded whole: at sixty metres an arm swing is under a
+   pixel, and a body that cannot articulate is the correct thing to draw there. */
+function bake(THREE, geo, m) {
+  const g = geo.index ? geo.toNonIndexed() : geo.clone();
+  g.applyMatrix4(m);
+  return g;
+}
+
+function weld(THREE, group, deep) {
+  const buckets = new Map();
+  const keep = [];
+  const visit = (o, m) => {
+    const mm = m.clone().multiply(o.matrix);
+    if (o.isMesh) {
+      const k = o.material.uuid;
+      if (!buckets.has(k)) buckets.set(k, { mat: o.material, geos: [] });
+      buckets.get(k).geos.push(bake(THREE, o.geometry, mm));
+      return true;
+    }
+    if (o.isGroup && (deep || !o.userData.rigJoint)) {
+      for (const c of [...o.children]) visit(c, mm);
+      if (!deep) return false;
+      return true;
+    }
+    return false;
+  };
+  for (const c of [...group.children]) {
+    c.updateMatrix();
+    if (c.isGroup && !deep) { keep.push(c); continue; }
+    c.updateMatrix();
+    if (!visit(c, new THREE.Matrix4())) keep.push(c);
+  }
+  group.clear();
+  for (const c of keep) group.add(c);
+  for (const { mat, geos } of buckets.values()) {
+    const merged = concat(THREE, geos);
+    if (!merged) continue;
+    const mesh = new THREE.Mesh(merged, mat);
+    mesh.castShadow = true;
+    group.add(mesh);
+  }
+}
+
+/* Concatenate non-indexed geometries that share an attribute set. Written here
+   rather than pulled from three/examples, because the vendored three is the
+   core module only and this world boots with the network switched off. */
+function concat(THREE, geos) {
+  geos = geos.filter((g) => g.attributes.position);
+  if (!geos.length) return null;
+  const names = ["position", "normal", "uv"].filter(
+    (n) => geos.every((g) => g.attributes[n]));
+  const total = geos.reduce((n, g) => n + g.attributes.position.count, 0);
+  const out = new THREE.BufferGeometry();
+  for (const n of names) {
+    const size = geos[0].attributes[n].itemSize;
+    const arr = new Float32Array(total * size);
+    let at = 0;
+    for (const g of geos) {
+      const a = g.attributes[n];
+      for (let i = 0; i < a.count * size; i++) arr[at + i] = a.array[i];
+      at += a.count * size;
+    }
+    out.setAttribute(n, new THREE.BufferAttribute(arr, size));
+  }
+  for (const g of geos) g.dispose();
+  return out;
+}
+
 export function buildBody(THREE, a, opts = {}) {
   const v = BODY[a.body_variant] || BODY.A1;
   const k = BUILD[a.build] || 1;
@@ -142,16 +217,21 @@ export function buildBody(THREE, a, opts = {}) {
     M(a.secondary_color, a.material, 0.85));
   // Shells are open surfaces, so they must be lit from both sides or they
   // vanish the moment the camera goes round the back.
-  const primS = prim.clone(); primS.side = THREE.DoubleSide;
-  const secS = sec.clone(); secS.side = THREE.DoubleSide;
-  const litS = lit.clone(); litS.side = THREE.DoubleSide;
   const dark = new THREE.MeshStandardMaterial(
     { color: 0x14181c, roughness: 0.42, metalness: 0.58 });
-  const joint = new THREE.MeshStandardMaterial(
-    { color: 0x8a939d, roughness: 0.30, metalness: 0.90 });
+  // Every distinct material is a draw call per body, and at sixty metres a
+  // double-sided shell, a lit strip and a polished joint are all the same few
+  // pixels. A far body therefore shares materials rather than carrying nine.
+  const primS = detail ? Object.assign(prim.clone(), { side: THREE.DoubleSide }) : prim;
+  const secS = detail ? Object.assign(sec.clone(), { side: THREE.DoubleSide }) : sec;
+  const litS = detail ? Object.assign(lit.clone(), { side: THREE.DoubleSide }) : sec;
+  const joint = detail
+    ? new THREE.MeshStandardMaterial({ color: 0x8a939d, roughness: 0.30, metalness: 0.90 })
+    : dark;
 
   const g = new THREE.Group();
-  g.userData.materials = [prim, sec, acc, lit, primS, secS, litS, dark, joint];
+  g.userData.materials = [...new Set([prim, sec, acc, lit, primS, secS, litS,
+                                      dark, joint])];
   const put = (parent, geo, mat, x, y, z) => {
     const mesh = new THREE.Mesh(geo, mat);
     mesh.position.set(x, y, z);
@@ -227,7 +307,8 @@ export function buildBody(THREE, a, opts = {}) {
 
   /* ── chest plate: the agent's badge, and one of its identity marks ── */
   const plateZ = chestD / 2 + 0.006 * S;
-  if (a.chest_variant === "C1") {                     // recessed panel
+  if (!detail) { /* a badge is sub-pixel at this range */
+  } else if (a.chest_variant === "C1") {                     // recessed panel
     slab(torso, dark, chestW * 0.56, 0.20 * S, 0.022 * S, 0, 0.36 * S, plateZ, 0.02 * S);
     slab(torso, lit, chestW * 0.44, 0.10 * S, 0.012 * S, 0, 0.36 * S,
          plateZ + 0.016 * S, 0.012 * S);
@@ -249,8 +330,9 @@ export function buildBody(THREE, a, opts = {}) {
          plateZ + 0.014 * S, 0.008 * S);
   }
   // the identification strip every member of this civilisation carries
-  slab(torso, acc, 0.028 * S, 0.24 * S, 0.014 * S,
-       chestW * 0.44, 0.34 * S, plateZ, 0.012 * S);
+  if (detail)
+    slab(torso, acc, 0.028 * S, 0.24 * S, 0.014 * S,
+         chestW * 0.44, 0.34 * S, plateZ, 0.012 * S);
 
   /* ── shoulders and arms: ball joint, curved pauldron, capsule limb ── */
   for (const [grp, fore, side] of [[armL, foreL, -1], [armR, foreR, 1]]) {
@@ -266,9 +348,10 @@ export function buildBody(THREE, a, opts = {}) {
     // hand: a chamfered palm with a two-finger gripper, not a cube
     const palm = slab(fore, dark, armR_ * 1.5, 0.085 * S, armR_ * 1.1,
                       0, -0.325 * S, 0, 0.018 * S);
-    for (const f of [-1, 1])
-      slab(fore, joint, armR_ * 0.38, 0.055 * S, armR_ * 0.5,
-           f * armR_ * 0.5, -0.385 * S, 0.006 * S, 0.012 * S);
+    if (detail)
+      for (const f of [-1, 1])
+        slab(fore, joint, armR_ * 0.38, 0.055 * S, armR_ * 0.5,
+             f * armR_ * 0.5, -0.385 * S, 0.006 * S, 0.012 * S);
     palm.rotation.x = 0.06;
     if (detail)
       slab(grp, acc, 0.016 * S, 0.075 * S, 0.02 * S,
@@ -398,8 +481,19 @@ export function buildBody(THREE, a, opts = {}) {
     limb(torso, joint, 0.012 * S, 0.14 * S, 0, 0.66 * S, 0);
   }
 
-  g.userData.rig = { root, hips, torso, neck, armL, armR, foreL, foreR,
-                     legL, legR, shinL, shinR };
+  const rig = { root, hips, torso, neck, armL, armR, foreL, foreR,
+                legL, legR, shinL, shinR };
+  for (const j of Object.values(rig)) j.userData.rigJoint = true;
+  if (lod === "far") {
+    // One mesh per material for the whole body. It cannot articulate, and at
+    // this distance nothing it could do would be visible.
+    root.updateMatrixWorld(true);
+    weld(THREE, root, true);
+    g.userData.rig = null;
+  } else {
+    for (const j of Object.values(rig)) weld(THREE, j, false);
+    g.userData.rig = rig;
+  }
   g.userData.scale = S;
   g.userData.height = H;
   return g;

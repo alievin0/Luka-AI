@@ -11,6 +11,11 @@ python3 spatial_demo.py --fresh                    # five agents that travel
 python3 -m unittest test_always_on                 # 271 tests
 ```
 
+**The agents in it have bodies now** — a persistent physical identity per agent,
+a workstation it holds, and an animation derived from the row that says what it
+is doing. That is [`EMBODIED_WORLD.md`](EMBODIED_WORLD.md); this page describes
+the campus they stand in.
+
 ---
 
 ## 1. The world is 3D now, and it is drawn from rows

@@ -450,6 +450,61 @@ function bounds(builtOnly) {
   };
 }
 
+/* A path from A to B that respects the buildings in between.
+
+   Three sources, in order of authority. (1) The route the world planned, when
+   the agent is MOVING: `a.waypoints` is `agent_locations.path` in coordinates,
+   entering each building through its own doorway. (2) The doorway of whichever
+   building the agent is entering or leaving, when there is no planned route
+   but a wall is in the way. (3) A straight line, when nothing is in the way.
+   Nowhere does this file decide WHERE anyone goes — only how to get the body
+   there without walking it through a wall. */
+function legsFor(from, to, a) {
+  const pts = [];
+  if (a.movement === "MOVING" && (a.waypoints || []).length) {
+    for (const w of a.waypoints) pts.push(P3(w.x, w.y));
+  } else {
+    // Leaving a room, entering a room: use the door. `navmesh.doors` is the
+    // same list the world walks; there is no second opinion about where a
+    // building can be entered.
+    const doors = (W.navmesh || {}).doors || [];
+    const inBox = (p, b) => p.x >= b.x - .4 && p.x <= b.x + b.w + .4
+                         && p.z >= b.y - .4 && p.z <= b.y + b.h + .4;
+    for (const b of ((W.navmesh || {}).blocks || [])) {
+      const a0 = inBox(from, b), b0 = inBox(to, b);
+      if (a0 === b0) continue;                 // both in, or both out: no wall crossed
+      const d = doors.find((x) => x.place === b.id);
+      if (d) pts.push(P3(d.x, d.y));
+    }
+    pts.push(to.clone());
+  }
+  if (!pts.length) pts.push(to.clone());
+  if (!pts[pts.length - 1].equals(to)) pts.push(to.clone());
+  // total length, so the body moves at one speed across the whole route rather
+  // than spending equal time on a 1-unit leg and a 40-unit one
+  let len = 0;
+  const segs = [];
+  let prev = from;
+  for (const q of pts) {
+    const d = q.distanceTo(prev);
+    if (d > 1e-4) { segs.push({ a: prev, b: q, d }); len += d; }
+    prev = q;
+  }
+  return { segs, len: Math.max(len, 1e-4) };
+}
+
+/* Where along the route the body is, as a fraction of the whole. */
+function walk(legs, k) {
+  if (!legs || !legs.segs.length) return null;
+  let want = k * legs.len;
+  for (const s of legs.segs) {
+    if (want <= s.d) return { p: s.a.clone().lerp(s.b, want / s.d), a: s.a, b: s.b };
+    want -= s.d;
+  }
+  const last = legs.segs[legs.segs.length - 1];
+  return { p: last.b.clone(), a: last.a, b: last.b };
+}
+
 /* ══ AGENTS ══════════════════════════════════════════════════════════ */
 function syncAgents() {
   const seen = new Set();
@@ -481,12 +536,16 @@ function syncAgents() {
       if (e.shell.userData.pool) e.shell.userData.pool.material.color.setHex(col);
       e.col = col;
     }
-    // The only motion this file owns: slide from where the server last said it
-    // was, to where the server says it is. Both are rows.
+    // The only motion this file owns: carry the body from where the server last
+    // said it was to where the server says it is NOW. Both ends are rows, and
+    // the path between them is the route the world planned — `waypoints` turns
+    // `agent_locations.path` into coordinates that go through doorways. This
+    // file never invents a leg; it walks the ones already recorded.
     const target = P3(a.x, a.y);
     if (!e.to.equals(target)) {
       e.from = e.root.position.clone();
       e.to = target;
+      e.legs = legsFor(e.from, target, a);
       e.t = 0;
     }
     e.state = a.state;
@@ -602,12 +661,21 @@ function applyLOD() {
   // Close in, the shells become glass. A world where the agents are sealed
   // inside opaque boxes shows you a business park, not an organisation.
   const inside = l.id === "facility" || l.id === "workspace";
-  for (const m of [M.wall, M.roof, M.kerb]) {
-    m.transparent = inside;
-    m.opacity = inside ? (m === M.roof ? .18 : .3) : 1;
-    m.depthWrite = !inside;
-    m.needsUpdate = true;
-  }
+  // A cutaway, not a fog. Stacking half-a-dozen translucent walls between the
+  // camera and a desk produces a green haze you cannot read anything through,
+  // so inside the campus the roofs come off and the walls render back-face
+  // only: you look INTO a building from any angle and the far wall still gives
+  // the room an edge. Outside, the buildings are solid again.
+  M.roof.visible = !inside;
+  M.wall.side = inside ? THREE.BackSide : THREE.FrontSide;
+  M.wall.transparent = inside;
+  M.wall.opacity = inside ? .82 : 1;
+  M.wall.needsUpdate = true;
+  M.kerb.transparent = inside;
+  M.kerb.opacity = inside ? .5 : 1;
+  M.kerb.needsUpdate = true;
+  M.glass.opacity = inside ? .12 : .5;
+  M.glass.needsUpdate = true;
   // A shell you can see through still casts a solid shadow, which is how a
   // floor you are standing on ends up pitch dark. Inside, the building stops
   // casting and the interior gets its own light — a lit room is ARCHITECTURE,
@@ -686,11 +754,19 @@ function tick(now) {
   const T = now / 1000;
   for (const e of AGENTS.values()) {
     if (e.t < 1) {
-      e.t = Math.min(1, e.t + dt * 1.25);
+      // Pace: a body covers the route at a steady walk, so a long journey takes
+      // longer than a short one instead of every move taking the same second.
+      const len = e.legs ? e.legs.len : e.from.distanceTo(e.to);
+      e.t = Math.min(1, e.t + dt * Math.min(1.6, 5.2 / Math.max(2, len)));
       const k = e.t < .5 ? 2 * e.t * e.t : 1 - Math.pow(-2 * e.t + 2, 2) / 2;
-      e.root.position.lerpVectors(e.from, e.to, k);
-      const d = e.to.clone().sub(e.from);
-      if (d.lengthSq() > .01) e.face = Math.atan2(d.x, d.z);
+      const at = walk(e.legs, k);
+      if (at) {
+        e.root.position.copy(at.p);
+        const d = at.b.clone().sub(at.a);
+        if (d.lengthSq() > .01) e.face = Math.atan2(d.x, d.z);
+      } else {
+        e.root.position.lerpVectors(e.from, e.to, k);
+      }
     }
     // Turn toward the heading rather than snapping to it.
     let dy = e.face - e.root.rotation.y;

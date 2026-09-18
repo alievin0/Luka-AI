@@ -11,6 +11,8 @@ python3 world_server.py --db spatial-world.db   # /3d is the WebGL world
 
 The 3D environment built on this spatial state, and the pipeline that lets the
 world build more of it, are [`WORLD_3D_AND_GROWTH.md`](WORLD_3D_AND_GROWTH.md).
+The bodies standing at those coordinates are
+[`EMBODIED_WORLD.md`](EMBODIED_WORLD.md).
 
 ---
 
