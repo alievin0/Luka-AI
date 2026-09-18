@@ -163,6 +163,7 @@ class R6_ADeclaredTableNothingWrites(unittest.TestCase):
         import bench_run as BR
         import org_demo
         import agent_world_demo
+        from core import always_on
         from core import provider as _P
         con = fresh()
         org_demo.run(con, verbose=False)
@@ -172,6 +173,23 @@ class R6_ADeclaredTableNothingWrites(unittest.TestCase):
         # include the agent world — the rule is "use it or remove it", and the
         # right way to satisfy it is to exercise the user, not to excuse the table.
         agent_world_demo.run(con, _P.MockProvider(), verbose=False)
+        # The always-on world added nine more: the queue, chains, policies,
+        # budgets, dependency edges, lessons, presence and heartbeats. Same rule,
+        # same answer — exercise the user rather than excuse the table. This runs
+        # the autonomous demonstration end to end, which is also the only way to
+        # show that the supervisor writes everything it declares.
+        import always_on_demo
+        from core import world_supervisor as _SUP
+        fixture = always_on_demo.write_fixture()
+        w = always_on_demo.build_world(con, fixture)
+        always_on_demo.start(con, fixture)
+        always_on.go_away(con, "R6")
+        _SUP.run(w, max_ticks=120)
+        _SUP.reconcile(w, reason="R6")
+        always_on.come_back(con)
+        lesson = con.execute("SELECT id FROM lessons ORDER BY id LIMIT 1").fetchone()
+        if lesson:
+            always_on.propose_lesson_promotion(con, lesson["id"], by="AGT-RESEARCHER")
         empty = []
         for (t,) in con.execute("SELECT name FROM sqlite_master WHERE type='table' "
                                 "AND name NOT LIKE 'sqlite_%' ORDER BY name"):

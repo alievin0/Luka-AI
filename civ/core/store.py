@@ -10,6 +10,8 @@ ORG_SCHEMA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "org_schem
 BENCH_SCHEMA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bench_schema.sql")
 WORLD_SCHEMA = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                             "agent_world_schema.sql")
+ALWAYS_ON_SCHEMA = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                "always_on_schema.sql")
 DEFAULT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "civ.db")
 
 MODES = ("simulation", "live", "hybrid")
@@ -32,7 +34,8 @@ def connect(path=None):
     con = sqlite3.connect(path, isolation_level=None)
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA foreign_keys=ON")
-    for path in (SCHEMA, ORG_SCHEMA, BENCH_SCHEMA, WORLD_SCHEMA):
+    for path in (SCHEMA, ORG_SCHEMA, BENCH_SCHEMA, WORLD_SCHEMA,
+                 ALWAYS_ON_SCHEMA):
         with open(path, encoding="utf-8") as fh:
             con.executescript(fh.read())
     # Organisational lifecycle is a DIFFERENT axis from runtime status:
@@ -62,6 +65,21 @@ def connect(path=None):
     _widen_check(con, BENCH_SCHEMA, "bench_runs", "'INCOMPLETE'")
     _widen_check(con, SCHEMA, "tool_calls", "'ERROR'")
     _widen_check(con, SCHEMA, "tasks", "'ARCHIVED'")
+    _widen_check(con, ORG_SCHEMA, "opportunities", "'APPROVED'")
+    # Additive columns for the opportunity radar. An opportunity now has to say
+    # who found it, how sure they were and who decided — none of which existed
+    # when an opportunity was something a person typed in.
+    ocols = {r[1] for r in con.execute("PRAGMA table_info(opportunities)")}
+    for col, ddl in (("confidence", "REAL NOT NULL DEFAULT 0"),
+                     ("discovery_id", "INTEGER REFERENCES discoveries(id)"),
+                     ("discovered_by", "TEXT"),
+                     ("rationale", "TEXT NOT NULL DEFAULT ''"),
+                     ("project_id", "INTEGER REFERENCES projects(id)"),
+                     ("decided_by", "TEXT"),
+                     ("decided_at", "TEXT"),
+                     ("decision_why", "TEXT NOT NULL DEFAULT ''")):
+        if col not in ocols:
+            con.execute("ALTER TABLE opportunities ADD COLUMN %s %s" % (col, ddl))
     return con
 
 

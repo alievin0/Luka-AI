@@ -19,6 +19,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
 from core import agent_runtime as RT     # noqa: E402
+from core import always_on as AO        # noqa: E402
+from core import world_bus as BUS        # noqa: E402
 from core import agent_world as W        # noqa: E402
 from core import store                   # noqa: E402
 
@@ -85,6 +87,45 @@ def task_station(task):
     if "review" in caps:
         return "review"
     return "research"
+
+
+def autonomy(con):
+    """What the always-on world is doing, as counts over rows.
+
+    Every figure here is a COUNT or a stored value. The UI has no way to show
+    activity that is not in this dict, and nothing in this dict is an estimate —
+    which is what makes "the world is idle" a fact the screen can state rather
+    than an impression it gives."""
+    q = BUS.depth(con)
+    chains = [dict(r) for r in con.execute(
+        "SELECT * FROM chains ORDER BY id DESC LIMIT 10")]
+    return {
+        "queue": q,
+        "quiet": BUS.quiet(con),
+        "owner": AO.presence(con),
+        "chains": chains,
+        "chains_running": sum(1 for c in chains if c["state"] == "RUNNING"),
+        "opportunities": con.execute(
+            "SELECT COUNT(*) c FROM opportunities").fetchone()["c"],
+        "opportunity_states": {r["status"]: r["c"] for r in con.execute(
+            "SELECT status, COUNT(*) c FROM opportunities GROUP BY status")},
+        "discoveries": con.execute("SELECT COUNT(*) c FROM discoveries").fetchone()["c"],
+        "lessons": con.execute("SELECT COUNT(*) c FROM lessons").fetchone()["c"],
+        "lessons_promoted": con.execute(
+            "SELECT COUNT(*) c FROM lessons WHERE state='PROMOTED'").fetchone()["c"],
+        "failures": con.execute("SELECT COUNT(*) c FROM failures").fetchone()["c"],
+        "awaiting_owner": con.execute(
+            "SELECT COUNT(*) c FROM approvals WHERE decision IS NULL").fetchone()["c"],
+        "budgets": [dict(r) for r in con.execute(
+            "SELECT scope, scope_id, limit_usd, spent_usd, state FROM budgets "
+            "ORDER BY scope, scope_id")],
+        "blocked_by_dependency": [
+            r["id"] for r in con.execute(
+                "SELECT id FROM tasks WHERE status IN ('APPROVED','ASSIGNED')")
+            if AO.unmet_deps(con, r["id"])],
+        "last_heartbeat": (lambda r: dict(r) if r else None)(con.execute(
+            "SELECT * FROM heartbeats ORDER BY id DESC LIMIT 1").fetchone()),
+    }
 
 
 def world_stage(con):
@@ -263,7 +304,7 @@ def world_payload(con):
         "tasks_by_state": st["tasks_by_state"],
         "running": st["running"],
         "relationships": relationships(con),
-        "stage": world_stage(con),
+        "stage": world_stage(con), "autonomy": autonomy(con),
         "away": W.while_you_were_away(con),
         "activity": activity(con, 60),
     }

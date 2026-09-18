@@ -159,7 +159,7 @@ CREATE TABLE IF NOT EXISTS opportunities (
   evidence_id     INTEGER REFERENCES evidence(id),
   status          TEXT NOT NULL DEFAULT 'NEW' CHECK (status IN
                     ('NEW','RESEARCHING','VALIDATING','VALIDATED','PROJECT',
-                     'REJECTED','KILLED')),
+                     'REJECTED','KILLED','EVALUATING','APPROVED','ARCHIVED')),
   created_at      TEXT NOT NULL
 );
 
