@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AbilityForm } from "./_components/AbilityForm.tsx";
 import { drawScene, drawSparkline } from "./_lib/scene.ts";
+import type { CameraMode, Studio } from "./_lib/scene3d.ts";
 import {
   DEFAULT_LAYERS,
   emptyScene,
@@ -60,9 +61,14 @@ export default function RobotsPage() {
   const [layers, setLayers] = useState<Layers>(DEFAULT_LAYERS);
   const [hidden, setHidden] = useState<Set<string>>(() => new Set());
   const [hud, setHud] = useState<{ frame: Frame | null }>({ frame: null });
+  const [view, setView] = useState<"2d" | "3d">("3d");
+  const [camera, setCamera] = useState<CameraMode>("orbit");
+  const [studioError, setStudioError] = useState<string | null>(null);
 
   const sceneRef = useRef(emptyScene());
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const glRef = useRef<HTMLCanvasElement | null>(null);
+  const studioRef = useRef<Studio | null>(null);
   const speedChartRef = useRef<HTMLCanvasElement | null>(null);
   const safetyChartRef = useRef<HTMLCanvasElement | null>(null);
   const chargeChartRef = useRef<HTMLCanvasElement | null>(null);
@@ -70,6 +76,8 @@ export default function RobotsPage() {
   const abortRef = useRef<AbortController | null>(null);
   const layersRef = useRef(layers);
   layersRef.current = layers;
+  const cameraRef = useRef(camera);
+  cameraRef.current = camera;
 
   useEffect(() => {
     fetch("/api/robots")
@@ -116,6 +124,61 @@ export default function RobotsPage() {
     return () => cancelAnimationFrame(raf);
   }, []);
 
+  // The studio renderer and its dependency are loaded only if the 3D view is
+  // actually opened: three.js is a few hundred kilobytes and the 2D view needs
+  // none of it. Its loop is separate from the 2D one above because the two
+  // never run at the same time.
+  useEffect(() => {
+    if (view !== "3d") return;
+    const canvas = glRef.current;
+    if (!canvas) return;
+
+    let studio: Studio | null = null;
+    let raf = 0;
+    let observer: ResizeObserver | null = null;
+    let cancelled = false;
+
+    import("./_lib/scene3d.ts")
+      .then(({ Studio: Ctor }) => {
+        if (cancelled) return;
+        studio = new Ctor(canvas);
+        studioRef.current = studio;
+        studio.setMode(cameraRef.current);
+        studio.resize();
+        setStudioError(null);
+
+        observer = new ResizeObserver(() => studio?.resize());
+        if (canvas.parentElement) observer.observe(canvas.parentElement);
+
+        const loop = () => {
+          studio?.sync(sceneRef.current, layersRef.current);
+          studio?.render();
+          raf = requestAnimationFrame(loop);
+        };
+        raf = requestAnimationFrame(loop);
+      })
+      .catch((error: Error) => {
+        // No WebGL, or the module failed to load. Say so and fall back rather
+        // than leaving a black rectangle.
+        if (!cancelled) {
+          setStudioError(error.message);
+          setView("2d");
+        }
+      });
+
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf);
+      observer?.disconnect();
+      studio?.dispose();
+      studioRef.current = null;
+    };
+  }, [view]);
+
+  useEffect(() => {
+    studioRef.current?.setMode(camera);
+  }, [camera]);
+
   useEffect(() => {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight });
   }, [logs]);
@@ -136,6 +199,7 @@ export default function RobotsPage() {
       setLogs([]);
       setOutcome(null);
       sceneRef.current = emptyScene();
+      studioRef.current?.resetWorld();
 
       try {
         const response = await fetch("/api/robots", {
@@ -242,6 +306,15 @@ export default function RobotsPage() {
         </div>
       </header>
 
+      {studioError && (
+        <div className="mx-auto mt-4 max-w-[1500px] px-5">
+          <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            ما قدرت أشغّل العرض ثلاثي الأبعاد ({studioError}) — رجعت للعرض ثنائي
+            الأبعاد.
+          </p>
+        </div>
+      )}
+
       {catalogueError && (
         <div className="mx-auto mt-4 max-w-[1500px] px-5">
           <p className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
@@ -253,11 +326,29 @@ export default function RobotsPage() {
       <div className="mx-auto grid max-w-[1500px] gap-5 px-5 py-5 xl:grid-cols-[minmax(0,1fr)_400px]">
         <section className="min-w-0 space-y-4">
           <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-            <div className="relative">
-              <canvas
-                ref={canvasRef}
-                className="block h-[min(60vh,560px)] w-full bg-slate-950"
-              />
+            <div className="relative h-[min(64vh,600px)]">
+              {/* The keys matter. Without them React reconciles these two as the
+                  same <canvas> and only swaps the ref, so switching to 2D hands
+                  `drawScene` a canvas that already holds a WebGL context —
+                  `getContext("2d")` returns null, the draw silently does
+                  nothing, and the last 3D frame sits there looking live. */}
+              {view === "3d" ? (
+                <canvas key="gl" ref={glRef} className="block h-full w-full bg-[#05080f]" />
+              ) : (
+                <canvas key="2d" ref={canvasRef} className="block h-full w-full bg-slate-950" />
+              )}
+
+              {/* What the picture is and is not. The renderer gives the world a
+                  height; the simulator never had one, and hiding that behind a
+                  handsome frame would be the whole problem. */}
+              {view === "3d" && (
+                <div className="pointer-events-none absolute bottom-3 left-3">
+                  <span className="inline-block rounded-lg bg-slate-950/70 px-2.5 py-1 text-[11px] leading-relaxed text-slate-300 backdrop-blur">
+                    عرض ثلاثي الأبعاد — الفيزياء ثنائية الأبعاد. الارتفاعات هنا
+                    اختيار عرض، والمحاكي لا يعرف عنها شيئًا.
+                  </span>
+                </div>
+              )}
               <div className="pointer-events-none absolute right-3 top-3 flex flex-wrap gap-1.5">
                 <Chip>⏱ {((frame?.t ?? 0) / 1000).toFixed(1)}s</Chip>
                 {lead && <Chip>🔋 {(lead.charge * 100).toFixed(0)}%</Chip>}
@@ -294,7 +385,47 @@ export default function RobotsPage() {
             </div>
 
             <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-4 py-2.5">
-              <div className="flex flex-wrap gap-1.5">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <div className="flex overflow-hidden rounded-full ring-1 ring-slate-200">
+                  {(["3d", "2d"] as const).map((v) => (
+                    <button
+                      key={v}
+                      type="button"
+                      aria-pressed={view === v}
+                      onClick={() => setView(v)}
+                      className={`px-2.5 py-1 text-xs transition ${
+                        view === v
+                          ? "bg-slate-900 text-white"
+                          : "bg-white text-slate-500 hover:bg-slate-50"
+                      }`}
+                    >
+                      {v === "3d" ? "٣د" : "٢د"}
+                    </button>
+                  ))}
+                </div>
+
+                {view === "3d" && (
+                  <div className="flex overflow-hidden rounded-full ring-1 ring-slate-200">
+                    {CAMERA_MODES.map(([mode, label]) => (
+                      <button
+                        key={mode}
+                        type="button"
+                        aria-pressed={camera === mode}
+                        onClick={() => setCamera(mode)}
+                        className={`px-2.5 py-1 text-xs transition ${
+                          camera === mode
+                            ? "bg-slate-900 text-white"
+                            : "bg-white text-slate-500 hover:bg-slate-50"
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                <span className="mx-0.5 h-4 w-px bg-slate-200" aria-hidden />
+
                 {(Object.keys(DEFAULT_LAYERS) as Array<keyof Layers>).map((layer) => (
                   <button
                     key={layer}
@@ -584,7 +715,7 @@ export default function RobotsPage() {
             <h2 className="mb-2 text-sm font-semibold text-slate-900">شو بتشوف بالشاشة</h2>
             <ul className="space-y-1.5 text-xs leading-relaxed text-slate-600">
               <Legend colour="#38bdf8" label="الخريطة اللي الروبوت بناها لحاله" />
-              <Legend colour="rgba(250,204,21,0.75)" label="شعاع الليزر — شو عم يشوف هلق" />
+              <Legend colour="rgba(250,204,21,0.75)" label="شعاع الليزر — شو عم يشوف هلق. الشعاع اللي رجع من سطح إله حافة مضيّة؛ الشعاع اللي ما لقى شي لحدّ ١٢ متر بيبهت لَلعدم؛ والشعاع اللي ما رجع أصلاً ما بينرسم أبداً" />
               <Legend colour="rgba(248,113,113,0.5)" label="مظروف الأمان: المسافة اللازمة ليوقف بأمان على سرعته الحالية" />
               <Legend colour="#f87171" label="الناس، وحوالين كل واحد دائرة ٥٥ سم — هون بتتلامس الأجسام، ممنوع الروبوت يقرب أكتر" />
               <Legend colour="#a78bfa" label="علامات: الهدف، والحدود اللي رايح يستكشفها" />
@@ -601,6 +732,12 @@ export default function RobotsPage() {
     </main>
   );
 }
+
+const CAMERA_MODES: Array<[CameraMode, string]> = [
+  ["orbit", "حر"],
+  ["follow", "متابعة"],
+  ["chase", "خلف الروبوت"],
+];
 
 const LAYER_LABELS: Record<keyof Layers, string> = {
   map: "الخريطة",

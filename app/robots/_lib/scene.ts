@@ -4,6 +4,7 @@
 // requestAnimationFrame loop. Nothing here touches React, so frames arriving at
 // 16 Hz never cause a re-render — the canvas just draws whatever is in the ref.
 
+import { beamWorld, beams } from "./beams.ts";
 import type { Frame, Layers, SceneState, WorldSetup } from "./types.ts";
 
 const COLORS = {
@@ -207,34 +208,51 @@ function drawLidar(ctx: CanvasRenderingContext2D, frame: Frame, p: Projection): 
   const robot = frame.robots[0];
   if (!robot || frame.lidar.ranges.length === 0) return;
 
-  const { ranges, fov, stride } = frame.lidar;
-  const beams = (ranges.length - 1) * stride;
-  const step = fov / Math.max(beams, 1);
+  // Angles, ranges and the hit/clear/missing distinction come from `beams.ts`,
+  // shared with the 3D renderer and checked against the adapter by a test.
+  const scan = beams(frame.lidar);
 
+  // A beam that did not come back has no endpoint at all. Passing it to the
+  // path would poison the rest of the fill silently, so the fan is closed and
+  // restarted around the gap — which is what it should look like anyway: a
+  // hole, not a reading.
   ctx.beginPath();
-  ctx.moveTo(p.sx(robot.x), p.sy(robot.y));
-  for (let i = 0; i < ranges.length; i += 1) {
-    const angle = robot.theta - fov / 2 + i * stride * step;
-    ctx.lineTo(
-      p.sx(robot.x + Math.cos(angle) * ranges[i]),
-      p.sy(robot.y + Math.sin(angle) * ranges[i]),
-    );
+  let open = false;
+  for (const beam of scan) {
+    if (beam.kind === "missing") {
+      if (open) ctx.closePath();
+      open = false;
+      continue;
+    }
+    const at = beamWorld(robot, beam);
+    if (!open) {
+      ctx.moveTo(p.sx(robot.x), p.sy(robot.y));
+      open = true;
+    }
+    ctx.lineTo(p.sx(at.x), p.sy(at.y));
   }
-  ctx.closePath();
+  if (open) ctx.closePath();
   ctx.fillStyle = COLORS.lidar;
   ctx.fill();
 
   // The rim is where the beams actually landed — the informative part. The
-  // filled wedge alone reads as a smear over the map underneath it.
+  // filled wedge alone reads as a smear over the map underneath it. Only beams
+  // that measured a surface get a rim: a beam that reached its ceiling without
+  // finding anything has no surface to draw, and drawing one would assert a
+  // wall at exactly `maxRange` that nothing detected.
   ctx.strokeStyle = COLORS.lidarEdge;
   ctx.lineWidth = 1;
   ctx.beginPath();
-  for (let i = 0; i < ranges.length; i += 1) {
-    const angle = robot.theta - fov / 2 + i * stride * step;
-    const x = p.sx(robot.x + Math.cos(angle) * ranges[i]);
-    const y = p.sy(robot.y + Math.sin(angle) * ranges[i]);
-    if (i === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
+  let started = false;
+  for (const beam of scan) {
+    if (beam.kind !== "hit") {
+      started = false;
+      continue;
+    }
+    const at = beamWorld(robot, beam);
+    if (!started) ctx.moveTo(p.sx(at.x), p.sy(at.y));
+    else ctx.lineTo(p.sx(at.x), p.sy(at.y));
+    started = true;
   }
   ctx.stroke();
 }
