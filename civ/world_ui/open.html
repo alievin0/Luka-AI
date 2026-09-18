@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent World</title>
+<link rel="stylesheet" href="/open.css">
+</head>
+<body>
+<div class="vig" aria-hidden="true"></div>
+
+<header class="chrome">
+  <div class="brand">
+    <svg viewBox="0 0 28 28" width="18" height="18" aria-hidden="true" style="color:#5fd4c4">
+      <circle cx="14" cy="14" r="11" fill="none" stroke="currentColor" stroke-width="1"/>
+      <circle cx="14" cy="14" r="1.8" fill="currentColor"/>
+      <path d="M14 3v4M14 21v4M3 14h4M21 14h4" stroke="currentColor" stroke-width="1"/>
+    </svg>
+    <span>AGENT&nbsp;WORLD</span><span class="rev">OPEN</span>
+  </div>
+  <nav class="zooms" id="zooms"></nav>
+  <div class="strip" id="strip"></div>
+  <div class="cond" id="cond"></div>
+</header>
+
+<main class="world" id="world">
+  <svg id="scene" xmlns="http://www.w3.org/2000/svg"></svg>
+  <div class="lodtag" id="lodtag"></div>
+</main>
+
+<div class="insp" id="insp" aria-hidden="true">
+  <div class="ihead">
+    <svg class="iglyph" id="iglyph" viewBox="0 0 74 74"></svg>
+    <div>
+      <div class="ititle" id="ititle">—</div>
+      <div class="isub" id="isub"></div>
+    </div>
+    <button class="ix" id="ix" aria-label="Close">×</button>
+  </div>
+  <div class="ibody" id="ibody"></div>
+</div>
+<div class="scrim" id="scrim"></div>
+
+<script src="/open.js"></script>
+</body>
+</html>

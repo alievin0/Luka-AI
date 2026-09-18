@@ -47,6 +47,9 @@ class World:
         self.instruction_for = instruction_for or (lambda task: task["objective"])
         self.worker, self.max_in_flight = worker, max_in_flight
         self.ticks = 0
+        # A worker announces itself so the world can tell a live process from
+        # one that died holding work. The agent is unaffected either way.
+        BUS.register_worker(con, worker)
 
     # ── charging ─────────────────────────────────────────────────────
     def scopes(self, project_id=None, agent_id=None, task_id=None, chain_id=None):
@@ -69,9 +72,13 @@ class World:
 # emits the events its outcome implies. None of them decides policy.
 # ═════════════════════════════════════════════════════════════════════
 def _emit(w, item, kind, subject, payload=None, priority=5):
+    """Emit a consequence, naming the entry that caused it.
+
+    `caused_by` is what makes "why did this agent wake?" answerable from a row
+    rather than from a process that is no longer running."""
     return BUS.emit(w.con, kind, subject, payload or {}, by=OWNER,
                     chain_id=item["chain_id"], depth=item["depth"] + 1,
-                    priority=priority)
+                    priority=priority, caused_by=item["id"])
 
 
 def h_owner_objective(w, item):
@@ -433,9 +440,10 @@ def tick(w):
     if item is None:
         return None
     w.ticks += 1
+    BUS.beat(w.con, w.worker)
     if item["kind"] == "HEARTBEAT":
         out = reconcile(w, reason="heartbeat")
-        BUS.ack(w.con, item["id"], out)
+        BUS.ack(w.con, item["id"], out, worker=w.worker)
         return {"kind": "HEARTBEAT", "result": out}
     fn = HANDLERS.get(item["kind"])
     if fn is None:
@@ -457,7 +465,7 @@ def tick(w):
     if out.get("deferred"):
         BUS.defer(w.con, item["id"], out["deferred"])
     else:
-        BUS.ack(w.con, item["id"], out)
+        BUS.ack(w.con, item["id"], out, worker=w.worker)
     return {"kind": item["kind"], "result": out}
 
 
@@ -471,6 +479,7 @@ def reconcile(w, reason="periodic"):
     freed = BUS.recover_stuck(con, older_than_seconds=0, worker=None) \
         if reason == "recovery" else BUS.recover_stuck(con, older_than_seconds=300)
     reaped = W.reap(con)
+    dead = BUS.stale_workers(con, older_than_seconds=0 if reason == "recovery" else 120)
     unblocked = []
     for r in con.execute("SELECT id FROM tasks WHERE status IN ('APPROVED','ASSIGNED')"):
         if A.runnable(con, r["id"]) and not con.execute(
@@ -487,7 +496,8 @@ def reconcile(w, reason="periodic"):
                 (now(), reason, d["READY"], d["CLAIMED"], len(reaped or []),
                  len(unblocked), pending, json.dumps({"freed": freed})[:400]))
     return {"freed": freed, "reaped": len(reaped or []), "unblocked": unblocked,
-            "queued": d["READY"], "in_flight": d["CLAIMED"], "awaiting_owner": pending}
+            "queued": d["READY"], "in_flight": d["CLAIMED"], "awaiting_owner": pending,
+            "stale_workers": dead}
 
 
 def run(w, max_ticks=200, until_quiet=True, deadline_seconds=None):

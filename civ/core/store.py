@@ -3,6 +3,8 @@ import hashlib
 import json
 import os
 import sqlite3
+
+from . import dialect as _dialect
 from datetime import datetime, timezone
 
 SCHEMA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "schema.sql")
@@ -29,11 +31,21 @@ def sha(x):
     return hashlib.sha256(x).hexdigest()
 
 
+DIALECT = None          # the engine this process is talking to
+
+
 def connect(path=None):
-    path = path or os.environ.get("CIV_DB") or DEFAULT
-    con = sqlite3.connect(path, isolation_level=None)
-    con.row_factory = sqlite3.Row
-    con.execute("PRAGMA foreign_keys=ON")
+    """THE single persistence boundary. Everything else goes through it.
+
+    `path` may be a file (SQLite) or a URL (`postgresql://…`). The dialect is
+    chosen here and nowhere else, so moving the world to Postgres is a
+    deployment variable rather than a change to the domain."""
+    global DIALECT
+    url = path or _dialect.from_env(DEFAULT)
+    DIALECT = _dialect.for_url(url)
+    con = DIALECT.connect(url)
+    if DIALECT.name != "sqlite":                  # pragma: no cover - not deployed
+        return con
     for path in (SCHEMA, ORG_SCHEMA, BENCH_SCHEMA, WORLD_SCHEMA,
                  ALWAYS_ON_SCHEMA):
         with open(path, encoding="utf-8") as fh:
@@ -66,6 +78,12 @@ def connect(path=None):
     _widen_check(con, SCHEMA, "tool_calls", "'ERROR'")
     _widen_check(con, SCHEMA, "tasks", "'ARCHIVED'")
     _widen_check(con, ORG_SCHEMA, "opportunities", "'APPROVED'")
+    qcols = {r[1] for r in con.execute("PRAGMA table_info(world_queue)")}
+    if "caused_by" not in qcols:
+        # Causality as a column, not an inference. "Which event caused this one"
+        # has to be answerable from a row when no process is alive to remember.
+        con.execute("ALTER TABLE world_queue ADD COLUMN caused_by INTEGER "
+                    "REFERENCES world_queue(id)")
     # Additive columns for the opportunity radar. An opportunity now has to say
     # who found it, how sure they were and who decided — none of which existed
     # when an opportunity was something a person typed in.

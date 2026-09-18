@@ -15,6 +15,7 @@ because a duplicate-suppression rule that lives in Python is a rule that stops
 holding the moment two workers race.
 """
 import json
+import os
 
 from . import store, world_policy as POL
 from .store import now, sha
@@ -43,11 +44,58 @@ KINDS = (
     "LEASE_EXPIRED",          # a worker died holding something
     "SKILL_GAP_FOUND",        # nobody can do what the project needs
     "HEARTBEAT",              # periodic reconciliation
+    "WORKER_FAILED",          # a worker stopped saying anything
+    "DECISION_REQUIRED",      # the Owner has to answer before more can happen
+    "BUDGET_EXHAUSTED",       # a bounded resource ran out
+    "OWNER_AWAY",             # the Owner stopped watching
+    "OWNER_RETURNED",         # and came back
 )
 
 
 class BusError(RuntimeError):
     pass
+
+
+def register_worker(con, worker, note=""):
+    """A worker announces itself. Disposable by design; the agent is not."""
+    import socket
+    row = con.execute("SELECT 1 FROM workers WHERE id=?", (worker,)).fetchone()
+    if row:
+        con.execute("UPDATE workers SET last_seen=?, state='ALIVE' WHERE id=?",
+                    (now(), worker))
+    else:
+        con.execute("INSERT INTO workers(id,started_at,last_seen,host,pid,note) "
+                    "VALUES(?,?,?,?,?,?)",
+                    (worker, now(), now(), socket.gethostname()[:60], os.getpid(), note))
+        store.event(con, "WORKER_STARTED", actor=OWNER, subject="worker:%s" % worker,
+                    payload={"note": note})
+    return worker
+
+
+def beat(con, worker):
+    con.execute("UPDATE workers SET last_seen=? WHERE id=?", (now(), worker))
+
+
+def stop_worker(con, worker, note="stopped"):
+    con.execute("UPDATE workers SET state='STOPPED', last_seen=?, note=? WHERE id=?",
+                (now(), note, worker))
+    store.event(con, "WORKER_STOPPED", actor=OWNER, subject="worker:%s" % worker,
+                payload={"note": note})
+
+
+def stale_workers(con, older_than_seconds=120):
+    """Workers that stopped saying anything. Their work is recoverable."""
+    import datetime
+    cutoff = (datetime.datetime.now(datetime.timezone.utc)
+              - datetime.timedelta(seconds=older_than_seconds)).isoformat()
+    out = []
+    for r in con.execute("SELECT * FROM workers WHERE state='ALIVE' AND last_seen<?",
+                         (cutoff,)).fetchall():
+        con.execute("UPDATE workers SET state='STALE' WHERE id=?", (r["id"],))
+        store.event(con, "WORKER_FAILED", actor=OWNER, subject="worker:%s" % r["id"],
+                    payload={"last_seen": r["last_seen"]})
+        out.append(r["id"])
+    return out
 
 
 def _key(kind, subject, payload, chain_id):
@@ -60,7 +108,7 @@ def _key(kind, subject, payload, chain_id):
 
 
 def emit(con, kind, subject=None, payload=None, by=OWNER, chain_id=None,
-         depth=0, priority=5, max_attempts=3, available_at=None):
+         depth=0, priority=5, max_attempts=3, available_at=None, caused_by=None):
     """Put work on the queue. Returns (queue_id, created).
 
     `created` is False when this exact work was already queued — which is not an
@@ -80,11 +128,11 @@ def emit(con, kind, subject=None, payload=None, by=OWNER, chain_id=None,
     ev = store.event(con, "QUEUED_" + kind, actor=by, subject=subject, payload=payload)
     qid = con.execute(
         "INSERT INTO world_queue(at,kind,subject,payload,dedupe_key,priority,"
-        "available_at,max_attempts,chain_id,depth,emitted_by,event_id) "
-        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+        "available_at,max_attempts,chain_id,depth,emitted_by,event_id,caused_by) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (now(), kind, subject, json.dumps(payload, ensure_ascii=False), key, priority,
          available_at or now(), max_attempts, chain_id, depth, by,
-         ev if isinstance(ev, int) else None)).lastrowid
+         ev if isinstance(ev, int) else None, caused_by)).lastrowid
     POL.note_chain(con, chain_id, depth=depth, events=1)
     return qid, True
 
@@ -92,32 +140,25 @@ def emit(con, kind, subject=None, payload=None, by=OWNER, chain_id=None,
 def claim(con, worker, kinds=None, max_in_flight=3):
     """Take the next eligible item, or None. Bounded concurrency, enforced here.
 
-    The claim is a single UPDATE guarded on `state='READY'`, so two workers
-    racing for the same row produce one winner and one None — the same property
-    a lease gives a task, applied to the queue itself."""
-    in_flight = con.execute(
-        "SELECT COUNT(*) c FROM world_queue WHERE state='CLAIMED'").fetchone()["c"]
-    if in_flight >= max_in_flight:
+    The engine decides HOW one row goes to one worker — a guarded UPDATE on
+    SQLite, `FOR UPDATE SKIP LOCKED` on Postgres — and this function does not
+    know which. What it guarantees either way is the same: N workers racing for
+    one entry produce one winner and N-1 Nones, and a None is a normal outcome."""
+    d = store.DIALECT or __import__("civ.core.dialect", fromlist=["x"]).SQLiteDialect()
+    got = d.claim_one(con, worker, kinds, now(), max_in_flight)
+    if got is None:
         return None
-    q = ("SELECT * FROM world_queue WHERE state='READY' AND available_at<=? "
-         + ("AND kind IN (%s) " % ",".join("?" * len(kinds)) if kinds else "")
-         + "ORDER BY priority DESC, id LIMIT 1")
-    args = [now()] + (list(kinds) if kinds else [])
-    row = con.execute(q, args).fetchone()
-    if row is None:
-        return None
-    n = con.execute("UPDATE world_queue SET state='CLAIMED', worker=?, claimed_at=?, "
-                    "attempts=attempts+1 WHERE id=? AND state='READY'",
-                    (worker, now(), row["id"])).rowcount
-    if not n:
-        return None                      # someone else took it; that is fine
-    got = con.execute("SELECT * FROM world_queue WHERE id=?", (row["id"],)).fetchone()
+    con.execute("UPDATE workers SET claimed=claimed+1, last_seen=? WHERE id=?",
+                (now(), worker))
     return dict(got, payload=json.loads(got["payload"] or "{}"))
 
 
-def ack(con, qid, result=None):
+def ack(con, qid, result=None, worker=None):
     con.execute("UPDATE world_queue SET state='DONE', finished_at=?, result=? WHERE id=?",
                 (now(), json.dumps(result or {}, ensure_ascii=False)[:4000], qid))
+    if worker:
+        con.execute("UPDATE workers SET completed=completed+1, last_seen=? WHERE id=?",
+                    (now(), worker))
 
 
 def nack(con, qid, why, retry_in_seconds=0):

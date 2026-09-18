@@ -7,7 +7,7 @@ work or permission.
 ```
 python3 always_on_demo.py --fresh              # the whole thing, unattended
 python3 always_on_demo.py --fresh --crash-at 6 # killed mid-flight, then resumed
-python3 test_always_on.py                      # 88 tests
+python3 test_always_on.py                      # 134 tests
 python3 world_server.py --db always-on.db      # watch it at :8790
 ```
 
@@ -411,6 +411,54 @@ Not built, and deliberately not blocked.
 `ScriptedWorker` and `MockProvider` are **not intelligence** and are not called
 autonomous. Every run they touch records `source='mock'`, and every artifact says
 **SIMULATED** in its own header.
+
+---
+
+---
+
+## 22. Multi-worker, and the storage boundary
+
+**Workers are disposable; agents are not.** A `workers` row records a process —
+when it started, when it last spoke, what it claimed and completed. Nothing about
+an agent's identity, memory or history lives there. A test stops three workers
+and asserts all five agents are still present.
+
+**Claiming.** `store.connect()` is still the single persistence boundary;
+`core/dialect.py` holds the three places SQLite and Postgres genuinely differ —
+the parameter placeholder, the claim, and what "now" means. On SQLite the claim
+is a SELECT plus an UPDATE guarded on `state='READY'`, so N workers racing
+produce one winner and N-1 `None`s. On Postgres it is `FOR UPDATE SKIP LOCKED`,
+which is the reason to move: the database hands each worker a different row
+instead of making them discard losers.
+
+**Proven:** three workers, one queue, 100 events → every event handled, none
+handled twice, none left READY, each attributed to the worker that took it, work
+spread across all three. LAW 28 refuses a re-claim of finished work at the
+database, so exactly-once does not depend on every caller getting its `WHERE`
+clause right.
+
+> **The Postgres adapter has never been executed against a running Postgres.**
+> There is none in this environment and none is being deployed. Its SQL is
+> asserted, its placeholder rewriting is tested, and it refuses with a clear
+> error rather than pretending when the driver is absent. It is a declared
+> adapter, not a verified one.
+
+**Causality as a column.** `world_queue.caused_by` names the entry that caused
+each entry. "Why did this agent wake?" walks that chain back to the Owner's one
+sentence — a test does exactly that and asserts it terminates at
+`OWNER_OBJECTIVE`, with exactly one uncaused event in the whole world.
+
+---
+
+## 23. Status: LOCAL VERIFIED
+
+Three words are available and only one is earned:
+
+- **LOCAL VERIFIED** ← this. Everything above runs and is tested on one machine,
+  against SQLite, with scripted providers.
+- **CLOUD READY** — not claimed. The Postgres adapter is unexercised, a tick is
+  not a transaction, and no dead-letter path exists.
+- **PRODUCTION RUNNING** — not claimed, not attempted, not authorised.
 
 ---
 

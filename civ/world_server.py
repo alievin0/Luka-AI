@@ -20,6 +20,7 @@ sys.path.insert(0, HERE)
 
 from core import agent_runtime as RT     # noqa: E402
 from core import always_on as AO        # noqa: E402
+from core import open_world as OW       # noqa: E402
 from core import world_bus as BUS        # noqa: E402
 from core import agent_world as W        # noqa: E402
 from core import store                   # noqa: E402
@@ -392,6 +393,12 @@ class Handler(BaseHTTPRequestHandler):
             if parts[0] == "project" and len(parts) > 1:
                 return self._send(json.dumps(W.project_passport(con, int(parts[1])),
                                              ensure_ascii=False))
+            if parts[0] == "open":
+                scale = float(q.get("scale", ["1.0"])[0])
+                payload = OW.open_world(con, scale)
+                payload["autonomy"] = autonomy(con)
+                payload["away"] = W.while_you_were_away(con)
+                return self._send(json.dumps(payload, ensure_ascii=False))
             if parts[0] == "activity":
                 n = int(q.get("limit", ["60"])[0])
                 return self._send(json.dumps(activity(con, n), ensure_ascii=False))
@@ -406,7 +413,12 @@ class Handler(BaseHTTPRequestHandler):
             con.close()
 
     def _static(self, path):
-        rel = "index.html" if path in ("/", "") else path.lstrip("/")
+        if path in ("/", ""):
+            rel = "open.html"
+        elif path == "/flat":
+            rel = "index.html"          # the transitional floor plan, kept working
+        else:
+            rel = path.lstrip("/")
         full = os.path.abspath(os.path.join(UI, rel))
         if not full.startswith(os.path.abspath(UI) + os.sep) or not os.path.isfile(full):
             return self._send("not found", ctype="text/plain", code=404)

@@ -29,6 +29,7 @@ from core import world_policy as POL     # noqa: E402
 from core import world_supervisor as SUP # noqa: E402
 import always_on_demo as D               # noqa: E402
 import world_server as SRV               # noqa: E402
+from core import open_world as OW       # noqa: E402
 
 ORCH, RES = "AGT-ORCHESTRATOR", "AGT-RESEARCHER"
 BUILD, REV, OPER = "AGT-BUILDER", "AGT-REVIEWER", "AGT-OPERATOR"
@@ -730,6 +731,21 @@ class HostileAutonomousLoop(unittest.TestCase):
             "SELECT COUNT(*) c FROM tool_calls WHERE cap='EXECUTE_SANDBOX' "
             "AND decision='ALLOW'").fetchone()["c"], 0)
 
+    def test_it_cannot_spawn_an_agent_or_loop_forever(self):
+        D.start(self.con, self.fixture)
+        SUP.run(self.w, max_ticks=140)
+        self.assertEqual(self.con.execute(
+            "SELECT COUNT(*) c FROM principals WHERE id LIKE 'AGT-%'").fetchone()["c"], 5)
+        # no chain ran away: every one is inside every ceiling it declared
+        for c in self.con.execute("SELECT * FROM chains"):
+            self.assertLessEqual(c["tasks_created"], c["max_tasks"])
+            self.assertLessEqual(c["events_emitted"], c["max_events"])
+            self.assertLessEqual(c["depth_reached"], c["max_depth"])
+            self.assertLessEqual(c["usd_spent"], c["max_usd"] + 1e-9)
+        self.assertIn(self.con.execute(
+            "SELECT state FROM chains ORDER BY id DESC LIMIT 1").fetchone()["state"],
+            ("QUIET", "HALTED", "ESCALATED"))
+
     def test_injected_content_never_reaches_an_accepted_artifact(self):
         D.start(self.con, self.fixture)
         SUP.run(self.w, max_ticks=120)
@@ -766,6 +782,395 @@ class WorldUIProjection(unittest.TestCase):
             "SELECT COUNT(*) c FROM opportunities").fetchone()["c"])
         self.assertEqual(p["autonomy"]["lessons"], con.execute(
             "SELECT COUNT(*) c FROM lessons").fetchone()["c"])
+
+
+class OpenWorldProjection(unittest.TestCase):
+    """PART XXXVIII — every mark in the Open World derives from a row."""
+
+    def setUp(self):
+        self.con, self.w, self.fixture = driven()
+
+    def _ran(self):
+        D.start(self.con, self.fixture)
+        SUP.run(self.w, max_ticks=140)
+        return OW.open_world(self.con)
+
+    def test_the_world_is_a_tree_of_districts_not_a_list_of_stations(self):
+        w = OW.open_world(self.con)
+        ids = [d["id"] for d in w["districts"]]
+        for needed in ("observatory", "hub", "research", "creation", "review",
+                       "operations", "output", "archive", "projects", "expansion"):
+            self.assertIn(needed, ids, needed)
+        self.assertGreater(len(OW.WORKSPACES), 6,
+                           "the world is still hardcoded to six stations")
+
+    def test_it_can_be_expanded_without_touching_the_renderer(self):
+        before = len(OW.DISTRICTS)
+        extra = dict(id="probe", label="Probe District", kind="research",
+                     x=90, y=6, w=8, h=8, about="added at runtime", facilities=[])
+        OW.DISTRICTS.append(extra)
+        try:
+            w = OW.open_world(self.con)
+            self.assertIn("probe", [d["id"] for d in w["districts"]])
+            self.assertGreaterEqual(w["bounds"]["x1"], 98)
+        finally:
+            OW.DISTRICTS.remove(extra)
+        self.assertEqual(len(OW.DISTRICTS), before)
+
+    def test_agent_positions_derive_from_state_and_say_which_row(self):
+        w = OW.open_world(self.con)
+        for aid, a in w["agents"].items():
+            self.assertEqual(a["state"], "IDLE")
+            self.assertEqual(a["workspace"], OW.HOME_WORKSPACE[aid])
+            self.assertEqual(a["reason"], "holds no lease")
+            self.assertIn(a["workspace"], OW.WORKSPACES)
+
+    def test_active_requires_a_live_lease_and_nothing_else(self):
+        t = W.discover_task(self.con, "t", by=ORCH, required_caps=["research"])
+        W.transition(self.con, t, "PROPOSED", ORCH)
+        W.transition(self.con, t, "APPROVED", ORCH)
+        W.assign(self.con, t, RES, by=ORCH)
+        self.assertEqual(OW.open_world(self.con)["agents"][RES]["state"], "ASSIGNED")
+        lease = W.claim_task(self.con, RES, task_id=t)
+        w = OW.open_world(self.con)
+        self.assertEqual(w["agents"][RES]["state"], "RUNNING")
+        self.assertIn("lease", w["agents"][RES]["reason"])
+        self.assertFalse(w["quiet"])
+        W.release_lease(self.con, lease["lease_id"])
+        self.assertTrue(OW.open_world(self.con)["quiet"])
+
+    def test_the_same_state_always_produces_the_same_world(self):
+        w = self._ran()
+        again = OW.open_world(self.con)
+        self.assertEqual(json.dumps(w, sort_keys=True, default=str),
+                         json.dumps(again, sort_keys=True, default=str))
+
+    def test_a_restart_produces_the_same_world(self):
+        path = os.path.join(tempfile.mkdtemp(), "ow.db")
+        con = world(path)
+        _, w, fx = driven(con)
+        D.start(con, fx)
+        SUP.run(w, max_ticks=140)
+        before = json.dumps(OW.open_world(con), sort_keys=True, default=str)
+        con.close()
+        cold = store.connect(path)
+        self.assertEqual(json.dumps(OW.open_world(cold), sort_keys=True, default=str),
+                         before)
+
+    def test_project_location_derives_from_project_state(self):
+        w = self._ran()
+        self.assertTrue(w["projects"])
+        p = w["projects"][0]
+        self.assertEqual(p["state"], "COMPLETED")
+        self.assertEqual(p["tasks"], self.con.execute(
+            "SELECT COUNT(*) c FROM tasks WHERE project_id=?", (p["id"],)).fetchone()["c"])
+        d = next(x for x in OW.DISTRICTS if x["id"] == "projects")
+        self.assertGreaterEqual(p["x"], d["x"])
+        self.assertLessEqual(p["x"] + p["w"], d["x"] + d["w"])
+
+    def test_artifacts_appear_only_where_artifact_rows_put_them(self):
+        self._ran()
+        occ = OW.occupancy(self.con)
+        drawn = [a["id"] for ws in occ.values() for a in ws["artifacts"]]
+        self.assertEqual(sorted(drawn), [r["id"] for r in self.con.execute(
+            "SELECT id FROM artifacts ORDER BY id")])
+        self.assertEqual(len(drawn), len(set(drawn)), "an artifact is drawn twice")
+
+    def test_review_and_failure_states_come_from_review_and_task_rows(self):
+        self._ran()
+        occ = OW.occupancy(self.con)
+        verdicts = {a["id"]: a["verdict"] for ws in occ.values() for a in ws["artifacts"]}
+        for r in self.con.execute("SELECT artifact_id, verdict FROM reviews"):
+            self.assertEqual(verdicts[r["artifact_id"]], r["verdict"])
+        failed = [t["id"] for ws in occ.values() for t in ws["tasks"]
+                  if t["status"] == "FAILED"]
+        self.assertEqual(sorted(failed), [r["id"] for r in self.con.execute(
+            "SELECT id FROM tasks WHERE status='FAILED' ORDER BY id")])
+
+    def test_an_empty_world_has_no_activity_anywhere(self):
+        w = OW.open_world(self.con)
+        self.assertTrue(w["quiet"])
+        for d in w["districts"]:
+            self.assertEqual(d["active"], 0, d["id"])
+            self.assertEqual(d["artifacts"], 0, d["id"])
+        self.assertEqual(w["projects"], [])
+
+    def test_zoom_decides_detail_and_orbit_draws_no_agents(self):
+        self.assertEqual(OW.lod(0.2)["id"], "orbit")
+        self.assertNotIn("agents", OW.lod(0.2)["draws"])
+        self.assertIn("agents", OW.lod(0.2)["aggregates"])
+        self.assertIn("agents", OW.lod(1.2)["draws"])
+        self.assertIn("artifacts", OW.lod(1.9)["draws"])
+        for z in OW.ZOOM:
+            self.assertFalse(set(z["draws"]) & set(z["aggregates"]),
+                             "%s both draws and aggregates the same thing" % z["id"])
+
+    def test_the_workspace_tree_never_disagrees_with_the_station_map(self):
+        """One truth, two views — not two truths."""
+        for status in ("DISCOVERED", "PROPOSED", "APPROVED", "ASSIGNED", "RUNNING",
+                       "COMPLETED", "REVIEW", "REJECTED", "FAILED", "ACCEPTED"):
+            for caps in ('["research"]', '["build"]', '["review"]'):
+                row = {"status": status, "required_caps": caps}
+                station = SRV.task_station(row)
+                ws = OW.WORKSPACES[OW.workspace_of(row)]
+                self.assertEqual(ws.get("station") or station, station,
+                                 "%s/%s: station=%s workspace=%s"
+                                 % (status, caps, station, ws["id"]))
+
+    def test_the_open_world_endpoint_is_read_only(self):
+        self._ran()
+        before = {t: self.con.execute("SELECT COUNT(*) c FROM " + t).fetchone()["c"]
+                  for t in ("tasks", "artifacts", "events", "world_queue", "leases")}
+        for scale in (0.2, 0.6, 1.1, 2.0):
+            OW.open_world(self.con, scale)
+        SRV.world_payload(self.con)
+        for t, n in before.items():
+            self.assertEqual(self.con.execute(
+                "SELECT COUNT(*) c FROM " + t).fetchone()["c"], n, t)
+
+    def test_the_open_world_ui_invents_nothing(self):
+        for f in ("open.html", "open.css", "open.js"):
+            self.assertTrue(os.path.isfile(os.path.join(HERE, "world_ui", f)), f)
+        with open(os.path.join(HERE, "world_ui", "open.js"), encoding="utf-8") as fh:
+            js = fh.read()
+        self.assertEqual(re.findall(r'fetch\(["\'](?!/api)', js), [])
+        for invented in ("Math.random", "demoData", "placeholder", "setInterval(fake"):
+            self.assertNotIn(invented, js, invented)
+        # the UI holds no opinion about where anything belongs
+        self.assertNotIn("HOME_WORKSPACE", js)
+        self.assertNotIn("function workspaceOf", js)
+        self.assertIn("/api/open", js)
+
+
+class WorldLevelLimits(unittest.TestCase):
+    """PART XVII / XVIII — chains are bounded individually AND collectively.
+
+    The interesting failure is not one runaway chain; it is two well-behaved
+    ones. Each stays inside its own ceiling and together they spend more than
+    the world has. Per-chain limits cannot catch that, so the world budget has
+    to be a scope every charge passes through."""
+
+    def test_two_valid_chains_cannot_collectively_outspend_the_world(self):
+        con = world()
+        con.execute("UPDATE budgets SET limit_usd=0.10 WHERE scope='world'")
+        con.execute("UPDATE budgets SET limit_usd=0.10 WHERE scope='day'")
+        a = POL.open_chain(con, "owner", "first", max_usd=0.08)
+        b = POL.open_chain(con, "owner", "second", max_usd=0.08)
+        scopes = lambda cid: [("world", "WORLD"), ("day", "TODAY"), ("chain", str(cid))]
+
+        POL.charge(con, scopes(a), 0.06)          # inside chain A's own ceiling
+        ok, why = POL.affordable(con, scopes(b), 0.06)   # inside chain B's, too
+        self.assertFalse(ok, "the world budget did not bound the pair")
+        self.assertIn("world:WORLD", why)
+        with self.assertRaises(POL.BudgetError):
+            POL.charge(con, scopes(b), 0.06)
+        self.assertLessEqual(
+            con.execute("SELECT spent_usd FROM budgets WHERE scope='world'"
+                        ).fetchone()["spent_usd"], 0.10 + 1e-9)
+
+    def test_a_chain_ceiling_does_not_excuse_the_day_budget(self):
+        con = world()
+        con.execute("UPDATE budgets SET limit_usd=0.02 WHERE scope='day'")
+        c = POL.open_chain(con, "owner", "x", max_usd=10.0)
+        ok, why = POL.affordable(con, [("world", "WORLD"), ("day", "TODAY"),
+                                       ("chain", str(c))], 1.0)
+        self.assertFalse(ok)
+        self.assertIn("day:TODAY", why)
+
+    def test_an_exhausted_world_budget_stops_autonomous_work(self):
+        con, w, fixture = driven()
+        con.execute("UPDATE budgets SET limit_usd=0.0, state='EXHAUSTED' "
+                    "WHERE scope='world'")
+        D.start(con, fixture)
+        SUP.run(w, max_ticks=60)
+        self.assertFalse(con.execute(
+            "SELECT 1 FROM projects WHERE stage='COMPLETED'").fetchone(),
+            "work completed on an exhausted world budget")
+
+    def test_every_autonomous_chain_declares_every_ceiling(self):
+        con = world()
+        c = con.execute("SELECT * FROM chains WHERE id=?",
+                        (POL.open_chain(con, "owner", "x"),)).fetchone()
+        for cap in ("max_depth", "max_events", "max_tasks", "max_usd", "max_seconds"):
+            self.assertIsNotNone(c[cap], cap)
+            self.assertGreater(c[cap], 0, cap)
+
+
+class MultiWorkerSafety(unittest.TestCase):
+    """PART III / XXXIII — N workers, one world, exactly-once.
+
+    Not a stress test; a determinism test. The property is that no arrangement
+    of workers can make the same piece of work happen twice, and none of them
+    can make a piece of work disappear."""
+
+    def test_two_workers_racing_one_event_produce_one_claim(self):
+        con = world()
+        BUS.register_worker(con, "w1")
+        BUS.register_worker(con, "w2")
+        BUS.emit(con, "HEARTBEAT", "one", {})
+        first = BUS.claim(con, "w1", max_in_flight=9)
+        second = BUS.claim(con, "w2", max_in_flight=9)
+        self.assertIsNotNone(first)
+        self.assertIsNone(second)
+        self.assertEqual(first["worker"], "w1")
+
+    def test_three_workers_one_hundred_events_exactly_once(self):
+        con = world()
+        workers = ["worker-001", "worker-002", "worker-003"]
+        for wk in workers:
+            BUS.register_worker(con, wk)
+        for i in range(100):
+            BUS.emit(con, "HEARTBEAT", "beat:%d" % i, {"n": i})
+        self.assertEqual(con.execute(
+            "SELECT COUNT(*) c FROM world_queue").fetchone()["c"], 100)
+
+        # round-robin the workers against the same queue until it is empty
+        seen, rounds = [], 0
+        while rounds < 500:
+            rounds += 1
+            progressed = False
+            for wk in workers:
+                it = BUS.claim(con, wk, max_in_flight=3)
+                if it is None:
+                    continue
+                progressed = True
+                seen.append((it["id"], wk))
+                BUS.ack(con, it["id"], {"by": wk}, worker=wk)
+            if not progressed:
+                break
+
+        ids = [i for i, _ in seen]
+        self.assertEqual(len(ids), 100, "not every event was handled")
+        self.assertEqual(len(set(ids)), 100, "an event was handled twice")
+        self.assertEqual(con.execute(
+            "SELECT COUNT(*) c FROM world_queue WHERE state='DONE'").fetchone()["c"], 100)
+        self.assertEqual(con.execute(
+            "SELECT COUNT(*) c FROM world_queue WHERE state='READY'").fetchone()["c"], 0)
+        # every entry is attributed to the worker that actually took it
+        for qid, wk in seen:
+            self.assertEqual(con.execute(
+                "SELECT worker FROM world_queue WHERE id=?", (qid,)).fetchone()["worker"], wk)
+        # and the work is spread, not all taken by whoever asked first
+        used = {wk for _, wk in seen}
+        self.assertEqual(used, set(workers))
+        totals = {r["id"]: r["completed"] for r in con.execute("SELECT * FROM workers")}
+        self.assertEqual(sum(totals.values()), 100)
+
+    def test_finished_work_is_never_handed_out_again(self):
+        con = world()
+        BUS.register_worker(con, "w1")
+        BUS.emit(con, "HEARTBEAT", "x", {})
+        it = BUS.claim(con, "w1", max_in_flight=9)
+        BUS.ack(con, it["id"], {}, worker="w1")
+        with self.assertRaises(Exception) as e:
+            con.execute("UPDATE world_queue SET state='CLAIMED', worker='w2' WHERE id=?",
+                        (it["id"],))
+        self.assertIn("LAW 28", str(e.exception))
+
+    def test_a_worker_that_stops_talking_is_marked_stale_and_its_work_returns(self):
+        con = world()
+        BUS.register_worker(con, "doomed")
+        BUS.emit(con, "HEARTBEAT", "x", {})
+        it = BUS.claim(con, "doomed", max_in_flight=9)
+        dead = BUS.stale_workers(con, older_than_seconds=0)
+        self.assertIn("doomed", dead)
+        self.assertEqual(con.execute("SELECT state FROM workers WHERE id='doomed'"
+                                     ).fetchone()["state"], "STALE")
+        self.assertEqual(BUS.recover_stuck(con, older_than_seconds=0), [it["id"]])
+        self.assertIsNotNone(BUS.claim(con, "survivor", max_in_flight=9))
+
+    def test_a_worker_cannot_rewrite_when_it_started(self):
+        con = world()
+        BUS.register_worker(con, "w1")
+        with self.assertRaises(Exception) as e:
+            con.execute("UPDATE workers SET started_at='1999-01-01' WHERE id='w1'")
+        self.assertIn("LAW 29", str(e.exception))
+
+    def test_an_agent_outlives_every_worker(self):
+        con = world()
+        for wk in ("w1", "w2", "w3"):
+            BUS.register_worker(con, wk)
+            BUS.stop_worker(con, wk)
+        self.assertEqual(con.execute(
+            "SELECT COUNT(*) c FROM workers WHERE state='STOPPED'").fetchone()["c"], 3)
+        self.assertEqual(len(W.found_agents(con)), 5)
+
+
+class StorageBoundary(unittest.TestCase):
+    """PART II — one domain model, two engines, one boundary."""
+
+    def test_the_dialect_is_chosen_from_the_url_and_nowhere_else(self):
+        from core import dialect as DI
+        self.assertEqual(DI.for_url("/tmp/x.db").name, "sqlite")
+        self.assertEqual(DI.for_url("sqlite:///tmp/x.db").name, "sqlite")
+        self.assertEqual(DI.for_url("postgresql://h/db").name, "postgres")
+        with self.assertRaises(RuntimeError):
+            DI.for_url("mysql://h/db")
+
+    def test_the_postgres_adapter_claims_with_skip_locked(self):
+        from core import dialect as DI
+        sql = DI.PostgresDialect().claim_sql()
+        self.assertIn("FOR UPDATE SKIP LOCKED", sql)
+        self.assertIn("RETURNING", sql)
+        self.assertTrue(DI.PostgresDialect().supports_skip_locked)
+        self.assertFalse(DI.SQLiteDialect().supports_skip_locked)
+
+    def test_placeholders_are_rewritten_for_the_engine(self):
+        from core import dialect as DI
+        self.assertEqual(DI.SQLiteDialect().q("SELECT ?"), "SELECT ?")
+        self.assertEqual(DI.PostgresDialect().q("SELECT ?"), "SELECT %s")
+
+    def test_the_postgres_adapter_is_honest_about_never_having_run(self):
+        from core import dialect as DI
+        with open(os.path.join(HERE, "core/dialect.py"), encoding="utf-8") as fh:
+            src = fh.read()
+        self.assertIn("never been executed against a running Postgres", src)
+        # and it refuses rather than pretending, when the driver is absent
+        try:
+            import psycopg  # noqa: F401
+        except ImportError:
+            with self.assertRaises(RuntimeError) as e:
+                DI.PostgresDialect().connect("postgresql://nowhere/db")
+            self.assertIn("never been run against a live server", str(e.exception))
+
+    def test_connect_is_the_only_place_that_opens_a_database(self):
+        for mod in ("core/world_bus.py", "core/world_supervisor.py",
+                    "core/always_on.py", "core/world_policy.py"):
+            with open(os.path.join(HERE, mod), encoding="utf-8") as fh:
+                code = fh.read()
+            self.assertNotIn("sqlite3.connect", code, mod)
+            self.assertNotIn("psycopg", code, mod)
+
+
+class Causality(unittest.TestCase):
+    def test_every_consequence_names_the_entry_that_caused_it(self):
+        con, w, fixture = driven()
+        D.start(con, fixture)
+        SUP.run(w, max_ticks=140)
+        rows = [dict(r) for r in con.execute(
+            "SELECT id, kind, caused_by, emitted_by FROM world_queue ORDER BY id")]
+        roots = [r for r in rows if r["caused_by"] is None]
+        self.assertEqual(len(roots), 1, "more than one uncaused event")
+        self.assertEqual(roots[0]["emitted_by"], "OWNER")
+        for r in rows[1:]:
+            if r["caused_by"] is None:
+                continue
+            self.assertTrue(con.execute("SELECT 1 FROM world_queue WHERE id=?",
+                                        (r["caused_by"],)).fetchone(), r["id"])
+
+    def test_why_did_this_agent_wake_is_answerable_from_rows(self):
+        con, w, fixture = driven()
+        D.start(con, fixture)
+        SUP.run(w, max_ticks=140)
+        wake = con.execute("SELECT * FROM world_queue WHERE kind='TASK_READY' "
+                           "ORDER BY id LIMIT 1").fetchone()
+        chain, cur = [], wake
+        while cur is not None:
+            chain.append(cur["kind"])
+            cur = con.execute("SELECT * FROM world_queue WHERE id=?",
+                              (cur["caused_by"],)).fetchone() if cur["caused_by"] else None
+        self.assertEqual(chain[-1], "OWNER_OBJECTIVE",
+                         "the wake does not trace back to the Owner")
 
 
 class LetItRun(unittest.TestCase):

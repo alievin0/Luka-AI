@@ -225,3 +225,39 @@ DROP TRIGGER IF EXISTS law_project_follows_approval;
 CREATE TRIGGER law_project_follows_approval BEFORE UPDATE ON opportunities
 WHEN NEW.status = 'PROJECT' AND OLD.status <> 'APPROVED'
 BEGIN SELECT RAISE(ABORT, 'LAW 27: an opportunity becomes a project only from APPROVED'); END;
+
+-- ── WORKERS ──────────────────────────────────────────────────────────
+-- A worker is disposable; an agent is not. This table exists so the world can
+-- tell the difference: it knows which processes are alive, which died holding
+-- work, and who to attribute a claim to. Nothing about an agent's identity,
+-- memory or history lives here.
+CREATE TABLE IF NOT EXISTS workers (
+  id           TEXT PRIMARY KEY,
+  started_at   TEXT NOT NULL,
+  last_seen    TEXT NOT NULL,
+  host         TEXT NOT NULL DEFAULT '',
+  pid          INTEGER,
+  state        TEXT NOT NULL DEFAULT 'ALIVE' CHECK (state IN
+                 ('ALIVE','STALE','STOPPED')),
+  claimed      INTEGER NOT NULL DEFAULT 0,
+  completed    INTEGER NOT NULL DEFAULT 0,
+  failed       INTEGER NOT NULL DEFAULT 0,
+  note         TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS ix_workers_alive ON workers(state, last_seen);
+
+-- LAW 28 — finished work is never handed out again.
+-- `claim` only selects READY rows, but a guarantee that depends on every caller
+-- getting its WHERE clause right is not a guarantee. With N workers this is the
+-- exactly-once property, so it belongs in the database.
+DROP TRIGGER IF EXISTS law_done_work_is_not_reclaimed;
+CREATE TRIGGER law_done_work_is_not_reclaimed BEFORE UPDATE ON world_queue
+WHEN OLD.state IN ('DONE','DROPPED') AND NEW.state = 'CLAIMED'
+BEGIN SELECT RAISE(ABORT, 'LAW 28: finished work is not claimed again'); END;
+
+-- LAW 29 — a worker cannot un-start. Its identity row is append-only in the
+-- one field that matters: when it first appeared.
+DROP TRIGGER IF EXISTS law_worker_start_is_immutable;
+CREATE TRIGGER law_worker_start_is_immutable BEFORE UPDATE ON workers
+WHEN NEW.started_at <> OLD.started_at
+BEGIN SELECT RAISE(ABORT, 'LAW 29: a worker cannot change when it started'); END;
