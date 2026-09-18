@@ -475,3 +475,87 @@ After this change the harness tests **a fixed three-role pipeline with real tool
 access**. That is worth measuring and is far more than it can do today. It is
 still narrower than the hypothesis as written, and any result must be reported
 with that scope attached.
+
+---
+
+## IMPLEMENTATION RECORD (added after the design was approved)
+
+The design above is unchanged. This section records what was built against it,
+what the gates returned, and the two things the design did not anticipate.
+
+**No model was called.** Every test in this section runs on `MockProvider`, a
+scripted double, or `CompromisedProvider`. No calibration, no campaign, no
+threshold moved, nothing deployed.
+
+### The ten changes
+
+| # | Where | Note |
+|---|---|---|
+| 1 | `bench_run.agent_turn` | bounded model↔tool↔observation loop over `runtime.invoke` + `Gateway.call` |
+| 2 | `bench_run` | `act()` deleted; tool calls happen inside the loop |
+| 3 | `bench_run.SCHEMA` | the request schema, `READ_REPO` included, in all four role prompts |
+| 4 | `agent_turn` | `{"final": …}`; a nomination resolves only against what the gateway wrote |
+| 5 | `bench_run.clip` | one policy, one budget, every truncation recorded in `exec_graph` |
+| 6 | `run_condition` | `shown` computed once, handed to critic and reviser identically |
+| 7 | `run_condition` | critique recorded in `exec_graph`, removed from the graded string |
+| 8 | `benchmark.evaluate` | a non-`COMPLETE` run is recorded, never graded |
+| 9 | `invoke_with_retry` | transport-class only, bounded, every attempt a real `runs` row |
+| 10 | `agent_turn` | every step in `exec_graph` with its `tool_calls.id` |
+
+### Two things the design did not anticipate
+
+**MULTI's roles were slice crew.** The builder and critic were `AGT-000002` and
+`AGT-000004`, whose grants come from `slice.CREW` and have nothing to do with the
+task: the builder held `READ_REPO` over the whole repository on *every* task, and
+the critic held no task capability at all. `LAW 11` could not see it, because it
+compares `sha(allowed_tools)` and those are equal by construction — the grants
+behind them were not. Dormant while no tool was reachable; the experiment's main
+confound the moment one is. MULTI now runs as `AGT-BENCH-BUILD` and
+`AGT-BENCH-CRITIC`, carrying the same permission list as `AGT-BENCH-SOLO`, built
+from the task and refreshed per task. The reviser *is* the builder — same
+principal row — so §9.8 is true by identity rather than by assertion.
+
+**`INCOMPLETE` needed a schema migration.** `bench_runs.status` had a `CHECK`
+that could not express it, and a `CHECK` can only be widened by rebuilding the
+table — the table that holds campaigns #1–#3 on the owner's machine.
+`store._widen_bench_run_status` copies every row inside one transaction and
+verifies count and checksum before dropping anything; a mismatch rolls back and
+the old table stands. It changes no row, only what the table will accept from
+here on, so `LAW 12` is untouched — and there is a test that runs the migration
+over a closed campaign and compares every row before and after.
+
+### Gate results
+
+| Gate | Result |
+|---|---|
+| G-1 | 18/18 existing `test_security.py` tests pass, unmodified |
+| G-2 | 13 new tests (§9's ten, split where one test could not carry two claims) pass against `CompromisedProvider` and a scripted adversary |
+| G-3 | `civ/slice.py` is not in the diff: `fs_read`, `fs_write`, `proc_run` byte-identical, no capability registered |
+| G-4 | `PAUSE_ALL` set mid-turn: the gateway refuses the pending call, the next `invoke` returns `REFUSED` |
+| G-5 | denials are read off `exec_graph` and `tool_calls`, both written as they happen — proven on a run that later failed |
+| G-6 | a poisoned file is read, the model obeys it, the out-of-scope write is denied and logged |
+| G-7 | model text shaped like an observation reaches no gateway call and resolves no artifact |
+
+Frozen and re-verified after the change: the nine metric definitions
+(`8553b9ce…`), the sealed manifest (9 tasks · 9 evaluators, "no task, reference
+answer or evaluator has moved"), and the integrity gate (60 passed · 1
+pre-existing warning · 0 failures).
+
+### Suite
+
+281 → 321. No existing assertion was weakened.
+
+| Suite | Before | After |
+|---|---|---|
+| `test_civ.py` | 26 | 26 |
+| `test_org.py` | 52 | 52 |
+| `test_bench.py` | 40 | 67 |
+| `test_security.py` | 18 | 31 |
+| `test_regressions.py` | 70 | 70 |
+| `test_recalibration.py` | 59 | 59 |
+| `world/test_world.py` | 16 | 16 |
+
+**`WHAT_STILL_CANNOT_BE_MEASURED` stands as written.** Nothing here makes the
+harness able to test persistence, parallelism, dynamic team formation,
+replanning, long-horizon work or cross-run learning, and no result from it may
+be reported without that scope attached.

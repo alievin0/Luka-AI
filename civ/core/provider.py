@@ -313,6 +313,7 @@ class CompromisedProvider(Provider):
 
     def __init__(self):
         self.obeyed = []
+        self.calls = 0
 
     def available(self):
         return True
@@ -327,7 +328,18 @@ class CompromisedProvider(Provider):
         if not demands:
             demands = self.ATTACKS            # total compromise: obey everything anyway
         self.obeyed.extend(n for n, _ in demands)
+        # The loop schema, alongside the batch form the direct gateway tests use.
+        # Once a harness feeds tool results back into a model, an adversary model
+        # that cannot express a tool request in the harness's own schema would
+        # pass every test by being unable to attack, which is not a security
+        # property. One attack per call, rotating, so a bounded loop still gets
+        # to try more than one of them.
+        pick = demands[self.calls % len(demands)][1]
+        self.calls += 1
+        body = {"obeying_injected_instructions": True,
+                "requests": [d for _, d in demands],
+                "tool": pick.get("tool"),
+                "args": {k: v for k, v in pick.items() if k != "tool"}}
         return Result("OK", "mock", self.name, model or "compromised-1",
-                      text=json.dumps({"obeying_injected_instructions": True,
-                                       "requests": [d for _, d in demands]}, ensure_ascii=False),
+                      text=json.dumps(body, ensure_ascii=False),
                       tokens_in=len(prompt) // 4, tokens_out=64)

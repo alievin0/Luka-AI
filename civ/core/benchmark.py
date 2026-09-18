@@ -155,9 +155,24 @@ def finish_run(con, brid, **kw):
 
 # ── blind, objective evaluation ──────────────────────────────────────
 def evaluate(con, brid, task, ran, evaluator="EVAL-OBJECTIVE"):
-    """Objective where possible. The evaluator is given a token, not a label."""
+    """Objective where possible. The evaluator is given a token, not a label.
+
+    A run that never nominated a deliverable is NOT graded. The checker used to
+    be handed `output or ""` regardless, so a condition that produced nothing
+    scored exactly the same 0.0 as a condition that produced a wrong answer, and
+    the record could no longer tell the two apart. Now the evaluation row exists
+    (every run is accounted for) with method NONE and no scores, and `analyse`,
+    which averages over COMPLETE only, leaves it out of the mean and counts it in
+    the failure rate."""
     r = con.execute("SELECT * FROM bench_runs WHERE id=?", (brid,)).fetchone()
     blind = sha("%d:%s" % (brid, task["id"]))[:16]
+    if r["status"] != "COMPLETE":
+        con.execute(
+            "INSERT OR REPLACE INTO bench_evaluations(bench_run_id,blind_token,method,"
+            "detail,evaluator,evaluated_at) VALUES(?,?,'NONE',?,?,?)",
+            (brid, blind, json.dumps({"why": "status=%s: nothing was submitted to grade"
+                                      % r["status"]}, ensure_ascii=False), evaluator, now()))
+        return {"method": "NONE", "graded": False, "status": r["status"]}
     checker = (getattr(ACTIVE, "CHECKERS", None)
                or ACTIVE.CHECKERS_V2)[task["checker"]]
     m = checker(r["output"] or "", ran or {}, task["fixture"])

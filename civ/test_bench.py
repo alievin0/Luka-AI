@@ -377,6 +377,447 @@ class SecurityAndAuthorization(unittest.TestCase):
         self.assertIn("INSUFFICIENT_EVIDENCE", r.stdout)
 
 
+# ── the tool-use loop (civ/HARNESS_VALIDITY_DESIGN.md) ───────────────
+MARK = "LOOP-SENTINEL-7719"
+
+
+class ScriptedProvider(P.Provider):
+    """Says exactly what the test tells it to, in order, and keeps every prompt.
+
+    MockProvider cannot exercise the loop: it emits a blob with no `tool` and no
+    `final`, which is read as an implicit answer on the first call — a one-step
+    run, which is precisely the shape this change exists to move past. An entry
+    may be a dict (the model's JSON), a string (raw text), a Result (a transport
+    failure), or a callable taking the prompt, which is how a test checks that
+    what a role was SHOWN reached it."""
+
+    name, source = "scripted", "mock"
+
+    def __init__(self, script, usd=0.0):
+        self.script, self.usd = list(script), usd
+        self.calls, self.prompts, self.systems = 0, [], []
+
+    def available(self):
+        return True
+
+    def why_unavailable(self):
+        return ""
+
+    def complete(self, system, prompt, model=None, max_tokens=800):
+        self.prompts.append(prompt)
+        self.systems.append(system)
+        step = self.script[min(self.calls, len(self.script) - 1)]
+        self.calls += 1
+        if callable(step):
+            step = step(prompt)
+        if isinstance(step, P.Result):
+            return step
+        text = step if isinstance(step, str) else json.dumps(step, ensure_ascii=False)
+        return P.Result("OK", "mock", self.name, model or "scripted-1", text=text,
+                        tokens_in=len(prompt) // 4, tokens_out=len(text) // 4,
+                        usd=self.usd, latency_ms=1)
+
+
+def loop_world(tools=("READ_REPO", "WRITE_ARTIFACT")):
+    con = world()
+    bench_run.bench_crew(con, {"allowed_tools": list(tools)})
+    return con, vslice.build_gateway(con)
+
+
+def readable_file(body=MARK):
+    path = os.path.join(vslice.ARTIFACT_DIR, "loop_probe.txt")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(body)
+    return path
+
+
+class ToolUseLoop(unittest.TestCase):
+    """The loop the harness did not have. Campaign #3 granted READ_REPO on four
+    tasks and no run could reach it, because the only tool call happened after
+    the answer was already fixed."""
+
+    def test_a_read_result_reaches_the_next_model_call(self):
+        con, gw = loop_world()
+        path = readable_file()
+        prov = ScriptedProvider([
+            {"tool": "READ_REPO", "args": {"path": path}},
+            lambda p: {"final": {"answer": "saw:%s" % (MARK if MARK in p else "NOTHING")}},
+        ])
+        graph = []
+        t = bench_run.agent_turn(con, gw, prov, bench_run.SOLO, "sys", "read it", graph)
+        self.assertIn(bench_run.OBS, prov.prompts[1])
+        self.assertIn(MARK, prov.prompts[1])
+        self.assertEqual(t.deliverable, "saw:%s" % MARK)
+        self.assertEqual(t.steps, 1)
+        self.assertTrue(t.submitted)
+
+    def test_the_loop_stops_at_the_step_cap_and_records_the_exhaustion(self):
+        con, gw = loop_world()
+        path = readable_file()
+        prov = ScriptedProvider([{"tool": "READ_REPO", "args": {"path": path}}])
+        graph = []
+        t = bench_run.agent_turn(con, gw, prov, bench_run.SOLO, "sys", "loop", graph)
+        self.assertTrue(t.exhausted)
+        self.assertFalse(t.submitted)
+        self.assertEqual(t.steps, bench_run.MAX_TOOL_STEPS)
+        self.assertEqual(prov.calls, bench_run.MAX_TOOL_STEPS + 1)
+        self.assertTrue(any(g.get("step") == "exhausted" for g in graph))
+
+    def test_the_deliverable_is_the_artifact_the_role_nominated(self):
+        con, gw = loop_world()
+        prov = ScriptedProvider([
+            {"tool": "WRITE_ARTIFACT", "args": {"path": "loop_sol.py", "body": "print(42)\n"}},
+            {"final": {"artifact": "loop_sol.py"}},
+        ])
+        t = bench_run.agent_turn(con, gw, prov, bench_run.SOLO, "sys", "write it", [])
+        self.assertEqual(t.deliverable, "print(42)\n")
+        self.assertTrue(t.artifact_path.endswith("loop_sol.py"))
+        self.assertTrue(os.path.exists(t.artifact_path))
+
+    def test_naming_an_artifact_that_was_never_written_submits_nothing(self):
+        """The nomination is resolved against what the GATEWAY wrote, never
+        against what the model said it wrote."""
+        con, gw = loop_world()
+        prov = ScriptedProvider([{"final": {"artifact": "never_written.py"}}])
+        graph = []
+        t = bench_run.agent_turn(con, gw, prov, bench_run.SOLO, "sys", "p", graph)
+        self.assertFalse(t.submitted)
+        self.assertIsNone(t.artifact_path)
+        self.assertEqual(t.deliverable, "")
+        self.assertTrue(any(g.get("step") == "submit_unresolved" for g in graph))
+
+    def test_a_denial_is_an_observation_not_a_free_retry(self):
+        con, gw = loop_world(tools=("WRITE_ARTIFACT",))     # READ_REPO not granted
+        prov = ScriptedProvider([{"tool": "READ_REPO", "args": {"path": "/etc/passwd"}}])
+        graph = []
+        t = bench_run.agent_turn(con, gw, prov, bench_run.SOLO, "sys", "read", graph)
+        self.assertEqual(t.denials, bench_run.MAX_CONSECUTIVE_DENIALS)
+        self.assertEqual(prov.calls, bench_run.MAX_CONSECUTIVE_DENIALS)
+        self.assertTrue(any(g.get("decision") == "DENY" for g in graph))
+        self.assertTrue(any(g.get("step") == "denial_cap" for g in graph))
+
+    def test_a_truncated_observation_is_recorded_with_its_counts(self):
+        con, gw = loop_world()
+        path = readable_file("y" * (bench_run.CLIP_BUDGET + 900))
+        prov = ScriptedProvider([
+            {"tool": "READ_REPO", "args": {"path": path}},
+            {"final": {"answer": "read it"}},
+        ])
+        graph = []
+        bench_run.agent_turn(con, gw, prov, bench_run.SOLO, "sys", "read", graph)
+        clips = [g for g in graph if g.get("step") == "clip"]
+        self.assertEqual(len(clips), 1)
+        self.assertEqual(clips[0]["where"], "observation:READ_REPO")
+        self.assertEqual(clips[0]["kept_chars"], bench_run.CLIP_BUDGET)
+        self.assertEqual(clips[0]["dropped_chars"], 900)
+        self.assertIn("(truncated)", prov.prompts[1])
+
+    def test_every_loop_step_links_to_its_tool_call_row(self):
+        con, gw = loop_world()
+        path = readable_file()
+        prov = ScriptedProvider([
+            {"tool": "READ_REPO", "args": {"path": path}},
+            {"tool": "WRITE_ARTIFACT", "args": {"path": "chain.py", "body": "print(42)\n"}},
+            {"final": {"artifact": "chain.py"}},
+        ])
+        graph = []
+        bench_run.agent_turn(con, gw, prov, bench_run.SOLO, "sys", "chain", graph)
+        steps = [g for g in graph if g.get("tool")]
+        self.assertEqual(len(steps), 2)
+        for g in steps:
+            self.assertIsNotNone(g["tool_call_id"])
+            row = con.execute("SELECT * FROM tool_calls WHERE id=?",
+                              (g["tool_call_id"],)).fetchone()
+            self.assertIsNotNone(row, "exec_graph points at a tool_call that is not there")
+            self.assertEqual(row["cap"], g["tool"])
+            self.assertEqual(row["principal_id"], g["agent"])
+            self.assertEqual(row["decision"], g["decision"])
+
+
+class TransportRetriesOnly(unittest.TestCase):
+    def test_a_transport_failure_is_retried_and_a_wrong_answer_is_not(self):
+        def res(status, error):
+            return P.Result(status, "mock", "scripted", "m", text="", error=error)
+        for err in ("HTTP 503: overloaded_error", "HTTP 529: overloaded_error",
+                    "URLError(TimeoutError('timed out'))",
+                    "ConnectionResetError(104, 'Connection reset by peer')",
+                    "HTTP 429: rate_limit_error"):
+            self.assertTrue(bench_run.is_transport_failure(res("FAILED", err)), err)
+        for status, err in (("OK", None), ("FAILED", "empty completion"),
+                            ("NOT_CONFIGURED", "no key"), ("REFUSED", "owner PAUSE_ALL")):
+            self.assertFalse(bench_run.is_transport_failure(res(status, err)),
+                             "%s/%s" % (status, err))
+
+    def test_every_retry_attempt_is_a_real_run_row(self):
+        con, gw = loop_world()
+        flaky = P.Result("FAILED", "mock", "scripted", "m", text="",
+                         error="HTTP 503: overloaded_error")
+        prov = ScriptedProvider([flaky, flaky, {"final": {"answer": "ok"}}])
+        graph = []
+        t = bench_run.agent_turn(con, gw, prov, bench_run.SOLO, "sys", "p", graph)
+        self.assertEqual(t.deliverable, "ok")
+        self.assertEqual(prov.calls, 3)
+        self.assertEqual(len(t.run_ids), 3)
+        self.assertEqual(len([g for g in graph if g.get("step") == "retry"]), 2)
+
+    def test_a_wrong_answer_burns_no_retry(self):
+        con, gw = loop_world()
+        prov = ScriptedProvider([{"final": {"answer": "completely wrong"}}])
+        graph = []
+        bench_run.agent_turn(con, gw, prov, bench_run.SOLO, "sys", "p", graph)
+        self.assertEqual(prov.calls, 1)
+        self.assertEqual([g for g in graph if g.get("step") == "retry"], [])
+
+
+class IdenticalSurface(unittest.TestCase):
+    """LAW 11 compares sha(allowed_tools). What it could not see was that MULTI's
+    roles were slice crew members carrying slice grants."""
+
+    def _perms(self, con, aid):
+        return con.execute("SELECT permissions FROM principals WHERE id=?",
+                           (aid,)).fetchone()["permissions"]
+
+    def test_both_conditions_hold_exactly_the_same_grants(self):
+        con = world()
+        task = [t for t in B.active_tasks() if t["id"] == "T05-tool-required"][0]
+        bench_run.bench_crew(con, task)
+        perms = {aid: self._perms(con, aid) for aid in
+                 (bench_run.SOLO, bench_run.BUILDER, bench_run.CRITIC)}
+        self.assertEqual(len(set(perms.values())), 1, perms)
+
+    def test_no_role_borrows_a_capability_the_task_did_not_grant(self):
+        con = world()
+        task = [t for t in B.active_tasks() if t["id"] == "T01-exact-output"][0]
+        self.assertEqual(task["allowed_tools"], ["WRITE_ARTIFACT"])
+        bench_run.bench_crew(con, task)
+        for aid in (bench_run.SOLO, bench_run.BUILDER, bench_run.CRITIC):
+            caps = {g["cap"] for g in json.loads(self._perms(con, aid))}
+            self.assertEqual(caps, {"WRITE_ARTIFACT"}, aid)
+
+    def test_the_reviser_is_the_builder_so_it_cannot_escalate(self):
+        self.assertEqual(bench_run.REVISER, bench_run.BUILDER)
+
+    def test_one_step_budget_and_one_clip_policy_serve_both_conditions(self):
+        with open(os.path.join(HERE, "bench_run.py"), encoding="utf-8") as fh:
+            src = fh.read()
+        for name in ("MAX_TOOL_STEPS", "CLIP_BUDGET", "MAX_TRANSPORT_RETRIES",
+                     "MAX_CONSECUTIVE_DENIALS"):
+            self.assertEqual(len(re.findall(r"^%s\s*=" % name, src, re.M)), 1, name)
+        self.assertEqual(len(re.findall(r"^def clip\(", src, re.M)), 1)
+        for gone in ("[:4000]", "[:3000]", "[:2000]", "[:600]"):
+            self.assertNotIn(gone, src, "an ad-hoc truncation is back: %s" % gone)
+
+    def test_the_trailing_act_and_its_critique_appendix_are_gone(self):
+        self.assertFalse(hasattr(bench_run, "act"))
+        self.assertFalse(hasattr(bench_run, "parse_out"))
+
+    def test_every_role_prompt_documents_the_schema_and_the_tools(self):
+        for name in ("SYS_SOLO", "SYS_BUILD", "SYS_CRITIC", "SYS_REVISE"):
+            sysmsg = getattr(bench_run, name)
+            self.assertIn("READ_REPO", sysmsg, name)
+            self.assertIn("WRITE_ARTIFACT", sysmsg, name)
+            self.assertIn('"final"', sysmsg, name)
+
+    def test_no_change_required_is_a_legitimate_outcome_for_both_reviewers(self):
+        self.assertIn("no defect is a valid and complete critique", bench_run.SYS_CRITIC)
+        self.assertIn("resubmit it unchanged", bench_run.SYS_REVISE)
+
+
+class GradingBoundary(unittest.TestCase):
+    def setUp(self):
+        self.con = world()
+        B.ACTIVE.materialise_fixtures(vslice.REPO_ROOT)
+        self.task = [t for t in B.active_tasks() if t["id"] == "T05-tool-required"][0]
+        bench_run.bench_crew(self.con, self.task)
+        self.cid = B.open_campaign(self.con, "loop", "mock", "m", 1)
+        self.gw = vslice.build_gateway(self.con)
+
+    def _row(self, brid):
+        return self.con.execute("SELECT * FROM bench_runs WHERE id=?", (brid,)).fetchone()
+
+    def test_the_graded_string_carries_no_critique_role_or_step_count(self):
+        sentinel = "CRITIQUE-SENTINEL-4242"
+
+        def script(prompt):
+            if "CRITIQUE:" in prompt:                    # the reviser
+                return {"final": {"answer": "print(42)"}}
+            if "SUBMITTED WORK:" in prompt:              # the critic
+                return {"final": {"answer": sentinel + " looks fine"}}
+            return {"final": {"answer": "print(42)"}}    # the builder
+
+        prov = ScriptedProvider([script])
+        brid, _ = bench_run.run_condition(self.con, self.gw, prov, self.task,
+                                          "MULTI", self.cid, 0, 0)
+        r = self._row(brid)
+        self.assertEqual(r["status"], "COMPLETE")
+        self.assertEqual(r["output"], "print(42)")
+        for token in (sentinel, "CRITIQUE", "critique", bench_run.CRITIC,
+                      bench_run.BUILDER, "steps_used"):
+            self.assertNotIn(token, r["output"])
+        # recorded as evidence, just never graded
+        self.assertIn(sentinel, r["exec_graph"])
+
+    def test_a_reviser_that_changes_nothing_still_produces_the_deliverable(self):
+        prov = ScriptedProvider([{"final": {"answer": "print(42)"}}])
+        brid, _ = bench_run.run_condition(self.con, self.gw, prov, self.task,
+                                          "MULTI", self.cid, 0, 0)
+        r = self._row(brid)
+        self.assertEqual(r["status"], "COMPLETE")
+        self.assertEqual(r["output"], "print(42)")
+        self.assertEqual(sorted(json.loads(r["agents_used"])),
+                         sorted({bench_run.BUILDER, bench_run.CRITIC}))
+
+    def test_a_run_that_never_submits_is_incomplete_and_is_never_graded(self):
+        prov = ScriptedProvider([{"tool": "READ_REPO",
+                                  "args": {"path": readable_file()}}])
+        brid, path = bench_run.run_condition(self.con, self.gw, prov, self.task,
+                                             "SINGLE", self.cid, 0, 0)
+        r = self._row(brid)
+        self.assertEqual(r["status"], "INCOMPLETE")
+        self.assertEqual(r["output"], "")
+        self.assertIsNone(path)
+        m = B.evaluate(self.con, brid, self.task, {}, evaluator=bench_run.EVALUATOR)
+        self.assertEqual(m["method"], "NONE")
+        e = self.con.execute("SELECT * FROM bench_evaluations WHERE bench_run_id=?",
+                             (brid,)).fetchone()
+        self.assertEqual(e["method"], "NONE")
+        self.assertIsNone(e["correctness"])
+
+    def test_an_incomplete_run_is_an_attempt_without_a_score(self):
+        prov = ScriptedProvider([{"tool": "READ_REPO",
+                                  "args": {"path": readable_file()}}])
+        bench_run.run_condition(self.con, self.gw, prov, self.task, "SINGLE",
+                                self.cid, 0, 0)
+        cell = [p for p in B.analyse(self.con, self.cid)["per_task"]
+                if p["task_id"] == self.task["id"]][0]["SINGLE"]
+        self.assertEqual(cell["attempts"], 1)
+        self.assertEqual(cell["completed"], 0)
+        self.assertIsNone(cell["correctness"])
+        self.assertEqual(cell["failure_rate"], 1.0)
+
+    def test_every_truncation_is_recorded_with_its_counts(self):
+        big = "x" * (bench_run.CLIP_BUDGET + 1500)
+
+        def script(prompt):
+            if "CRITIQUE:" in prompt:
+                return {"final": {"answer": big}}
+            if "SUBMITTED WORK:" in prompt:
+                return {"final": {"answer": "looks fine"}}
+            return {"final": {"answer": big}}
+
+        prov = ScriptedProvider([script])
+        brid, _ = bench_run.run_condition(self.con, self.gw, prov, self.task,
+                                          "MULTI", self.cid, 0, 0)
+        graph = json.loads(self._row(brid)["exec_graph"])
+        clips = [g for g in graph if g.get("step") == "clip"]
+        self.assertTrue(clips, "a truncated handoff must say so")
+        self.assertEqual(clips[0]["kept_chars"], bench_run.CLIP_BUDGET)
+        self.assertEqual(clips[0]["dropped_chars"], 1500)
+        self.assertTrue(clips[0]["truncated"])
+        shown = big[:bench_run.CLIP_BUDGET]
+        critic_prompt = [p for p in prov.prompts if "SUBMITTED WORK:" in p][0]
+        reviser_prompt = [p for p in prov.prompts if "CRITIQUE:" in p][0]
+        self.assertTrue(critic_prompt.endswith(shown))
+        self.assertIn(shown, reviser_prompt)
+        self.assertNotIn(big, reviser_prompt)
+        # the grader still gets the whole thing: the clip is a handoff, not a cut
+        self.assertEqual(len(self._row(brid)["output"]), len(big))
+
+    def test_an_untruncated_run_says_so_by_recording_nothing(self):
+        prov = ScriptedProvider([{"final": {"answer": "print(42)"}}])
+        brid, _ = bench_run.run_condition(self.con, self.gw, prov, self.task,
+                                          "MULTI", self.cid, 0, 0)
+        graph = json.loads(self._row(brid)["exec_graph"])
+        self.assertEqual([g for g in graph if g.get("step") == "clip"], [])
+
+    def test_cost_and_latency_accumulate_over_every_role_turn(self):
+        prov = ScriptedProvider([{"final": {"answer": "print(42)"}}], usd=0.001)
+        sid, _ = bench_run.run_condition(self.con, self.gw, prov, self.task,
+                                         "SINGLE", self.cid, 0, 0)
+        mid, _ = bench_run.run_condition(self.con, self.gw, prov, self.task,
+                                         "MULTI", self.cid, 0, 1)
+        s, m = self._row(sid), self._row(mid)
+        self.assertAlmostEqual(s["usd"], 0.001, places=6)
+        self.assertAlmostEqual(m["usd"], 0.003, places=6)
+        self.assertEqual(len(json.loads(s["model_runs"])), 1)
+        self.assertEqual(len(json.loads(m["model_runs"])), 3)
+        self.assertGreater(m["tokens_in"], s["tokens_in"])
+
+        def call_latency(row):
+            ids = json.loads(row["model_runs"])
+            return self.con.execute(
+                "SELECT COALESCE(SUM(latency_ms),0) s FROM runs WHERE id IN (%s)"
+                % ",".join("?" * len(ids)), ids).fetchone()["s"]
+        self.assertEqual(call_latency(s), 1)
+        self.assertEqual(call_latency(m), 3)
+
+    def test_a_failed_run_still_reports_what_it_spent(self):
+        dead = P.Result("FAILED", "mock", "scripted", "m", text="",
+                        error="empty completion", usd=0.002)
+
+        def script(prompt):
+            return dead if "SUBMITTED WORK:" in prompt else {"final": {"answer": "print(42)"}}
+
+        prov = ScriptedProvider([script], usd=0.001)
+        brid, _ = bench_run.run_condition(self.con, self.gw, prov, self.task,
+                                          "MULTI", self.cid, 0, 0)
+        r = self._row(brid)
+        self.assertEqual(r["status"], "FAILED")
+        # the builder's call AND the critic's failed call, not just the one that
+        # happened to return
+        self.assertAlmostEqual(r["usd"], 0.003, places=6)
+        self.assertEqual(len(json.loads(r["model_runs"])), 2)
+
+
+class IncompleteIsARecordedStatus(unittest.TestCase):
+    def test_the_schema_accepts_it(self):
+        con = world()
+        cid = B.open_campaign(con, "t", "mock", "m", 1)
+        brid = B.start_run(con, cid, BT.TASKS[0], "SINGLE", 0, 0, "sha")
+        B.finish_run(con, brid, status="INCOMPLETE", output="")
+        self.assertEqual(con.execute("SELECT status FROM bench_runs WHERE id=?",
+                                     (brid,)).fetchone()["status"], "INCOMPLETE")
+
+    def test_an_old_world_is_migrated_without_losing_a_single_row(self):
+        """The CHECK can only be widened by rebuilding the table, and on the
+        owner's machine that table holds the raw runs of campaigns #1-#3."""
+        path = os.path.join(tempfile.mkdtemp(), "old.db")
+        con = store.connect(path)
+        store.found(con, mode="simulation")
+        B.register_tasks(con)
+        cid = B.open_campaign(con, "historic", "mock", "m", 1)
+        for i, cond in enumerate(("SINGLE", "MULTI")):
+            brid = B.start_run(con, cid, BT.TASKS[0], cond, 0, i, "sha")
+            B.finish_run(con, brid, status="COMPLETE", output="print(42)")
+        B.close_campaign(con, cid, {"conclusion": "INSUFFICIENT_EVIDENCE", "why": "x"})
+        before = [tuple(r) for r in con.execute("SELECT * FROM bench_runs ORDER BY id")]
+        con.close()
+
+        # rewind the file to the pre-INCOMPLETE schema
+        raw = sqlite3.connect(path)
+        ddl = raw.execute("SELECT sql FROM sqlite_master WHERE name='bench_runs'"
+                          ).fetchone()[0]
+        narrow = ddl.replace("'INCOMPLETE',", "").replace("bench_runs", "bench_runs_old", 1)
+        self.assertNotIn("'INCOMPLETE'", narrow)
+        raw.executescript(
+            "PRAGMA foreign_keys=OFF;\nPRAGMA legacy_alter_table=ON;\nBEGIN;\n%s;\n"
+            "INSERT INTO bench_runs_old SELECT * FROM bench_runs;\n"
+            "DROP TABLE bench_runs;\n"
+            "ALTER TABLE bench_runs_old RENAME TO bench_runs;\nCOMMIT;" % narrow)
+        raw.close()
+
+        con = store.connect(path)                      # migrates on open
+        after = [tuple(r) for r in con.execute("SELECT * FROM bench_runs ORDER BY id")]
+        self.assertEqual(before, after, "the migration changed a historic run")
+        self.assertIn("'INCOMPLETE'", con.execute(
+            "SELECT sql FROM sqlite_master WHERE name='bench_runs'").fetchone()["sql"])
+        # and LAW 12 came back with the rebuilt table
+        with self.assertRaises(sqlite3.IntegrityError) as e:
+            con.execute("UPDATE bench_runs SET output='rewritten' WHERE id=1")
+        self.assertIn("LAW 12", str(e.exception))
+
+
 class SuiteHygiene(unittest.TestCase):
     def test_every_test_class_is_collected(self):
         import inspect

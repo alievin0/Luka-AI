@@ -54,7 +54,85 @@ def connect(path=None):
                     "DEFAULT '{}'")
     if "updated_at" not in cols:
         con.execute("ALTER TABLE principals ADD COLUMN updated_at TEXT")
+    _widen_bench_run_status(con)
     return con
+
+
+def _table_ddl(schema_path, table):
+    """The CREATE TABLE statement the schema file produces, read back from SQLite.
+
+    Taken from a throwaway in-memory database rather than written out a second
+    time here, so a migration can never drift from the schema it migrates to."""
+    tmp = sqlite3.connect(":memory:")
+    try:
+        with open(schema_path, encoding="utf-8") as fh:
+            tmp.executescript(fh.read())
+        row = tmp.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name=?",
+                          (table,)).fetchone()
+        return row[0] if row else None
+    finally:
+        tmp.close()
+
+
+def _widen_bench_run_status(con):
+    """Let an existing world record INCOMPLETE. Lossless, or it does not happen.
+
+    A CHECK constraint can only be widened by rebuilding the table, and this
+    table holds the raw runs of campaigns #1-#3 on the owner's machine. So the
+    rebuild copies every row inside one transaction and verifies the count and a
+    checksum of the copy against the original before dropping anything. If they
+    disagree the whole thing rolls back and the old table stands. LAW 12 forbids
+    REWRITING a closed campaign; this changes no row, only what the table will
+    accept from here on.
+    """
+    row = con.execute("SELECT sql FROM sqlite_master WHERE type='table' "
+                      "AND name='bench_runs'").fetchone()
+    if row is None or "'INCOMPLETE'" in (row["sql"] or ""):
+        return False
+    ddl = _table_ddl(BENCH_SCHEMA, "bench_runs")
+    if not ddl or "'INCOMPLETE'" not in ddl:
+        return False
+    cols = [r[1] for r in con.execute("PRAGMA table_info(bench_runs)")]
+    collist = ",".join('"%s"' % c for c in cols)
+
+    def fingerprint(table):
+        rows = con.execute("SELECT %s FROM %s ORDER BY id" % (collist, table)).fetchall()
+        return len(rows), sha([[r[c] for c in cols] for r in rows])
+
+    before = fingerprint("bench_runs")
+    con.execute("PRAGMA foreign_keys=OFF")
+    try:
+        con.execute("BEGIN")
+        con.execute(ddl.replace("bench_runs", "bench_runs_migrating", 1))
+        con.execute("INSERT INTO bench_runs_migrating(%s) SELECT %s FROM bench_runs"
+                    % (collist, collist))
+        after = fingerprint("bench_runs_migrating")
+        if after != before:
+            raise RuntimeError("bench_runs migration would lose rows: %r -> %r"
+                               % (before, after))
+        con.execute("DROP TABLE bench_runs")
+        # law_evaluator_isolation lives on bench_evaluations and names bench_runs.
+        # Modern SQLite reparses every trigger during a RENAME and refuses when one
+        # of them points at a table that is momentarily absent; legacy_alter_table
+        # is the documented way through, and the schema script below restores the
+        # trigger either way.
+        con.execute("PRAGMA legacy_alter_table=ON")
+        con.execute("ALTER TABLE bench_runs_migrating RENAME TO bench_runs")
+        con.execute("PRAGMA legacy_alter_table=OFF")
+        if list(con.execute("PRAGMA foreign_key_check")):
+            raise RuntimeError("bench_runs migration broke a foreign key")
+        con.execute("COMMIT")
+    except Exception:
+        con.execute("ROLLBACK")
+        con.execute("PRAGMA legacy_alter_table=OFF")
+        con.execute("PRAGMA foreign_keys=ON")
+        raise
+    con.execute("PRAGMA foreign_keys=ON")
+    # The index and LAW 12's trigger went with the dropped table; the schema
+    # script is idempotent and puts them back.
+    with open(BENCH_SCHEMA, encoding="utf-8") as fh:
+        con.executescript(fh.read())
+    return True
 
 
 def meta(con, key, default=None):

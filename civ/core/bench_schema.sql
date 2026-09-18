@@ -47,8 +47,13 @@ CREATE TABLE IF NOT EXISTS bench_runs (
   condition     TEXT NOT NULL CHECK (condition IN ('SINGLE','MULTI')),
   repeat_index  INTEGER NOT NULL,
   order_index   INTEGER NOT NULL,          -- randomised, to blunt ordering effects
+  -- INCOMPLETE: the condition ran but never nominated a deliverable. It is an
+  -- attempt, it is not a score. `analyse` averages over COMPLETE only, so an
+  -- INCOMPLETE run raises the failure rate and contributes no correctness --
+  -- which is the truth, and is not the same thing as answering wrongly.
   status        TEXT NOT NULL DEFAULT 'STARTED' CHECK (status IN
-                  ('STARTED','COMPLETE','FAILED','NOT_CONFIGURED','BUDGET','TIMEOUT')),
+                  ('STARTED','COMPLETE','INCOMPLETE','FAILED','NOT_CONFIGURED',
+                   'BUDGET','TIMEOUT')),
   input_sha     TEXT NOT NULL,
   prompt_sha    TEXT,
   output        TEXT,
