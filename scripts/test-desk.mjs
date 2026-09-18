@@ -55,7 +55,7 @@ try {
   // The world's derivations live under `app/`, so they need their own root.
   execFileSync(
     "npx",
-    ["tsc", "app/world/model.ts", "app/world/sprites.ts",
+    ["tsc", "app/world/model.ts", "app/world/city.ts",
      "--outDir", outDir, "--rootDir", "app", "--module", "commonjs",
      "--target", "es2020", "--moduleResolution", "node",
      "--esModuleInterop", "--skipLibCheck", "--strict"],
@@ -75,7 +75,7 @@ const dbmod = await load("db/index.js");
 const mem = await load("db/memory.js");
 const tts = await load("tts.js");
 const world = await import(pathToFileURL(join(outDir, "world", "model.js")).href);
-const art = await import(pathToFileURL(join(outDir, "world", "sprites.js")).href);
+const city = await import(pathToFileURL(join(outDir, "world", "city.js")).href);
 const roster = await load("agents.js");
 
 const repo = dbmod.getRepo();
@@ -629,63 +629,91 @@ await check("every edge the pipeline can emit resolves to a path", () => {
   }
 });
 
-await check("every generated place has a pin to stand on", () => {
-  for (const place of art.PLACES) {
-    if (place.zone === "channel" || place.zone === "orchestrator") continue;
-    assert.ok(
-      world.NODES[place.zone],
-      `place "${place.key}" sits on zone "${place.zone}", which has no node`,
-    );
+await check("every building on the plan stands on a node the map knows", () => {
+  for (const place of city.PLACES) {
+    assert.ok(world.NODES[place.code], `place "${place.code}" has no node to stand on`);
+    assert.ok(place.label && place.label !== place.code, `place "${place.code}" has no Arabic name`);
   }
 });
 
-await check("no two assets fight over the same file", () => {
-  const files = art.allAssets().map((a) => a.file);
-  assert.strictEqual(new Set(files).size, files.length, "duplicate asset file name");
-  assert.strictEqual(files.length, 12);
+await check("no two buildings claim the same plot", () => {
+  const codes = city.PLACES.map((p) => p.code);
+  assert.strictEqual(new Set(codes).size, codes.length, "two buildings share a code");
 });
 
-await check("every asset names a real source it can be refetched from", () => {
-  for (const a of art.allAssets()) {
-    assert.match(a.file, /\.png$/, `${a.file} is not a png`);
-    assert.match(a.source, /^https:\/\//, `${a.file} has no https source`);
+await check("every agent the roster can produce has a building to stand at", () => {
+  for (const def of roster.AGENT_ROSTER) {
+    const place = city.placeFor(def.code) ?? city.placeFor(def.zone);
+    assert.ok(place, `${def.code} (zone ${def.zone}) has no building on the campus`);
   }
 });
 
-await check("a channel is a doorway, not a second body on the board", () => {
-  assert.strictEqual(art.hasPod("reception"), true);
-  assert.strictEqual(art.hasPod("channel-whatsapp"), false);
-  assert.strictEqual(art.hasPod("channel-instagram"), false);
+await check("the second names for a building resolve to the building itself", () => {
+  // The roster spells the same place two ways; an agent must never fall off
+  // the map over which spelling it happened to pick.
+  assert.strictEqual(city.placeFor("escalation").code, "policy");
+  assert.strictEqual(city.placeFor("supervisor").code, "supervision");
+  assert.strictEqual(city.placeFor("atlantis"), null);
 });
 
-await check("an agent's state picks the character that matches it", () => {
-  assert.strictEqual(art.podFor("working"), "idle");
-  assert.strictEqual(art.podFor("waiting"), "wait");
-  assert.strictEqual(art.podFor("escalated"), "alert");
-  assert.strictEqual(art.podFor("error"), "alert");
-  assert.strictEqual(art.podFor("anything_new"), "idle");
+await check("the plan is centred on the campus it was drawn in", () => {
+  const middle = city.toWorld(world.CAMPUS_W / 2, world.CAMPUS_H / 2);
+  assert.strictEqual(middle.x, 0);
+  assert.strictEqual(middle.z, 0);
+  const corner = city.toWorld(0, 0);
+  assert.strictEqual(corner.x, -world.CAMPUS_W / 2 / city.SCALE);
+  assert.strictEqual(corner.z, -world.CAMPUS_H / 2 / city.SCALE);
 });
 
-await check("a sprite is placed by its centre, in percentages of the art", () => {
-  const box = art.spriteBox({ x: 563, y: 338, w: 200 });
-  // Dead centre of a 1126 x 676 canvas, 200 wide.
-  assert.strictEqual(box.left, `${((563 - 100) / 1126) * 100}%`);
-  assert.strictEqual(box.top, `${((338 - 100) / 676) * 100}%`);
-  assert.strictEqual(box.width, `${(200 / 1126) * 100}%`);
-});
-
-await check("every place fits inside the canvas it is placed on", () => {
-  for (const p of art.PLACES) {
-    assert.ok(p.x - p.w / 2 > -p.w * 0.5, `${p.key} runs off the left`);
-    assert.ok(p.x + p.w / 2 < world.CAMPUS_W + p.w * 0.5, `${p.key} runs off the right`);
-    assert.ok(p.y + p.w / 2 < world.CAMPUS_H + p.w * 0.5, `${p.key} runs off the bottom`);
+await check("every building fits on the ground it is standing on", () => {
+  for (const place of city.PLACES) {
+    const at = city.anchorOf(place);
+    const reach = Math.max(place.w, place.d) / 2 + 2;
+    assert.ok(Math.abs(at.x) + reach < city.GROUND_W / 2, `${place.code} hangs off the plate`);
+    assert.ok(Math.abs(at.z) + reach < city.GROUND_D / 2, `${place.code} hangs off the plate`);
   }
 });
 
-await check("the art is served from the committed copy when there is one", () => {
-  const a = { file: "x.png", source: "https://cdn.example/y.png" };
-  assert.strictEqual(art.spriteUrl(a, "local"), "/world/sprites/x.png");
-  assert.strictEqual(art.spriteUrl(a, "remote"), "https://cdn.example/y.png");
+await check("a label floats clear of the roof it belongs to", () => {
+  for (const place of city.PLACES) {
+    assert.ok(place.crown > place.h, `${place.code} would print its name inside its own roof`);
+  }
+});
+
+await check("a traced route is read back as the curve it was drawn as", () => {
+  const parsed = city.parseRoute("M137,508 C160,518 186,530 209,540");
+  assert.ok(parsed);
+  assert.deepStrictEqual(parsed.start, city.toWorld(137, 508));
+  assert.strictEqual(parsed.curves.length, 1);
+  assert.deepStrictEqual(parsed.curves[0].end, city.toWorld(209, 540));
+
+  // A quadratic is converted to the cubic with the same shape, so the sampler
+  // only ever has to handle one kind of curve.
+  const quad = city.parseRoute("M0,0 Q30,30 60,0");
+  assert.ok(quad);
+  assert.strictEqual(quad.curves.length, 1);
+  assert.deepStrictEqual(quad.curves[0].end, city.toWorld(60, 0));
+
+  assert.strictEqual(city.parseRoute("nonsense"), null);
+});
+
+await check("a road starts and ends at the two buildings it joins", () => {
+  const points = city.sampleRoute("reception", "orchestrator");
+  assert.ok(points.length > 2);
+  const from = city.toWorld(world.NODES.reception.x, world.NODES.reception.y);
+  const to = city.toWorld(world.NODES.orchestrator.x, world.NODES.orchestrator.y);
+  assert.ok(Math.hypot(points[0].x - from.x, points[0].z - from.z) < 0.001);
+  const last = points[points.length - 1];
+  assert.ok(Math.hypot(last.x - to.x, last.z - to.z) < 0.001);
+  assert.deepStrictEqual(city.sampleRoute("reception", "atlantis"), []);
+});
+
+await check("every route the architecture can carry is laid down as a road", () => {
+  const laid = city.roads();
+  assert.strictEqual(laid.length, world.tracedRoutes().length);
+  for (const road of laid) {
+    assert.ok(road.points.length > 2, `${road.from} → ${road.to} came back as a stub`);
+  }
 });
 
 await check("an unknown event kind keeps its name instead of vanishing", () => {
