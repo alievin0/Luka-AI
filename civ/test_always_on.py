@@ -40,6 +40,11 @@ from core import runtime                # noqa: E402
 import world_export as WE                # noqa: E402
 
 ORCH, RES = "AGT-ORCHESTRATOR", "AGT-RESEARCHER"
+# The capabilities that DO something to the world. SEND_MESSAGE is deliberately
+# not among them: it writes a row addressed to a colleague and reaches nothing
+# else, which is why the coordinator may hold it and still be unable to do the
+# work it delegates.
+ACTING = frozenset({"READ_REPO", "WRITE_ARTIFACT", "EXECUTE_SANDBOX"})
 BUILD, REV, OPER = "AGT-BUILDER", "AGT-REVIEWER", "AGT-OPERATOR"
 OWNER = POL.OWNER
 
@@ -1350,12 +1355,18 @@ class AutonomyBoundary(unittest.TestCase):
         self.assertEqual(con.execute(
             "SELECT COUNT(*) c FROM principals WHERE id LIKE 'AGT-%'").fetchone()["c"], 5)
 
-    def test_the_orchestrator_holds_no_tool_and_no_permission(self):
+    def test_the_orchestrator_holds_no_tool_that_can_do_the_work(self):
+        """It can talk — SEND_MESSAGE is everyone's, and a coordinator that
+        cannot say anything needs the supervisor to speak for it. What it must
+        never hold is a capability that ACTS: read, write or execute. That is
+        what stops it quietly doing what it hands out."""
         con = world()
         row = con.execute("SELECT tools, permissions FROM principals WHERE id=?",
                           (ORCH,)).fetchone()
         self.assertEqual(json.loads(row["tools"]), [])
-        self.assertEqual(json.loads(row["permissions"]), [])
+        held = {p["cap"] for p in json.loads(row["permissions"])}
+        self.assertEqual(held, {"SEND_MESSAGE"})
+        self.assertEqual(held & ACTING, set())
 
     def test_the_orchestrator_stays_toolless_through_a_whole_autonomous_run(self):
         con, w, fixture = driven()
@@ -1364,16 +1375,23 @@ class AutonomyBoundary(unittest.TestCase):
         row = con.execute("SELECT tools, permissions FROM principals WHERE id=?",
                           (ORCH,)).fetchone()
         self.assertEqual(json.loads(row["tools"]), [])
-        self.assertEqual(json.loads(row["permissions"]), [])
+        held = {p["cap"] for p in json.loads(row["permissions"])}
+        self.assertEqual(held & ACTING, set())
         self.assertFalse(con.execute(
-            "SELECT 1 FROM tool_calls WHERE principal_id=? AND decision='ALLOW'",
+            "SELECT 1 FROM tool_calls WHERE principal_id=? AND decision='ALLOW' "
+            "AND cap IN ('READ_REPO','WRITE_ARTIFACT','EXECUTE_SANDBOX')",
             (ORCH,)).fetchone(), "the coordinator did the work it delegates")
 
     def test_the_reviewer_can_never_write(self):
+        """A reviewer that can edit the artifact is a co-author. It may read it
+        and it may say what it thinks of it; it may not change it."""
         con = world()
         perms = json.loads(con.execute(
             "SELECT permissions FROM principals WHERE id=?", (REV,)).fetchone()["permissions"])
-        self.assertEqual({p["cap"] for p in perms}, {"READ_REPO"})
+        held = {p["cap"] for p in perms}
+        self.assertEqual(held, {"READ_REPO", "SEND_MESSAGE"})
+        self.assertNotIn("WRITE_ARTIFACT", held)
+        self.assertNotIn("EXECUTE_SANDBOX", held)
 
     def test_the_operator_is_the_only_one_who_may_execute(self):
         con = world()
@@ -3091,9 +3109,10 @@ class CapabilityGraph(unittest.TestCase):
                 for t in c["tools"]:
                     self.assertIn(t["id"], CAP.tools(self.con))
 
-    def test_the_orchestrator_holds_no_tool_and_that_is_a_real_answer(self):
+    def test_the_orchestrator_holds_no_acting_tool_and_that_is_a_real_answer(self):
         g = CAP.graph(self.con, ORCH)
-        self.assertEqual(g["permissions"], [])
+        self.assertEqual(g["permissions"], ["SEND_MESSAGE"])
+        self.assertEqual(set(g["permissions"]) & ACTING, set())
         for c in g["capabilities"]:
             self.assertEqual(c["needs_tools"], [])
             self.assertTrue(c["usable"], "a capability needing no door is usable")

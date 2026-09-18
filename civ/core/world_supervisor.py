@@ -21,6 +21,7 @@ import sqlite3
 import time
 
 from . import agent_runtime as RT, agent_world as W, always_on as A
+from . import agent_context as CTX
 from . import store, world_bus as BUS, world_policy as POL
 from . import embodiment as EMB
 from . import world_space as SPACE
@@ -187,7 +188,11 @@ def h_project_opened(w, item):
 def _worker_for(con, task):
     """Who may do this task. Capability, then the team, then a stable order."""
     need = set(json.loads(task["required_caps"] or "[]"))
-    able = [a for a, have in sorted(W.ROLE_CAPABILITY.items()) if need <= have]
+    # Every agent the world HAS, with the capabilities it actually holds — not
+    # the five in the founding map. An agent the factory commissioned is
+    # employable here or it is not employable anywhere.
+    able = [a["id"] for a in W.inhabitants(con)
+            if need <= W.capabilities_of(con, a["id"])]
     if not able:
         return None
     seated = {r["principal_id"] for r in con.execute(
@@ -250,11 +255,17 @@ def h_task_ready(w, item):
     EMB.take_station(con, agent, SPACE.locate(con, agent)["workspace"])
 
     # What this identity already knows, retrieved because it is waking, not
-    # because someone passed it along in a prompt from the last run.
-    mem = A.wake_memory(con, agent, task["project_id"])
+    # because someone passed it along in a prompt from the last run — and then
+    # actually GIVEN to it. This used to be fetched into a local variable,
+    # counted in the return value as `memory_recalled`, and dropped: the record
+    # said memory had been recalled while nothing had recalled it to anybody.
+    brief, ctx = CTX.briefing(
+        con, agent, tid, project_id=task["project_id"],
+        extra={"the owner's instruction": w.instruction_for(task)})
+    mem = ctx["memory"]
     try:
         turn = RT.run_agent_turn(
-            con, w.gw, prov, agent, tid, instruction=w.instruction_for(task),
+            con, w.gw, prov, agent, tid, instruction=brief,
             lease_id=lease["lease_id"], project_id=task["project_id"])
         RT.record_turn(con, turn, task["project_id"])
         usd = w.spend_of(turn)
@@ -437,10 +448,14 @@ def h_correction_needed(w, item):
 
     conds = [c["description"] for c in con.execute(
         "SELECT description FROM task_conditions WHERE task_id=?", (tid,))]
+    # The correction NAMES the attempt it exists to answer. Without this link a
+    # correction task is a fresh row with no history, and the agent picking it
+    # up cannot see the rejection it is supposed to be fixing — so it is being
+    # asked to guess what was wrong.
     new = W.discover_task(
         con, "Correct: " + task["objective"], by=ORCH, project_id=task["project_id"],
         required_caps=json.loads(task["required_caps"] or "[]"),
-        evidence_required=task["evidence_required"],
+        evidence_required=task["evidence_required"], parent_id=tid,
         conditions=[{"description": c, "kind": A._cond_kind(c)} for c in conds])
     W.transition(con, new, "PROPOSED", ORCH, "correction for task #%d" % tid)
     W.transition(con, new, "APPROVED", ORCH, "the bar is unchanged")

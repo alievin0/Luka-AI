@@ -54,12 +54,29 @@ EXEC_SCOPE = {"cap": "EXECUTE_SANDBOX",
                                                  "bash -c", "|", ">", "&&", ";"]},
               "rate": {"per_lease": 3, "per_hour": 60}}
 
+# Talking to a colleague is a baseline capability of a worker, not a privilege:
+# an agent that cannot say "this is rejected and here is why" has to have the
+# supervisor say it on its behalf, and then the conversation is choreography.
+# It is still adjudicated like everything else — the gateway authenticates the
+# sender, the recipient must be a real active agent, and every message is a row.
+# Rate-limited because a flood of messages is the cheapest denial of service an
+# agent has available.
+# The vocabulary the `agent_messages` CHECK constraint actually permits. Kept
+# here so the gateway can refuse an unknown kind as a readable denial instead of
+# the agent meeting a database error it cannot interpret.
+MESSAGE_KINDS = ("ASSIGN", "REPORT", "REQUEST", "ANSWER", "HANDOFF",
+                 "REVIEW_REQUEST", "REVIEW_RESULT", "ESCALATE", "BLOCKED",
+                 "NOTIFY")
+
+TALK_SCOPE = {"cap": "SEND_MESSAGE", "scope": {},
+              "rate": {"per_lease": 4, "per_hour": 60}}
+
 CREW = [
     dict(id="AGT-ORCHESTRATOR", name="Orchestrator", role="Objective Decomposer",
          tier="actor", division="Operations", department="Coordination",
          mission="Turn an owner objective into a minimum set of assigned tasks, "
                  "track their dependencies, and never route around a permission.",
-         tools=[], permissions=[],
+         tools=[], permissions=[TALK_SCOPE],
          memory_scope=["self", "project", "org"],
          success_metrics=[{"metric": "tasks_accepted_first_pass", "target": 0.8}],
          escalation_rules=[{"when": "no_capable_agent", "action": "OWNER_APPROVAL"}],
@@ -78,7 +95,7 @@ CREW = [
          # Scoped to the artifact directory like every other writer. The REVIEWER
          # is the one that must never write, and does not.
          tools=["fs.read", "fs.write"],
-         permissions=[READ_SCOPE, write_scope("research")],
+         permissions=[READ_SCOPE, write_scope("research"), TALK_SCOPE],
          memory_scope=["self", "project"],
          success_metrics=[{"metric": "claims_backed_by_evidence", "target": 1.0}],
          escalation_rules=[{"when": "no_evidence_available", "action": "NEED_EVIDENCE"}],
@@ -89,7 +106,7 @@ CREW = [
          mission="Turn an approved task into a real artifact on disk and report "
                  "what was actually produced, not what was intended.",
          tools=["fs.read", "fs.write"],
-         permissions=[READ_SCOPE, write_scope("build")],
+         permissions=[READ_SCOPE, write_scope("build"), TALK_SCOPE],
          memory_scope=["self", "project"],
          success_metrics=[{"metric": "artifacts_accepted", "target": 0.8}],
          escalation_rules=[{"when": "spec_contradicts_itself", "action": "ESCALATE"}],
@@ -101,7 +118,7 @@ CREW = [
                  "asserted without it, and be able to reject.",
          # Read, never write: a reviewer that can edit the artifact is a
          # co-author, and LAW 5 would have nothing left to protect.
-         tools=["fs.read"], permissions=[READ_SCOPE],
+         tools=["fs.read"], permissions=[READ_SCOPE, TALK_SCOPE],
          memory_scope=["project", "org"],
          success_metrics=[{"metric": "rejections_upheld", "target": 0.9}],
          escalation_rules=[{"when": "no_evidence", "action": "NEED_EVIDENCE"}],
@@ -111,7 +128,8 @@ CREW = [
          tier="actor", division="Operations", department="Execution",
          mission="Execute approved workflows through authorised tools and record "
                  "every action, without ever widening what it is allowed to do.",
-         tools=["proc.run", "fs.read"], permissions=[READ_SCOPE, EXEC_SCOPE],
+         tools=["proc.run", "fs.read"],
+         permissions=[READ_SCOPE, EXEC_SCOPE, TALK_SCOPE],
          memory_scope=["self", "org"],
          success_metrics=[{"metric": "actions_recorded", "target": 1.0}],
          escalation_rules=[{"when": "tool_denied", "action": "REPORT"}],
@@ -126,6 +144,28 @@ ROLE_CAPABILITY = {
     "AGT-REVIEWER": {"review", "read"},
     "AGT-OPERATOR": {"execute", "operate", "read"},
 }
+
+def capabilities_of(con, agent_id):
+    """What this agent can actually be asked to do.
+
+    ROLE_CAPABILITY is the FOUNDING map — five names hard-coded above. An agent
+    the Agent Factory commissioned has its capabilities in `agent_capabilities`
+    instead, so anything that consulted the map alone concluded a commissioned
+    agent could do nothing: it could be deployed, given a body and a desk, and
+    then never selected for a single task. Three separate places did exactly
+    that. This is the one resolver they all use now, and it reads both.
+
+    The `CAP-` prefix appears because `capability_graph` registers capabilities
+    under it; both spellings mean the same capability and both are returned."""
+    caps = set(ROLE_CAPABILITY.get(agent_id, set()))
+    for r in con.execute("SELECT capability_id FROM agent_capabilities "
+                         "WHERE principal_id=?", (agent_id,)):
+        cid = r["capability_id"]
+        caps.add(cid)
+        if cid.startswith("CAP-"):
+            caps.add(cid[4:])
+    return caps
+
 
 OWNER = "OWNER_PLANE"
 
@@ -261,11 +301,51 @@ def _stand_the_crew(con, ids):
         EMB.take_station(con, aid, SPACE.locate(con, aid)["workspace"])
 
 
+class WorldGateway(runtime.Gateway):
+    """The world's gateway. Identical adjudication, plus one thing.
+
+    A few capabilities must know WHO is calling — sending a message, where the
+    sender is the entire security question. `Gateway.call` does not pass the
+    principal to the bound tool, and it CANNOT be changed to: its source is
+    inside the campaign #3 harness seal, and editing it would rewrite the
+    execution model underneath a closed campaign. The benchmark caught exactly
+    that when it was tried.
+
+    So the binding happens here instead. The benchmark keeps the sealed
+    `Gateway` it has always used, byte for byte; the world uses this. Every
+    check — pause, lease, grant, scope, rate, audit — is the inherited one.
+
+    A caller that supplies the argument itself collides with the value this
+    injects and the tool raises, which `Gateway.call` audits as an ERROR row
+    before re-raising. `agent_runtime.RESERVED_ARGS` refuses it one layer
+    earlier with a clean denial, so a model meets the first check and never the
+    second."""
+
+    def __init__(self, con, tools=None):
+        super().__init__(con, tools)
+        self._principal_arg = {}
+
+    def bind_principal(self, cap, arg):
+        self._principal_arg[cap] = arg
+
+    def call(self, principal_id, cap, /, lease_id=None, **args):
+        arg = self._principal_arg.get(cap) if isinstance(cap, str) else None
+        if arg:
+            # The caller's value NEVER survives. Supplying it at all is an
+            # attempt to act as somebody else, so the tool is handed None and
+            # refuses — rather than being handed the forged name, which is what
+            # a version of this that only filled in the blank would do.
+            forged = arg in args
+            args = dict(args)
+            args[arg] = None if forged else principal_id
+        return super().call(principal_id, cap, lease_id=lease_id, **args)
+
+
 def build_gateway(con):
     """The SAME gateway, with the same three tools. V0 registers no new
     capability: an agent world that needed a new privileged door would be an
     agent world with a new way to be wrong."""
-    gw = runtime.Gateway(con)
+    gw = WorldGateway(con)
 
     def fs_read(path):
         with open(path, encoding="utf-8", errors="replace") as fh:
@@ -287,15 +367,68 @@ def build_gateway(con):
         return {"returncode": r.returncode, "stdout": r.stdout[:8000],
                 "stderr": r.stderr[:4000]}
 
+    def send_message(to, text, kind="REPORT", task_id=None, artifact_id=None,
+                     principal_id=None):
+        # A None sender means the caller supplied one itself and the gateway
+        # withheld its own. LAW 21 — no agent may send in another's name — is
+        # therefore unreachable from here rather than merely enforced later.
+        if principal_id is None:
+            raise runtime.Denied(
+                "the sender is set by the gateway and may not be supplied")
+        """One agent tells another something, as its own decision.
+
+        Before this, every message between agents was sent BY THE SUPERVISOR on
+        their behalf, which makes the conversation choreography rather than
+        communication. Now an agent can choose to send one, and the choice goes
+        through the same gateway as every other action: it is granted or it is
+        not, and it is audited either way.
+
+        `principal_id` is supplied by the gateway from its own authenticated
+        value — never by the caller — so LAW 21 (no agent may send in another's
+        name) cannot be reached from a model at all."""
+        if not isinstance(to, str) or not to.strip():
+            raise runtime.Denied("a message needs a recipient")
+        if to == principal_id:
+            raise runtime.Denied("an agent does not message itself")
+        row = con.execute("SELECT tier FROM principals WHERE id=? AND "
+                          "lifecycle_state='ACTIVE'", (to,)).fetchone()
+        if row is None:
+            raise runtime.Denied("no active agent %r to send to" % to)
+        if row["tier"] == "owner_plane":
+            # The owner plane is the control plane, not a colleague. Text an
+            # agent read out of a file could otherwise arrive in the Owner's
+            # view wearing an agent's name. Reaching the Owner is escalation,
+            # which is a different and reviewed path.
+            raise runtime.Denied(
+                "the owner plane is not a peer; raise an escalation instead")
+        body = str(text or "")[:4000]
+        if not body.strip():
+            raise runtime.Denied("a message needs something in it")
+        # The kind vocabulary is a CHECK constraint on the table. Refuse an
+        # unknown one HERE, as an audited gateway denial the agent can read and
+        # act on, rather than letting it reach the database and surface as an
+        # IntegrityError that tells the agent nothing.
+        k = str(kind or "REPORT").upper()
+        if k not in MESSAGE_KINDS:
+            raise runtime.Denied(
+                "message kind %r is not one of: %s" % (kind, ", ".join(MESSAGE_KINDS)))
+        mid = send(con, principal_id, to, k, {"text": body}, task_id=task_id,
+                   artifact_id=artifact_id, authority="agent")
+        return {"message_id": mid, "to": to, "delivered": True}
+
     gw.register("READ_REPO", fs_read)
     gw.register("WRITE_ARTIFACT", fs_write)
     gw.register("EXECUTE_SANDBOX", proc_run)
+    gw.register("SEND_MESSAGE", send_message)
+    # The sender is authenticated by the gateway, not asserted by the caller.
+    gw.bind_principal("SEND_MESSAGE", "principal_id")
     return gw
 
 
 # ── TASKS ───────────────────────────────────────────────────────────
 def discover_task(con, objective, by, project_id=None, kind="work",
-                  required_caps=(), conditions=(), evidence_required=0, priority=5):
+                  required_caps=(), conditions=(), evidence_required=0, priority=5,
+                  parent_id=None):
     """A task starts as DISCOVERED — noticed, not agreed to.
 
     `conditions` is what "done" will mean, declared NOW, before anyone knows
@@ -303,9 +436,10 @@ def discover_task(con, objective, by, project_id=None, kind="work",
     written after the work is a bar the work was always going to clear."""
     tid = con.execute(
         "INSERT INTO tasks(project_id,objective,kind,required_caps,priority,status,"
-        "evidence_required,created_by,created_at) VALUES(?,?,?,?,?,'DISCOVERED',?,?,?)",
+        "evidence_required,created_by,created_at,parent_id) "
+        "VALUES(?,?,?,?,?,'DISCOVERED',?,?,?,?)",
         (project_id, objective, kind, json.dumps(sorted(required_caps)), priority,
-         evidence_required, by, now())).lastrowid
+         evidence_required, by, now(), parent_id)).lastrowid
     for cond in conditions:
         c = cond if isinstance(cond, dict) else {"description": cond, "kind": "artifact"}
         con.execute("INSERT INTO task_conditions(task_id,description,kind,created_at) "
@@ -373,7 +507,7 @@ def assign(con, task_id, to_agent, by, why=""):
     not an assignment."""
     caps = set(json.loads(con.execute("SELECT required_caps FROM tasks WHERE id=?",
                                       (task_id,)).fetchone()["required_caps"] or "[]"))
-    have = ROLE_CAPABILITY.get(to_agent, set())
+    have = capabilities_of(con, to_agent)
     if caps and not caps.issubset(have):
         raise WorldError("%s cannot do task %d: needs %s, has %s"
                          % (to_agent, task_id, sorted(caps), sorted(have)))
@@ -529,21 +663,38 @@ def readable_scopes(con, agent_id):
 
 # ── TEAM FORMATION ──────────────────────────────────────────────────
 def form_team_for(con, required, project_id=None, by="AGT-ORCHESTRATOR",
-                  name="Task Team"):
+                  name="Task Team", strict=True):
     """The minimum team that covers the requirement, and no one else.
 
     Staffing every project with every agent is how an organisation stops being
-    able to say who was responsible."""
+    able to say who was responsible.
+
+    Who is eligible comes from `capabilities_of`, so an agent the Agent Factory
+    commissioned can be staffed onto a team. Iterating the founding map meant a
+    new agent could be created, approved, embodied, seated — and never put on
+    anything.
+
+    Selection is greedy over who covers the most of what is still needed, with
+    the agent id breaking ties, so the same requirement always produces the same
+    team. `strict=False` returns what could not be covered instead of raising,
+    which is what a caller routing to the Skill or Agent Factory needs."""
     need, chosen = set(required), []
-    for aid, have in ROLE_CAPABILITY.items():
-        if not need:
+    pool = {a["id"]: capabilities_of(con, a["id"]) for a in inhabitants(con)}
+    while need:
+        best, gain = None, set()
+        for aid in sorted(pool):
+            g = pool[aid] & need
+            if len(g) > len(gain):
+                best, gain = aid, g
+        if not best:
             break
-        gain = have & need
-        if gain:
-            chosen.append((aid, sorted(gain)))
-            need -= gain
-    if need:
+        chosen.append((best, sorted(gain)))
+        need -= gain
+        pool.pop(best)
+    if need and strict:
         raise WorldError("no agent covers %s" % sorted(need))
+    if need:
+        return {"team_id": None, "members": chosen, "uncovered": sorted(need)}
     if project_id is None:
         return {"members": chosen, "uncovered": []}
     tid = con.execute("INSERT INTO teams(project_id,name,purpose,created_at) "

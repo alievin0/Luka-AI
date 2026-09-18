@@ -125,12 +125,17 @@ class PersistentIdentity(unittest.TestCase):
 class CapabilityAndPermission(unittest.TestCase):
     def test_no_agent_holds_a_capability_its_role_does_not_need(self):
         con = world()
+        # SEND_MESSAGE is held by everybody: telling a colleague something is a
+        # baseline capability of a worker, and an agent that cannot say "this is
+        # rejected and here is why" needs the supervisor to say it on its
+        # behalf — at which point the conversation is choreography rather than
+        # communication. It is confined in its own test below.
         expected = {
-            ORCH: set(),                                   # coordinates, cannot act
-            RES: {"READ_REPO", "WRITE_ARTIFACT"},   # a finding is an artifact
-            BUILD: {"READ_REPO", "WRITE_ARTIFACT"},
-            REV: {"READ_REPO"},                            # read, never write
-            OPER: {"READ_REPO", "EXECUTE_SANDBOX"},
+            ORCH: {"SEND_MESSAGE"},              # coordinates; still cannot act
+            RES: {"READ_REPO", "WRITE_ARTIFACT", "SEND_MESSAGE"},
+            BUILD: {"READ_REPO", "WRITE_ARTIFACT", "SEND_MESSAGE"},
+            REV: {"READ_REPO", "SEND_MESSAGE"},          # read, never write
+            OPER: {"READ_REPO", "EXECUTE_SANDBOX", "SEND_MESSAGE"},
         }
         for aid, caps in expected.items():
             got = {g["cap"] for g in json.loads(
@@ -185,11 +190,74 @@ class CapabilityAndPermission(unittest.TestCase):
             n1 = con.execute("SELECT COUNT(*) c FROM tool_calls").fetchone()["c"]
             self.assertEqual(n1, n0 + 1, "denial not audited")
 
-    def test_v0_registered_no_new_privileged_door(self):
+    def test_the_gateway_has_exactly_these_doors_and_no_others(self):
+        """The whole privilege surface, pinned. A new capability must fail this
+        test and be justified, not appear quietly."""
         con = world()
         gw = W.build_gateway(con)
         self.assertEqual(sorted(gw._tools),
-                         ["EXECUTE_SANDBOX", "READ_REPO", "WRITE_ARTIFACT"])
+                         ["EXECUTE_SANDBOX", "READ_REPO", "SEND_MESSAGE",
+                          "WRITE_ARTIFACT"])
+
+    def test_send_message_reaches_nothing_but_the_message_table(self):
+        """It is a new door, so here is what is behind it. It cannot read a
+        file, write one, run anything, or reach a principal that is not an
+        active agent — and it cannot be used to speak in someone else's name."""
+        con = world()
+        gw = W.build_gateway(con)
+        before = {t: con.execute("SELECT COUNT(*) c FROM " + t).fetchone()["c"]
+                  for t in ("tool_calls", "artifacts", "tasks", "leases",
+                            "permission_grants", "principals")}
+        gw.call(RES, "SEND_MESSAGE", to=BUILD, kind="HANDOFF", text="findings ready")
+        for t, n in before.items():
+            if t == "tool_calls":
+                continue
+            self.assertEqual(con.execute(
+                "SELECT COUNT(*) c FROM " + t).fetchone()["c"], n,
+                "SEND_MESSAGE changed %s" % t)
+        m = con.execute("SELECT * FROM agent_messages ORDER BY id DESC "
+                        "LIMIT 1").fetchone()
+        self.assertEqual(m["sender"], RES)
+        self.assertEqual(m["recipient"], BUILD)
+
+        for args, why in (({"to": BUILD, "text": "x", "principal_id": ORCH},
+                           "forged sender"),
+                          ({"to": REV, "text": "x"}, "itself"),
+                          ({"to": "AGT-NOBODY", "text": "x"}, "unknown recipient"),
+                          ({"to": W.OWNER, "text": "x"}, "the owner plane"),
+                          ({"to": BUILD, "text": "x", "kind": "SUDO"}, "invented kind"),
+                          ({"to": BUILD, "text": "   "}, "empty message")):
+            with self.assertRaises(runtime.Denied, msg=why):
+                gw.call(REV, "SEND_MESSAGE", **args)
+
+    def test_a_forged_sender_is_refused_and_audited(self):
+        """Recorded as ERROR rather than DENY, and that is the honest label:
+        `Gateway.call` is inside the campaign #3 harness seal and was not
+        edited, so the refusal comes from the TOOL. What matters is unchanged —
+        a row exists, it names the real caller rather than the claimed one, and
+        no message was sent."""
+        con = world()
+        gw = W.build_gateway(con)
+        n0 = con.execute("SELECT COUNT(*) c FROM tool_calls").fetchone()["c"]
+        with self.assertRaises(runtime.Denied):
+            gw.call(REV, "SEND_MESSAGE", to=BUILD, text="x", principal_id=RES)
+        row = con.execute("SELECT * FROM tool_calls ORDER BY id DESC "
+                          "LIMIT 1").fetchone()
+        self.assertEqual(con.execute(
+            "SELECT COUNT(*) c FROM tool_calls").fetchone()["c"], n0 + 1)
+        self.assertNotEqual(row["decision"], "ALLOW")
+        self.assertEqual(row["principal_id"], REV,
+                         "audited under the claimed name, not the real caller")
+        self.assertEqual(con.execute(
+            "SELECT COUNT(*) c FROM agent_messages").fetchone()["c"], 0)
+
+    def test_the_world_gateway_did_not_edit_the_sealed_one(self):
+        """The binding lives in a subclass precisely so the benchmark's gateway
+        is untouched. If this ever fails, campaign #3's execution model has been
+        rewritten underneath it."""
+        import inspect
+        self.assertTrue(issubclass(W.WorldGateway, runtime.Gateway))
+        self.assertNotIn("_principal_arg", inspect.getsource(runtime.Gateway.call))
 
 
 class TaskLifecycle(unittest.TestCase):

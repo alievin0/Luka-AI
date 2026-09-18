@@ -31,6 +31,11 @@ movement record, all written when work sent them somewhere. That is
 [`SPATIAL_WORLD.md`](SPATIAL_WORLD.md), and `python3 spatial_demo.py --fresh` is
 the proof.
 
+**The agents decide now.** They wake with a briefing assembled from rows,
+choose a tool, see what came back and decide again — that is
+[`AGENT_COGNITION.md`](AGENT_COGNITION.md). No model is reachable here, so what
+is demonstrated is the loop, not reasoning.
+
 **The world is a server now.** It has its own clock, its own address and its
 own process, and it keeps running when every client is closed — that is
 [`AGENT_WORLD_SERVER.md`](AGENT_WORLD_SERVER.md), with

@@ -121,6 +121,11 @@ source surfaced three retries later as `TypeError: expected str … not NoneType
 
 ---
 
+**The agents inside it can now work**, rather than being moved through a
+script: [`AGENT_COGNITION.md`](AGENT_COGNITION.md), with
+`python3 real_agent_demo.py --fresh` as the run and `python3 model_check.py` as
+the preflight for pointing it at a real model.
+
 ## The Agent Factory makes inhabitants
 
 `factory.py` already did the hard part and still does: it decides whether a

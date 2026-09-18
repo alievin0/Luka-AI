@@ -500,9 +500,14 @@ class HostileFixtureContainment(unittest.TestCase):
 class CapabilityEnforcement(unittest.TestCase):
     def test_each_agent_holds_only_what_its_role_needs(self):
         con = world()
-        expect = {ORCH: set(), RES: {"READ_REPO", "WRITE_ARTIFACT"},
-                  BUILD: {"READ_REPO", "WRITE_ARTIFACT"}, REV: {"READ_REPO"},
-                  OPER: {"READ_REPO", "EXECUTE_SANDBOX"}}
+        # SEND_MESSAGE is everyone's: see `test_agent_world.py`, where what is
+        # behind that door is pinned. The point preserved here is that the
+        # ACTING capabilities are still unequal — the Orchestrator holds none.
+        talk = {"SEND_MESSAGE"}
+        expect = {ORCH: talk, RES: {"READ_REPO", "WRITE_ARTIFACT"} | talk,
+                  BUILD: {"READ_REPO", "WRITE_ARTIFACT"} | talk,
+                  REV: {"READ_REPO"} | talk,
+                  OPER: {"READ_REPO", "EXECUTE_SANDBOX"} | talk}
         for aid, caps in expect.items():
             got = {g["cap"] for g in json.loads(
                 con.execute("SELECT permissions FROM principals WHERE id=?",
@@ -517,11 +522,23 @@ class CapabilityEnforcement(unittest.TestCase):
         with self.assertRaises(W.WorldError):
             W.assign(con, tid, OPER, by=ORCH)
 
-    def test_v0_1_registered_no_new_capability(self):
+    def test_the_gateway_doors_are_pinned(self):
         con = world()
         gw = W.build_gateway(con)
         self.assertEqual(sorted(gw._tools),
-                         ["EXECUTE_SANDBOX", "READ_REPO", "WRITE_ARTIFACT"])
+                         ["EXECUTE_SANDBOX", "READ_REPO", "SEND_MESSAGE",
+                          "WRITE_ARTIFACT"])
+
+    def test_the_orchestrator_still_cannot_do_the_work_it_delegates(self):
+        """The reason it holds no acting capability is unchanged by being able
+        to talk: it must not be able to quietly do what it hands out."""
+        con = world()
+        gw = W.build_gateway(con)
+        for cap, args in (("READ_REPO", {"path": __file__}),
+                          ("WRITE_ARTIFACT", {"path": "x.md", "body": "x"}),
+                          ("EXECUTE_SANDBOX", {"argv": ["python3", "-c", "1"]})):
+            with self.assertRaises(runtime.Denied, msg=cap):
+                gw.call(ORCH, cap, **args)
 
 
 class IdempotencyAndRecovery(unittest.TestCase):

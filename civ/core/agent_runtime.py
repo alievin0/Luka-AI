@@ -67,7 +67,7 @@ def contract_prompt(con, agent_id, task_id):
     p = con.execute("SELECT * FROM principals WHERE id=?", (agent_id,)).fetchone()
     if p is None:
         raise Denied("no such agent %r" % agent_id)
-    caps = sorted(W.ROLE_CAPABILITY.get(agent_id, []))
+    caps = sorted(W.capabilities_of(con, agent_id))
     grants = [g.get("cap") if isinstance(g, dict) else g
               for g in json.loads(p["permissions"] or "[]")]
     rules = json.loads(p["escalation_rules"] or "[]")
