@@ -443,6 +443,78 @@ CC-BY 4.0. الادّعاء إنك بتحتاج حساب صحيح للواجهة
 
 ---
 
+## ١٠. الهدف البحثي الجاي — the next R&D target
+
+**البحث بالأدبيات أولًا، والنتيجة غير مريحة:** الفئات الستة الي انطلب البحث فيها
+**كلها مجالات قائمة**. ولا وحدة منهن «جديدة» كفئة:
+
+| الفئة | حالة المعرفة | المرجع |
+| --- | --- | --- |
+| Uncertainty-aware locomotion | **KNOWN** | belief-space planning, active SLAM, probabilistic traversability |
+| Self-verifying actions | **KNOWN** | execution monitoring بالـpreconditions/effects (ConditionNET، VDEM) |
+| Active physical sensing | **KNOWN** | Interactive Perception (Bohg et al., IEEE T-RO 2017) |
+| Failure-probing / terrain | **KNOWN** | slip detection عند الروفرات؛ Curiosity عندها عتبات slip تشغيلية |
+| Braking / friction estimation | **KNOWN + مُسجَّل كبراءة** | US 9283966 لتقدير معامل الاحتكاك بروبوت متنقل |
+| Active fault diagnosis | **KNOWN** | auxiliary signal design (Nikoukhah, Campbell, set-membership) |
+
+> All six categories are established fields. Nothing here gets called novel as a
+> category; the only honest claims are about combination, and about what this
+> particular architecture makes cheap.
+
+### القياس الي قرّر الموضوع — the measurement that decided it
+
+كاشف التناقض الي بنيته بالمرحلة ٣ بيقارن **قياسين مستقلين لكمية وحدة**. بس
+الخلاف **ما بيظهر إلا بحركة بتُثير المصدرين**. فسألت: **أثناء مهمة عادية، قدّيش
+من الوقت كل كاشف **قادر أصلاً** يشوف عطلاً؟**
+
+| السيناريو | جيرو ميت بيظهر | انزلاق كامل بيظهر | أطول فترة عمى متصلة |
+| --- | --- | --- | --- |
+| empty-hall | **٠٫٨٪** | ٩٦٫٩٪ | ٣٨٤ tick |
+| cluttered-office | **٠٫٨٪** | ٩٦٫٩٪ | ٣٨٤ tick |
+| busy-corridor | **٠٫٥٪** | ٦٣٫٥٪ | ٥٩١ tick |
+
+**كاشف الدوران أعمى ~٩٩٪ من المهمة.** الروبوت بيقدر يحمل جيرو ميت تمامًا عبر
+مهمة كاملة والكاشف **عاجز بنيويًا** عن رؤيته — مو لأنه مكسور، بل لأنّ السير
+المستقيم **ما بيثير المقارنة أبدًا**.
+
+> A detector that cannot fire is not a detector. This is a hole in my own Phase 3
+> work, found by asking what the detector needs in order to be able to see
+> anything at all.
+
+### التجربة — the experiment that licensed building it
+
+فرضية: **روبوت بيثير قناة غير مُتحقَّق منها عمدًا بيكتشف عطلها، بينما الي بيستنى
+الحركة العادية ما بيكتشفه أبدًا.**
+
+| | اكتُشف | زمن الكشف | زمن المهمة | وصل |
+| --- | --- | --- | --- | --- |
+| جيرو ميت، بلا فحص ذاتي | **٠/١٢ أبدًا** | — | ٧٫٨ ث | ١٢/١٢ |
+| جيرو ميت، نبضة ٣٠٠ مللي | **١٢/١٢** | ١٫٩ ث | ١١٫٠ ث | ١٢/١٢ |
+| **جيرو سليم، نفس النبضة** | **٠/١٢ ✓** | — | ١١٫٢ ث | ١٢/١٢ |
+
+والكلفة **ثابتة لكل نبضة مو نسبية**: ٠٫٢ ث بالفراغ المفتوح، ~٣ ث بالزحمة —
+وبتتلاشى مع طول المهمة.
+
+**وتحذير قياس:** أول نسخة من التجربة أعطت **٠/١٠ وصول** وبدت كأنّ الفكرة فاشلة.
+**الأداة كانت غلط**: كنت أكتب الأوامر مباشرة على الروبوت المحاكى بدل ما أمرّها عبر
+`drive()` والحاكم. عبر المسار الصحيح: **١٢/١٢ وصول**. **رابع مرة بهالمشروع يطلع
+القياس هو العاطل مو النظام.**
+
+### التصنيف والقرار — classification and the call
+
+الفكرة **مو ابتكارًا**. التصنيف الصادق: **KNOWN** كـactive fault diagnosis
+بنظرية التحكم، و**INTERESTING COMBINATION** بتطبيقها على معمارية تناقض/أدلة
+بروبوت متنقل — تحديدًا **محاسبة وقت-التشغيل لأي الأعطال غير قابلة للرصد الآن**،
+بينما تحليل الـdiagnosability المعتاد **بيصير وقت التصميم مو وقت التشغيل**.
+
+**تستحق البناء**، والدليل: من ٠/١٢ لـ١٢/١٢ كشف، صفر إنذار كاذب، صفر مهمة ضائعة،
+وكلفة تتلاشى.
+
+**والجزء الأرخص والأهم قبل النبضة:** الروبوت لازم **يعرف أيّ فحوصاته عاجزة حاليًا**
+— «غير مُتحقَّق منه ≠ سليم». هاي **مجانية** وبتنتمي لطبقة الأدلة مباشرة.
+
+---
+
 ## ملاحظة أخيرة — the disclaimer that matters
 
 كل شي بهالمكتبة بيشتغل على محاكي ثنائي الأبعاد. **الحتمية خاصية قابلية إعادة
