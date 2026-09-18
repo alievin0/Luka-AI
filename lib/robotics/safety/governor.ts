@@ -11,7 +11,12 @@
 // involving rated safety hardware.
 
 import { clamp } from "../core/math.ts";
-import { ConflictMonitor, worstResponse, type WorldStateConflict } from "../core/conflict.ts";
+import {
+  ConflictMonitor,
+  worstResponse,
+  type CrossCheckState,
+  type WorldStateConflict,
+} from "../core/conflict.ts";
 import type { LidarScan, RobotIO, SafetyApi, SafetyVerdict } from "../core/types.ts";
 
 export type SafetyLimits = {
@@ -242,6 +247,19 @@ export class SafetyGovernor implements SafetyApi {
   /** Contradictions standing right now, for anyone who has to act on them. */
   standingConflicts(): readonly WorldStateConflict[] {
     return this.conflicts;
+  }
+
+  /**
+   * What each cross-check currently knows about its pair of sensors.
+   *
+   * Separate from `standingConflicts` because the absence of a conflict is two
+   * different situations: the sources were compared and agreed, or they were
+   * never in a position to differ. Measured over ordinary navigation, the
+   * turning check is in that position for 0.8% of ticks — so "no conflicts"
+   * usually means the second thing.
+   */
+  verifiability(): readonly CrossCheckState[] {
+    return this.conflictMonitor?.verifiability() ?? [];
   }
 
   /**

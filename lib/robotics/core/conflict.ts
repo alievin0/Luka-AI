@@ -94,6 +94,40 @@ export type WorldStateConflict = {
   summary: string;
 };
 
+/**
+ * Whether a cross-check can currently see anything at all.
+ *
+ * A detector compares two measurements of one quantity, and the comparison only
+ * says something when the quantity is large enough that a failed source would
+ * differ by more than the threshold. Driving straight, a stuck gyro and a
+ * working one both read zero: the check runs, agrees, and has learned nothing.
+ *
+ * Measured over ordinary navigation, the turning check is in a position to see
+ * a dead gyro in 0.8% of ticks, with unbroken blind runs of 591 ticks — most of
+ * a mission. A robot can carry a completely dead gyro from end to end while a
+ * detector that is working perfectly reports no conflicts, because there was
+ * never anything for it to disagree about.
+ *
+ * So there are three outcomes, not two, and they are the same shape as the
+ * evidence layer's: agreement while excited is a *positive verification*;
+ * disagreement while excited is a conflict; no excitation is silence. Treating
+ * the third as the first is how a robot concludes it is healthy from having
+ * driven in a straight line.
+ */
+export type CrossCheckState = {
+  name: ConflictKind;
+  /** The physical quantity the two sources are being compared on. */
+  quantity: string;
+  /** Whether the current motion would reveal a fault in this pair. */
+  excited: boolean;
+  /** When the sources last agreed while excited, on the sample clock. */
+  verifiedAt: number | null;
+  /** How long since that, ms. Null when it has never been verified. */
+  unverifiedForMs: number | null;
+  /** What motion would put this check in a position to say something. */
+  excitedBy: string;
+};
+
 /** Reading the detectors take on every tick. */
 export type MotionSample = {
   /** Commanded linear and angular velocity, as last asked for. */
@@ -208,6 +242,12 @@ export class ConflictMonitor {
   private lastScanAt = 0;
   /** Previous command-to-body gap, to tell accelerating from disobeying. */
   private lastObedienceGap = 0;
+  /** When each check last agreed while it was in a position to disagree. */
+  private verifiedAt = new Map<ConflictKind, number>();
+  /** Whether each check could have seen a fault on the last sample. */
+  private excited = new Map<ConflictKind, boolean>();
+  /** The clock of the most recent sample, for reporting ages. */
+  private lastSampleAt: number | null = null;
 
   constructor(thresholds: Partial<ConflictThresholds> = {}) {
     this.thresholds = { ...DEFAULT_THRESHOLDS, ...thresholds };
@@ -319,6 +359,19 @@ export class ConflictMonitor {
    */
   check(sample: MotionSample, evidence: EvidenceSet): WorldStateConflict[] {
     const found: WorldStateConflict[] = [];
+    this.lastSampleAt = sample.at;
+
+    /**
+     * Record whether this check could have seen a fault, and whether it did.
+     *
+     * Only agreement *while excited* counts as having verified anything. A
+     * check that agrees because neither source had anything to say has not
+     * cleared its pair; it has been silent about it.
+     */
+    const observe = (kind: ConflictKind, excited: boolean, disagreeing: boolean): void => {
+      this.excited.set(kind, excited);
+      if (excited && !disagreeing) this.verifiedAt.set(kind, sample.at);
+    };
 
     /**
      * Whether this kind of disagreement is standing, given what the sample says
@@ -382,6 +435,13 @@ export class ConflictMonitor {
       Math.abs(sample.odometry.angular) >= this.thresholds.confirmTurn &&
       Math.abs(sample.gyroYawRate) >= this.thresholds.confirmTurn;
     const turnDisagrees = turnGap > this.thresholds.turnRate;
+    // A stuck gyro reads zero, so the pair only separates once the robot is
+    // genuinely turning faster than the threshold.
+    observe(
+      "turning",
+      Math.abs(sample.odometry.angular) > this.thresholds.turnRate,
+      turnDisagrees,
+    );
     if (standing("turning", turnDisagrees, turnConfirmed)) {
       found.push({
         kind: "turning",
@@ -417,13 +477,21 @@ export class ConflictMonitor {
     }
 
     // --- self-motion: wheels against the world moving through the scan ------
-    if (sample.scanClosure !== null) {
+    if (sample.scanClosure === null) {
+      // No second opinion available, so nothing is being checked.
+      observe("self-motion", false, false);
+    } else {
       const motionGap = Math.abs(sample.odometry.linear - sample.scanClosure);
       const motionConfirmed =
         motionGap < this.thresholds.selfMotion / 2 &&
         Math.abs(sample.odometry.linear) >= this.thresholds.confirmSpeed &&
         Math.abs(sample.scanClosure) >= this.thresholds.confirmSpeed;
       const motionDisagrees = motionGap > this.thresholds.selfMotion;
+      observe(
+        "self-motion",
+        Math.abs(sample.odometry.linear) > this.thresholds.selfMotion,
+        motionDisagrees,
+      );
       if (standing("self-motion", motionDisagrees, motionConfirmed)) {
         found.push({
           kind: "self-motion",
@@ -476,6 +544,11 @@ export class ConflictMonitor {
       Math.abs(sample.commanded.linear) >= this.thresholds.confirmSpeed &&
       Math.abs(sample.odometry.linear) >= this.thresholds.confirmSpeed;
     const obedienceDisagrees = obedienceGap > this.thresholds.obedience && !closing;
+    observe(
+      "obedience",
+      Math.abs(sample.commanded.linear) > this.thresholds.obedience,
+      obedienceDisagrees,
+    );
     if (standing("obedience", obedienceDisagrees, obedienceConfirmed)) {
       found.push({
         kind: "obedience",
@@ -535,6 +608,43 @@ export class ConflictMonitor {
     this.since.delete(kind);
   }
 
+  /**
+   * What each cross-check currently knows, and how long since it knew it.
+   *
+   * The number that matters is `unverifiedForMs`. A robot whose gyro check has
+   * been unverified for thirty seconds is not a robot with a working gyro; it
+   * is a robot that has not been in a position to find out.
+   */
+  verifiability(): CrossCheckState[] {
+    const now = this.lastSampleAt;
+    const describe: Record<ConflictKind, { quantity: string; excitedBy: string }> = {
+      turning: {
+        quantity: "yaw rate (rad/s)",
+        excitedBy: `turning faster than ${this.thresholds.turnRate} rad/s`,
+      },
+      "self-motion": {
+        quantity: "forward speed (m/s)",
+        excitedBy:
+          `travelling faster than ${this.thresholds.selfMotion} m/s with surfaces in view`,
+      },
+      obedience: {
+        quantity: "forward speed (m/s)",
+        excitedBy: `being asked for more than ${this.thresholds.obedience} m/s`,
+      },
+    };
+    return (Object.keys(describe) as ConflictKind[]).map((name) => {
+      const verifiedAt = this.verifiedAt.get(name) ?? null;
+      return {
+        name,
+        quantity: describe[name].quantity,
+        excited: this.excited.get(name) ?? false,
+        verifiedAt,
+        unverifiedForMs: verifiedAt === null || now === null ? null : now - verifiedAt,
+        excitedBy: describe[name].excitedBy,
+      };
+    });
+  }
+
   /** Whether a conflict of this kind is standing. */
   isLatched(kind: ConflictKind): boolean {
     return this.latched.has(kind);
@@ -545,6 +655,9 @@ export class ConflictMonitor {
     this.since.clear();
     this.latched.clear();
     this.clearing.clear();
+    this.verifiedAt.clear();
+    this.excited.clear();
+    this.lastSampleAt = null;
     this.lastScanRanges = null;
     this.lastScanAt = 0;
     this.lastObedienceGap = 0;

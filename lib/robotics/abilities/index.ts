@@ -12,6 +12,7 @@ import { learnFromDemo } from "./learn-demo.ts";
 import { navigateTo } from "./navigate-to.ts";
 import { powerLifeline } from "./power-lifeline.ts";
 import { loomingReflex } from "./looming.ts";
+import { selfTest } from "./self-test.ts";
 import { reflexShield } from "./reflex-shield.ts";
 import { yieldPath } from "./yield-path.ts";
 import { rehearsePlan } from "./rehearse.ts";
@@ -36,6 +37,7 @@ export const ALL_ABILITIES: Array<Ability<never, never>> = [
   yieldPath,
   rehearsePlan,
   safetyStoppable,
+  selfTest,
   spatialMemory,
   swarmAuction,
 ] as unknown as Array<Ability<never, never>>;
@@ -61,6 +63,7 @@ export {
   yieldPath,
   rehearsePlan,
   safetyStoppable,
+  selfTest,
   spatialMemory,
   swarmAuction,
 };
