@@ -42,8 +42,12 @@ class Result:
     __slots__ = ("status", "text", "tokens_in", "tokens_out", "usd", "latency_ms",
                  "error", "source", "provider", "model", "rate_known")
 
-    def __init__(self, status, source, provider, model, text="", tokens_in=0,
-                 tokens_out=0, usd=0.0, latency_ms=0, error=None, rate_known=True):
+    def __init__(self, status, source, provider, model, text="", tokens_in=None,
+                 tokens_out=None, usd=0.0, latency_ms=0, error=None, rate_known=True):
+        # tokens default to None, not 0. A provider that does not report usage
+        # is UNKNOWN, and 0 says "this call consumed nothing" — which is a
+        # different and false claim. `usd` keeps its 0.0 default because a
+        # provider that charges nothing really does charge nothing.
         self.status, self.source = status, source
         self.provider, self.model = provider, model
         self.text, self.error = text, error
@@ -54,6 +58,22 @@ class Result:
     @property
     def ok(self):
         return self.status == "OK"
+
+    @property
+    def usage(self):
+        """What the call cost, said the way the provider said it.
+
+        A provider that reported no usage gets "not reported" — printing 0
+        would claim the call consumed nothing, which is a measurement nobody
+        took."""
+        if self.tokens_in is None and self.tokens_out is None:
+            return "token usage not reported, $%.5f" % self.usd
+
+        def n(v):
+            return "?" if v is None else str(v)
+
+        return "%s in / %s out tokens, $%.5f" % (
+            n(self.tokens_in), n(self.tokens_out), self.usd)
 
 
 class Provider(ABC):
@@ -284,9 +304,15 @@ class LocalProvider(Provider):
             return Result("FAILED", "model", self.name, model, error=repr(e),
                           latency_ms=int((time.time() - t0) * 1000))
         text = (out.get("response") or "").strip()
+        # A count the runtime did not supply is UNKNOWN. Defaulting it to 0 made
+        # "this endpoint reports no usage" indistinguishable from "this call used
+        # nothing", and §7 of the mission this was written for is explicit: do
+        # not estimate and then store the estimate in the field that means
+        # measured. usd stays 0.0 because that IS measured — a local model
+        # charges no API fee, whatever the electricity costs.
         return Result("OK" if text else "FAILED", "model", self.name, model, text=text,
-                      tokens_in=out.get("prompt_eval_count", 0),
-                      tokens_out=out.get("eval_count", 0), usd=0.0,
+                      tokens_in=out.get("prompt_eval_count"),
+                      tokens_out=out.get("eval_count"), usd=0.0,
                       latency_ms=int((time.time() - t0) * 1000),
                       error=None if text else "empty completion")
 

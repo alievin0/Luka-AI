@@ -180,8 +180,8 @@ def run_slice(con, prov, verbose=True):
     rid, res = runtime.invoke(con, prov, "AGT-000002", SYSTEM, lease["task"]["objective"],
                               lease_id=lease["lease_id"], task_id=task, max_tokens=700)
     out["run_id"], out["run_status"] = rid, res.status
-    say("  RUN #%d -> %s (source=%s, %d in / %d out tokens, $%.5f)"
-        % (rid, res.status, res.source, res.tokens_in, res.tokens_out, res.usd))
+    say("  RUN #%d -> %s (source=%s, %s)"
+        % (rid, res.status, res.source, res.usage))
 
     if res.status == "NOT_CONFIGURED":
         store.signal(con, "HIGH", "Build blocked: no model provider configured",

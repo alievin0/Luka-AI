@@ -91,6 +91,22 @@ def connect(path=None):
     wcols = {r[1] for r in con.execute("PRAGMA table_info(workers)")}
     if "api" not in wcols:
         con.execute("ALTER TABLE workers ADD COLUMN api TEXT NOT NULL DEFAULT ''")
+    # What the model actually said, as a hash. `runs` recorded the prompt but
+    # not the answer, so a completed run could not be checked against the text
+    # it produced — and an audit that cannot do that is an audit of the question
+    # only.
+    rcols = {r[1] for r in con.execute("PRAGMA table_info(runs)")}
+    if "output_sha" not in rcols:
+        con.execute("ALTER TABLE runs ADD COLUMN output_sha TEXT")
+    # Whether the token counts in this row came from the provider. `tokens_in`
+    # and `tokens_out` are NOT NULL DEFAULT 0 and cannot be made nullable
+    # without rebuilding a table that holds three closed campaigns — so a
+    # provider that reports no usage lands as 0, which reads as "this call
+    # consumed nothing". That is a different claim from "nobody said". This
+    # column carries the difference: 1 the provider supplied the counts, 0 it
+    # did not and the 0s are padding, NULL the row predates the question.
+    if "tokens_reported" not in rcols:
+        con.execute("ALTER TABLE runs ADD COLUMN tokens_reported INTEGER")
     pcols = {r[1] for r in con.execute("PRAGMA table_info(world_places)")}
     if "type_id" not in pcols:
         # Which archetype a place is an instance of. Guessing it from the id at

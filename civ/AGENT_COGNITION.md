@@ -235,6 +235,9 @@ script that knew the answer.
 
 ## Real · deterministic · not demonstrated
 
+> The audit of that last column, and the gate that closes it, is
+> [`REAL_INFERENCE.md`](REAL_INFERENCE.md) — run `python3 real_inference_gate.py`.
+
 | | |
 |---|---|
 | **REAL** | the loop, the briefing and every row in it, the gateway's decisions, the tool results, artifacts and their shas, agent-to-agent messages, verification, review, the correction chain, the failure record, movement, the whole causal chain |

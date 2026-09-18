@@ -25,6 +25,7 @@ No model is called and nothing is spent.
 import json
 import os
 import re
+import shutil
 import sys
 import tempfile
 import unittest
@@ -497,6 +498,218 @@ class TheModelStillCannotReachAnything(unittest.TestCase):
                                  lease_id=lease["lease_id"])
         self.assertIsNone(turn.artifact_path)
         self.assertFalse(turn.submitted)
+
+
+# ── 8. the intelligence gate ────────────────────────────────────────
+class TheModelRespondsToWorldState(unittest.TestCase):
+    """The mission's critical check: prove the decider is reading the WORLD,
+    not executing a sequence that merely looks like it. The way to prove that
+    is to change the world and show the output changes — and to take the world
+    away and show it cannot."""
+
+    def setUp(self):
+        import real_inference_gate as G
+        self.G = G
+        self.con = world()
+        self.source = os.path.join(HERE, "AGENT_COGNITION.md")
+        self.tid = approved_task(self.con, ("research",),
+                                 objective="read the doc and report")
+
+    def test_the_tool_result_reaches_the_next_turn(self):
+        probe = self.G.Probe(self.source)
+        self.G.run_turn(self.con, probe, RES, self.tid, self.source)
+        self.assertGreater(len(probe.saw), 1, "only one turn happened")
+        with open(self.source, encoding="utf-8") as fh:
+            first = next(ln for ln in fh if ln.strip()).strip()[:40]
+        self.assertTrue(any(first in p for p in probe.saw[1:]),
+                        "the decider never saw what the tool returned")
+
+    def test_a_different_tool_result_produces_a_different_artifact(self):
+        """Same task, same decider, different bytes on disk — different output.
+        A predetermined script would produce the same thing either way."""
+        a = self.G.run_turn(self.con, self.G.Probe(self.source), RES, self.tid,
+                            self.source)
+        # Inside the repo root on purpose: READ_REPO's grant is scoped there and
+        # a file in /tmp is correctly DENIED. Widening the grant to make this
+        # test convenient would be removing the boundary it relies on.
+        d = tempfile.mkdtemp(dir=HERE)
+        self.addCleanup(shutil.rmtree, d, True)
+        other = os.path.join(d, "other.md")
+        with open(other, "w", encoding="utf-8") as fh:
+            fh.write("# A completely different document\n\nWith different words.\n")
+        con2 = world()
+        tid2 = approved_task(con2, ("research",), objective="read the doc and report")
+        b = self.G.run_turn(con2, self.G.Probe(other), RES, tid2, other)
+        self.assertNotEqual(a.artifact_body, b.artifact_body)
+        self.assertIn("completely different document", b.artifact_body or "")
+
+    def test_removing_the_observation_breaks_it(self):
+        """The negative control. If this passes while the observation is
+        withheld, the agent was never reading the world."""
+        seeing = self.G.run_turn(self.con, self.G.Probe(self.source), RES,
+                                 self.tid, self.source)
+        con2 = world()
+        tid2 = approved_task(con2, ("research",), objective="read the doc and report")
+        blind = self.G.run_turn(con2, self.G.Probe(self.source), RES, tid2,
+                                self.source, strip_observations=True)
+        with open(self.source, encoding="utf-8") as fh:
+            first = next(ln for ln in fh if ln.strip()).strip()[:40]
+        self.assertIn(first, seeing.artifact_body or "")
+        self.assertNotIn(first, blind.artifact_body or "",
+                         "it quoted a source it was never shown")
+        self.assertNotEqual(seeing.artifact_body, blind.artifact_body)
+
+    def test_the_gate_reports_not_demonstrated_without_a_model(self):
+        """The whole point of the gate. It must never report success because a
+        LocalProvider class exists in the tree."""
+        self.assertFalse(P.from_env().available())
+        self.assertNotEqual(self.G.main([]), 0,
+                            "the gate passed with no model reachable")
+
+
+class StructuredActionsOnly(unittest.TestCase):
+    """The runtime reads one JSON object. It never infers an action from prose."""
+
+    def test_the_explicit_action_shapes_are_understood(self):
+        self.assertEqual(RT._parse('{"type":"tool_call","tool":"READ_REPO",'
+                                   '"arguments":{"path":"/x"}}'),
+                         {"tool": "READ_REPO", "args": {"path": "/x"}})
+        self.assertEqual(RT._parse('{"type":"complete","artifact":"a.md"}'),
+                         {"final": {"artifact": "a.md"}})
+        self.assertEqual(RT._parse('{"type":"complete","result":"done"}'),
+                         {"final": {"answer": "done"}})
+
+    def test_a_message_action_becomes_a_gateway_call(self):
+        """So the sender is authenticated and the send is audited, exactly like
+        every other action."""
+        act = RT._parse('{"type":"message","recipient":"AGT-BUILDER",'
+                        '"content":"findings ready","kind":"HANDOFF"}')
+        self.assertEqual(act["tool"], "SEND_MESSAGE")
+        self.assertEqual(act["args"]["to"], "AGT-BUILDER")
+        self.assertEqual(act["args"]["text"], "findings ready")
+
+    def test_prose_is_not_an_action(self):
+        for text in ("I would use READ_REPO on the file.",
+                     "Let me call WRITE_ARTIFACT next.",
+                     "TOOL: READ_REPO", ""):
+            self.assertEqual(RT._parse(text), {}, text)
+
+    def test_the_older_shorthand_still_parses(self):
+        """The deterministic suites and the sealed campaign prompts use it;
+        breaking them would be a change to evidence rather than to code."""
+        self.assertEqual(RT._parse('{"tool":"READ_REPO","args":{"path":"/x"}}'),
+                         {"tool": "READ_REPO", "args": {"path": "/x"}})
+
+
+class _Silent(P.Provider):
+    """A provider that answers but reports no usage — the ordinary case for a
+    local runtime that returns text and no counts."""
+    name, source = "silent-double", "mock"
+
+    def available(self):
+        return True
+
+    def why_unavailable(self):
+        return ""
+
+    def complete(self, system, prompt, model=None, max_tokens=800):
+        return P.Result("OK", self.source, self.name, "silent-1", text="fine.")
+
+
+class TheRunRecordIsHonest(unittest.TestCase):
+    def test_a_run_records_what_the_model_said_not_only_what_it_was_asked(self):
+        con, w, _ = ran()
+        runs = [dict(r) for r in con.execute(
+            "SELECT * FROM runs WHERE status='OK'")]
+        self.assertTrue(runs)
+        for r in runs:
+            self.assertTrue(r["prompt_sha"])
+            self.assertTrue(r["output_sha"], "a completed run with no output hash")
+
+    def test_the_doubles_this_mission_added_report_no_token_counts(self):
+        """A count in `tokens_in` means measured. An estimate stored there is
+        indistinguishable from a measurement, which is what §7 forbids.
+
+        The column is NOT NULL and cannot be made nullable without rebuilding a
+        table that holds three closed campaigns, so unknown lands as 0 —
+        `tokens_reported` is what carries the difference between "nothing was
+        consumed" and "nobody counted".
+
+        Scoped to ReactiveWorker and Probe deliberately. `MockProvider` also
+        estimates, and that is left alone: it is a FIXTURE for the token
+        accounting tests in test_bench and test_civ, no real inference ever
+        produced those rows, and changing it would alter existing evidence
+        rather than fix a record."""
+        con, w, _ = ran()
+        seen = 0
+        for r in con.execute("SELECT * FROM runs WHERE provider='reactive-double'"):
+            seen += 1
+            self.assertEqual(r["tokens_reported"], 0, dict(r))
+            self.assertEqual(r["tokens_in"], 0, dict(r))
+            self.assertEqual(r["tokens_out"], 0, dict(r))
+        self.assertTrue(seen, "no run by the double to check")
+
+    def test_a_zero_is_only_readable_because_the_row_says_who_counted(self):
+        """0 with tokens_reported=1 is a measurement of nothing; 0 with
+        tokens_reported=0 is padding. Without the flag they are the same row."""
+        con = world()
+        rid, res = runtime.invoke(con, P.MockProvider(), ORCH, "sys", "say something")
+        r = con.execute("SELECT * FROM runs WHERE id=?", (rid,)).fetchone()
+        self.assertEqual(r["tokens_reported"], 1, dict(r))
+        self.assertEqual(r["tokens_in"], res.tokens_in)
+
+        rid2, _ = runtime.invoke(con, _Silent(), ORCH, "sys", "say something")
+        r2 = con.execute("SELECT * FROM runs WHERE id=?", (rid2,)).fetchone()
+        self.assertEqual(r2["tokens_reported"], 0, dict(r2))
+        self.assertEqual(r2["tokens_in"], 0, dict(r2))
+
+    def test_a_real_model_run_would_carry_whatever_the_provider_supplied(self):
+        """And NULL where it supplied nothing — never a stand-in zero."""
+        supplied = P.Result("OK", "model", "local", "m", text="x",
+                            tokens_in=120, tokens_out=40)
+        self.assertEqual((supplied.tokens_in, supplied.tokens_out), (120, 40))
+        silent = P.Result("OK", "model", "local", "m", text="x")
+        self.assertIsNone(silent.tokens_in)
+        self.assertIsNone(silent.tokens_out)
+
+    def test_an_absent_count_is_null_rather_than_zero(self):
+        """Zero reads as 'this call used nothing'. Unknown must read as unknown."""
+        res = P.Result("OK", "model", "local", "m", text="x")
+        self.assertIsNone(res.tokens_in)
+        self.assertIsNone(res.tokens_out)
+
+
+class NoModelIsNotFakeModel(unittest.TestCase):
+    """§15 — with nothing to reason, the world runs and the work waits."""
+
+    def test_work_parks_rather_than_completing(self):
+        from core import world_runtime as RUN
+        con = world()
+        tid = approved_task(con, ("research",), objective="needs a model")
+        W.assign(con, tid, RES, by=ORCH)
+        BUS.emit(con, "TASK_READY", "task:%d" % tid, {"task_id": tid})
+        w = RUN.build(con, worker="nomodel",
+                      provider_for=RUN.provider_factory(P.NotConfigured()))
+        r = RUN.Runtime(w, idle_seconds=0.01, housekeep_seconds=0.05,
+                        beat_seconds=0.05)
+        r.start()
+        for _ in range(6):
+            r.step()
+        self.assertGreater(BUS.waiting_for_model(con), 0)
+        self.assertEqual(con.execute(
+            "SELECT COUNT(*) c FROM artifacts").fetchone()["c"], 0)
+        self.assertEqual(con.execute(
+            "SELECT COUNT(*) c FROM runs WHERE status='OK'").fetchone()["c"], 0,
+            "a run succeeded with nothing to run it")
+        self.assertEqual(RUN.health(con)["world"], "RUNNING")
+        r.shutdown()
+
+    def test_the_task_is_not_marked_done(self):
+        con = world()
+        tid = approved_task(con, ("research",), objective="needs a model")
+        self.assertNotIn(con.execute(
+            "SELECT status FROM tasks WHERE id=?", (tid,)).fetchone()["status"],
+            ("ACCEPTED", "ARCHIVED", "COMPLETED"))
 
 
 class SuiteHygiene(unittest.TestCase):

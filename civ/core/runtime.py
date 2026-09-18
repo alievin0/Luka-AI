@@ -213,11 +213,16 @@ def invoke(con, provider, principal_id, system, prompt, lease_id=None, task_id=N
          model or getattr(provider, "model", "-"), sha(system + "\x00" + prompt), now())).lastrowid
 
     res = provider.complete(system, prompt, model=model, max_tokens=max_tokens)
+    # A provider that reports no usage is UNKNOWN, not zero. The columns are
+    # NOT NULL, so unknown is stored as 0 with `tokens_reported=0` beside it
+    # saying the 0s are padding — never as a number this code made up.
+    told = res.tokens_in is not None or res.tokens_out is not None
     con.execute(
-        "UPDATE runs SET status=?,tokens_in=?,tokens_out=?,usd=?,latency_ms=?,error=?,"
-        "finished_at=?, model=? WHERE id=?",
-        (res.status, res.tokens_in, res.tokens_out, res.usd, res.latency_ms, res.error,
-         now(), res.model, rid))
+        "UPDATE runs SET status=?,tokens_in=?,tokens_out=?,tokens_reported=?,usd=?,"
+        "latency_ms=?,error=?,finished_at=?, model=?, output_sha=? WHERE id=?",
+        (res.status, res.tokens_in or 0, res.tokens_out or 0, 1 if told else 0,
+         res.usd, res.latency_ms, res.error,
+         now(), res.model, sha(res.text) if res.text else None, rid))
     store.event(con, "MODEL_RUN", actor=principal_id, subject="run:%d" % rid,
                 payload={"status": res.status, "source": res.source, "usd": res.usd})
     return rid, res

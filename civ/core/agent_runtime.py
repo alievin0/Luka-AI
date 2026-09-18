@@ -47,9 +47,10 @@ RESERVED_ARGS = frozenset({"lease_id", "principal_id", "cap", "self"})
 
 SCHEMA_HELP = (
     "Reply with EXACTLY ONE json object and nothing else. No prose, no fences.\n"
-    '  Use a tool:      {"tool":"<CAP>","args":{...}}\n'
-    '  Declare a file:  {"final":{"artifact":"<name>"}}\n'
-    '  Answer directly: {"final":{"answer":"<text>"}}\n'
+    '  Use a tool:      {"type":"tool_call","tool":"<CAP>","arguments":{...}}\n'
+    '  Message someone: {"type":"message","recipient":"<AGT-…>","content":"<text>"}\n'
+    '  Finish:          {"type":"complete","artifact":"<name>"}\n'
+    '           or:     {"type":"complete","result":"<text>"}\n'
     "After a tool call you will be shown its result and may act again."
 )
 
@@ -127,12 +128,52 @@ class TurnResult:
         return [s.as_dict() for s in self.steps]
 
 
+# The action vocabulary. `{"type": …}` is the explicit form; the older shorthand
+# is still accepted because campaign-era prompts and the deterministic suites use
+# it, and breaking them would be a change to evidence rather than to code.
+ACTION_TYPES = ("tool_call", "message", "complete")
+
+
+def _normalise(req):
+    """One action shape, whichever form the model used.
+
+    A model is asked for `{"type":"tool_call","tool":…,"arguments":{…}}`. What
+    comes back is normalised here and NOWHERE else, so there is exactly one
+    place that decides what an answer meant. Nothing in this function reads
+    prose: an answer that is not one of these shapes is not an action, and the
+    runtime says so rather than guessing from keywords."""
+    if not isinstance(req, dict):
+        return {}
+    kind = req.get("type")
+    if kind == "tool_call":
+        args = req.get("arguments")
+        if not isinstance(args, dict):
+            args = req.get("args") if isinstance(req.get("args"), dict) else {}
+        return {"tool": req.get("tool"), "args": args}
+    if kind == "message":
+        # A message is a tool call. It goes through the gateway like everything
+        # else, so the sender is authenticated and the send is audited.
+        return {"tool": "SEND_MESSAGE",
+                "args": {"to": req.get("recipient") or req.get("to"),
+                         "text": req.get("content") or req.get("text") or "",
+                         **({"kind": req["kind"]} if req.get("kind") else {})}}
+    if kind == "complete":
+        fin = {}
+        if req.get("artifact"):
+            fin["artifact"] = req["artifact"]
+        if req.get("result") is not None or req.get("answer") is not None:
+            fin["answer"] = req.get("result", req.get("answer"))
+        return {"final": fin or {"answer": ""}}
+    return req
+
+
 def _parse(text):
     try:
         s, e = text.find("{"), text.rfind("}")
-        return json.loads(text[s:e + 1]) if s >= 0 and e > s else {}
+        raw = json.loads(text[s:e + 1]) if s >= 0 and e > s else {}
     except (ValueError, TypeError):
         return {}
+    return _normalise(raw)
 
 
 def _transport_failure(res):

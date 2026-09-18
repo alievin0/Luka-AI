@@ -142,8 +142,11 @@ class ReactiveWorker(P.Provider):
         t0 = time.time()
         out = self._decide(prompt)
         text = json.dumps(out, ensure_ascii=False)
+        # No token counts. len(prompt)//4 is an ESTIMATE, and an estimate
+        # stored in a field that means "measured" is indistinguishable from a
+        # measurement. A double that reports usage it did not measure is
+        # fabricating exactly the number an auditor would trust.
         return P.Result("OK", "mock", self.name, model or "reactive-1", text=text,
-                        tokens_in=len(prompt) // 4, tokens_out=len(text) // 4,
                         usd=0.0, latency_ms=int((time.time() - t0) * 1000))
 
     def _decide(self, prompt):
