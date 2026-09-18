@@ -288,15 +288,17 @@ memory, tasks, projects, spatial state, embodiment, the factory's decisions, the
 |---|---|
 | **REAL** | the server process, the HTTP API, the database and its 63 laws, the queue, leases, the tool gateway, the factory's decision, AGT-000006's contract, lineage, body and location, movement, the restart, the two clients, the history, the model gate's honest `OFFLINE` |
 | **DETERMINISTIC** | task execution under `--provider mock` or `ScriptedWorker`. This exercises the **runtime**. It is not inference, and no model is called |
-| **NOT AVAILABLE HERE** | real model inference. No model is configured in this environment, so no reasoning has been demonstrated — only the machinery that would carry it |
+| **NOT IN THESE RUNS** | real model inference. Everything above ran with the model absent or stubbed, so what is shown is the machinery that would carry reasoning and not the reasoning. A model has since driven the same loop — [`REAL_INFERENCE.md`](REAL_INFERENCE.md) — and produced none of the results recorded here |
 | **SIMULATED** | nothing. There is no scripted activity anywhere in the runtime, and an idle world is idle |
 
 ---
 
 ## Known limitations
 
-1. **No inference has been demonstrated.** Everything here is the machinery
-   around a model, exercised with the model absent or stubbed.
+1. **No run recorded here was a model's.** Everything here is the machinery
+   around a model, exercised with the model absent or stubbed. Inference is
+   demonstrated separately, in [`REAL_INFERENCE.md`](REAL_INFERENCE.md); it
+   produced none of these results.
 2. **TLS, real authentication and object storage are not implemented.**
 3. **The Postgres path is untested.** The dialect boundary exists; no Postgres
    has been connected.

@@ -5,11 +5,26 @@ what came back, decide again on the strength of it, tell a colleague, be checked
 by code and reviewed by somebody else, and — when it is rejected — come back with
 the rejection in front of it and answer it.
 
-**What decides is not a model.** No model is reachable in this environment: no
-local runtime answers and no key is set. Everything below is the machinery
-around a model, exercised with the model absent. That distinction is kept
-everywhere in this document, because it is the whole difference between a
-working agent and a working demo.
+**What decides below is not a model.** Every run described in this document was
+made with the model absent — `ReactiveWorker`, a hand-written policy, took each
+decision, and every artifact it writes says `NOT MODEL OUTPUT` in its own body.
+That distinction is kept everywhere below, because it is the whole difference
+between a working agent and a working demo.
+
+**A model has since driven this loop — elsewhere.** On 2026-09-18 a real one
+did, on Google AI Studio's free tier: one agent's turn in
+[`REAL_INFERENCE.md`](REAL_INFERENCE.md), then a world of them in
+`real_world_demo.py` — Researcher to Builder, judged by a Reviewer that had read
+the work. Those are different runs, recorded separately. Reading them into the
+results below would be exactly the confusion this document exists to prevent.
+
+What that does retire is the sentence this page used to open with — *no model is
+reachable in this environment*. Whether one is reachable depends on whether a
+credential is configured, which is a fact about the machine and changes without a
+line here changing; with none configured, what runs is the double described
+below. Which of the two ran is never a claim in any case: LAW 2 refuses a `mock`
+run in a world founded `live` and a `model` run in one founded `simulation`, so
+it is a row.
 
 ---
 
@@ -244,7 +259,7 @@ script that knew the answer.
 |---|---|
 | **REAL** | the loop, the briefing and every row in it, the gateway's decisions, the tool results, artifacts and their shas, agent-to-agent messages, verification, review, the correction chain, the failure record, movement, the whole causal chain |
 | **DETERMINISTIC** | **the decisions.** `ReactiveWorker` is a hand-written policy that branches on what the gateway actually returned. It is not a model and never claims to be — every artifact it produces carries `NOT MODEL OUTPUT` in its body, and a test asserts that |
-| **NOT DEMONSTRATED** | inference. No model is reachable, so no reasoning has been shown — only the machinery for it |
+| **NOT DEMONSTRATED HERE** | inference *in these runs*. They are the double, start to finish. Real inference is demonstrated separately — [`REAL_INFERENCE.md`](REAL_INFERENCE.md) for one agent, `real_world_demo.py` for a world of them — and it produced none of the results on this page |
 | **SIMULATED** | nothing. There is no ambient behaviour, no idle wandering, no decorative motion anywhere in the runtime |
 
 ### Why a double still tests something
@@ -288,8 +303,11 @@ credentials, audit.
 
 ## Known limitations
 
-1. **No inference has been demonstrated.** The single most important line here.
-2. **`LocalProvider` has never been executed** against a live runtime.
+1. **No run on this page was a model's.** The single most important line here.
+   Every one is `ReactiveWorker`. That inference has been demonstrated elsewhere
+   in the repo says nothing about these results.
+2. **`LocalProvider` has never been executed** against a live runtime — nothing
+   is installed here for it to reach. `GeminiProvider` has been.
 3. **Lessons are read from `failures`, not from promoted org memory.** Promotion
    is an Owner act by law, so an unattended world never promotes; the lesson
    reaches the next attempt on that task's lineage and no further.

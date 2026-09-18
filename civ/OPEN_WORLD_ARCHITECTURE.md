@@ -33,10 +33,10 @@ the proof.
 
 **The agents decide now.** They wake with a briefing assembled from rows,
 choose a tool, see what came back and decide again — that is
-[`AGENT_COGNITION.md`](AGENT_COGNITION.md). No model is reachable here, so what
-is demonstrated is the loop, not reasoning —
-[`REAL_INFERENCE.md`](REAL_INFERENCE.md) is the audit that establishes that and
-the gate that would close it.
+[`AGENT_COGNITION.md`](AGENT_COGNITION.md). Those runs were made with no model,
+so what they demonstrate is the loop and not reasoning —
+[`REAL_INFERENCE.md`](REAL_INFERENCE.md) is the audit that draws that line, and
+the gate that closed it on 2026-09-18 against Google AI Studio's free tier.
 
 **The world is a server now.** It has its own clock, its own address and its
 own process, and it keeps running when every client is closed — that is

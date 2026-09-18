@@ -215,19 +215,49 @@ def instruction_for(task):
 
 
 # ── the Reviewer, deciding for itself ────────────────────────────────
-def _verdict_in(text):
-    """Whichever of the two words the reviewer said first, or None.
+VERDICTS = ("APPROVE", "REJECT")
 
-    Nothing here supplies a verdict. An answer containing neither word, or one
-    this cannot read, returns None and the supervisor escalates — a reviewer
-    that did not decide must not be recorded as having decided."""
-    up = (text or "").upper()
-    at_a, at_r = up.find("APPROVE"), up.find("REJECT")
-    if at_a < 0 and at_r < 0:
-        return None
-    if at_r < 0 or (0 <= at_a < at_r):
-        return "APPROVE"
-    return "REJECT"
+# The two verdicts, plus the past participle a model writes when it is answering
+# rather than obeying a format. A closed set, not a prefix rule — the strictness
+# that does the work here is positional, and "APPROVED" in first position is not
+# ambiguous about anything.
+_OPENING = {"APPROVE": "APPROVE", "APPROVED": "APPROVE",
+            "REJECT": "REJECT", "REJECTED": "REJECT"}
+
+# What the Reviewer is asked for, and the only thing read back out of its
+# answer. The prompt below and `_verdict_in` share this one string, so the
+# shape that is asked for and the shape that is parsed cannot drift apart.
+VERDICT_RULE = ("The FIRST word of your answer must be APPROVE or REJECT, "
+                "followed by your reasons.")
+
+# Decoration a model may open with. Stripping it is not reading the answer for
+# meaning: **APPROVE** still puts the verdict first.
+_ORNAMENT = "*_`#>-–—\"'“”‘’ \t\r\n"
+
+
+def _verdict_in(text):
+    """The verdict the reviewer OPENED with, or None.
+
+    Only the first word counts, because the first word is the only thing the
+    reviewer was asked for. Searching the whole answer for either word looks
+    like the more forgiving rule and is in fact a way to be wrong about it:
+    "I see no reason to REJECT this work, so: APPROVE" opens with neither word,
+    plainly means approval, and a rule that scans the text meets REJECT first
+    and records a rejection the reviewer never gave. Reading one word cannot
+    make that mistake — the verdict is either the first thing said or it is not
+    there at all.
+
+    Nothing here supplies a verdict. An answer in some other shape returns None
+    and the supervisor escalates: a reviewer that did not answer the question
+    must not be recorded as having decided, and guessing which way it was
+    leaning is exactly the decision this file does not get to make."""
+    opening = (text or "").lstrip(_ORNAMENT)
+    word = ""
+    for ch in opening:
+        if not ch.isalpha():
+            break
+        word += ch
+    return _OPENING.get(word.upper())
 
 
 def gemini_review(w, art, task, ver, unmet):
@@ -261,9 +291,9 @@ def gemini_review(w, art, task, ver, unmet):
         "for the task. You may disagree with the checks in either direction: "
         "code can only see whether a heading is present, not whether what is "
         "under it is true, supported, or worth anything.\n\n"
-        "When you have read it, finish with your verdict. The FIRST word of "
-        "your answer must be APPROVE or REJECT, followed by your reasons."
-        % (art, a["principal_id"], task["id"], a["path"], verdict_of_code))
+        "When you have read it, finish with your verdict. "
+        % (art, a["principal_id"], task["id"], a["path"], verdict_of_code)
+        + VERDICT_RULE)
 
     brief, _ = CTX.briefing(con, REV, task["id"],
                             project_id=task["project_id"],
