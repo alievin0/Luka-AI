@@ -459,6 +459,18 @@ def completion_state(con):
         return (INCOMPLETE, "artifact(s) %s name no run, so nothing ties them to "
                 "a decision" % _ids(unprovenanced), False)
     if not arts:
+        # A refused opportunity is a terminal outcome, not a hole. The world
+        # judged, declined, recorded why and stopped — which is the behaviour
+        # the gate exists for, and reporting it as an unexplained silence would
+        # punish the system for doing exactly the right thing.
+        refused = con.execute(
+            "SELECT id, decision_why FROM opportunities WHERE status='REJECTED' "
+            "ORDER BY id LIMIT 1").fetchone()
+        if refused is not None:
+            return (INCOMPLETE, "nothing was produced because opportunity #%d was "
+                    "refused: %s" % (refused["id"],
+                                     " ".join((refused["decision_why"] or "").split())[:120]
+                                     or "no reason recorded"), True)
         return explained("no artifact was produced")
     if unverified:
         return explained("artifact(s) %s carry no verification evidence"

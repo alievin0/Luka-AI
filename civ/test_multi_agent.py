@@ -342,6 +342,31 @@ class TheRunCannotClaimAFinishItDidNotReach(unittest.TestCase):
         self.assertEqual(state, RWD.FAILED, why)
         self.assertTrue(accounted)
 
+    def test_a_refused_opportunity_is_a_terminal_outcome_not_a_hole(self):
+        """The world judged, declined, recorded why and stopped. That is the
+        behaviour the gate exists for, and it must not read as an unexplained
+        silence — a real run reported one as `accounted=False`."""
+        import first_project as FP
+        con = store.connect(os.path.join(tempfile.mkdtemp(), "refused.db"))
+        store.found(con, mode="simulation")
+        W.found_agents(con)
+        POL.seed(con)
+        w = SUP.World(con, W.build_gateway(con), provider_for=D.provider_for,
+                      requirements_for=D.requirements_for,
+                      instruction_for=D.instruction_for,
+                      evaluate_for=lambda w, o, chain_id=None:
+                      ("REJECTED", "not worth the calls", None),
+                      gate_for=FP.owner_gate, worker="refused")
+        BUS.emit(con, "OWNER_OBJECTIVE", "objective:1",
+                 {"objective": OBJECTIVE, "fixture": SOURCE,
+                  "required_caps": ["research", "build"]}, by="OWNER")
+        SUP.run(w, max_ticks=200)
+        state, why, accounted = RWD.completion_state(con)
+        self.assertEqual(state, RWD.INCOMPLETE, why)
+        self.assertIn("was refused", why)
+        self.assertTrue(accounted, "a deliberate refusal read as an unexplained hole")
+        self.assertEqual([], [a for a in con.execute("SELECT * FROM artifacts")])
+
     def test_no_artifact_is_never_a_completion(self):
         con = store.connect(os.path.join(tempfile.mkdtemp(), "empty.db"))
         store.found(con, mode="simulation")

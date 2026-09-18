@@ -129,7 +129,15 @@ def gemini_evaluate(w, opp_id, chain_id=None):
         "anyone's time, whether the stated value is real, or whether the "
         "uncertainty is worth resolving. Judge that.\n\n"
         "Refusing is a real answer here. An opportunity that is not worth doing "
-        "should be rejected, and rejecting it costs this world nothing.\n\n%s"
+        "should be rejected, and rejecting it costs this world nothing.\n\n"
+        "Two things about HOW to answer, because a real run got both wrong.\n"
+        "You need no tool for this and none would help: everything the decision "
+        "rests on is written above. Your contract lists CAPABILITIES YOU MAY BE "
+        "ASSIGNED — those are roles you can be given, not a menu of tools you can "
+        "call, and calling one will be refused. If you do try a tool and it is "
+        "refused, that refusal is about your own permissions and says NOTHING "
+        "about whether this opportunity is worth doing. Judge the opportunity, "
+        "not your own grants.\n\n%s"
         % (o["problem"], framing.get("value", "-"), framing.get("uncertainty", "-"),
            framing.get("origin", "-"), framing.get("resource_estimate", "-"),
            ", ".join(json.loads(o["required_caps"] or "[]")) or "-",

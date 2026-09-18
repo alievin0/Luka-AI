@@ -118,6 +118,46 @@ class TheOpportunityIsJudgedByWhoeverTheWorldWasBuiltWith(unittest.TestCase):
         self.assertEqual(runs, [4242])
 
 
+class TheEvaluatorIsToldWhatToJudge(unittest.TestCase):
+    """A real run refused the opportunity for the wrong reason, and the reason
+    is worth keeping: the Orchestrator read its contract's line "Capabilities
+    you may be assigned: CAP-assign, CAP-coordinate, CAP-decompose" as a menu of
+    tools, called `decompose`, was correctly denied — `decompose` is not a
+    registered tool and never was — and then rejected the work because of the
+    denial rather than on the merits it had been handed.
+
+    Nothing in the machinery was wrong. The instruction was: it invited a turn
+    that could act, and never said that acting was neither needed nor relevant."""
+
+    def instruction(self):
+        import inspect
+        return inspect.getsource(FP.gemini_evaluate)
+
+    def test_it_says_no_tool_is_needed(self):
+        self.assertIn("You need no tool for this", self.instruction())
+
+    def test_it_names_the_exact_misread(self):
+        src = self.instruction()
+        self.assertIn("CAPABILITIES YOU MAY BE", src)
+        self.assertIn("not a menu of tools", src)
+
+    def test_it_says_a_denial_is_not_a_reason_to_refuse(self):
+        src = self.instruction()
+        self.assertIn("says NOTHING", src)
+        self.assertIn("Judge the opportunity", src)
+
+    def test_it_still_asks_for_the_first_word_rule(self):
+        """The fix must not have cost the thing that makes a verdict readable."""
+        self.assertIn("VERDICT_RULE", self.instruction())
+
+    def test_refusing_is_still_offered_as_a_real_answer(self):
+        """Telling it not to refuse for the wrong reason must not turn into
+        telling it not to refuse."""
+        src = self.instruction()
+        self.assertIn("Refusing is a real answer here", src)
+        self.assertIn("should be rejected", src)
+
+
 # ── 2. the gate ──────────────────────────────────────────────────────
 class TheWorldProposesAndThenStops(unittest.TestCase):
 
