@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { PLACES, TONE_HEX, placeFor, type Place } from "./city";
+import { LOOK, PLACES, TONE_HEX, placeFor, type Place } from "./city";
 import type { CityHandle } from "./city3d";
 import { stateLabel, type Agent, type Edge, type Escalation } from "./model";
 import { IconChat, IconWhatsapp } from "./icons";
@@ -172,7 +172,8 @@ export default function Campus({
     <div
       ref={host}
       data-campus=""
-      className="relative h-full w-full overflow-hidden rounded-[18px] bg-[#eef1f8]"
+      className="relative h-full w-full overflow-hidden rounded-[18px]"
+      style={{ background: LOOK.panel }}
       // The page clears the selection when the area around the model is
       // clicked. Picking a building is a click too, and it reaches that
       // handler a moment after the model has already selected something — so
@@ -191,7 +192,7 @@ export default function Campus({
             className="absolute inset-0 h-full w-full select-none object-cover opacity-40"
             draggable={false}
           />
-          <p className="relative text-[14px] font-semibold text-[#16203c]">
+          <p className="relative text-[14px] font-semibold" style={{ color: LOOK.dark ? "#eaf0ff" : "#16203c" }}>
             المتصفح ما بيدعم WebGL
           </p>
           <p className="relative max-w-[42ch] text-[12.5px] leading-relaxed text-[#5a6480]">
@@ -240,13 +241,19 @@ export default function Campus({
             type="button"
             onClick={() => city.current?.resetView()}
             className="pointer-events-auto rounded-full px-3 py-1.5 text-[11.5px] font-semibold shadow-[0_1px_6px_rgba(20,30,60,0.10)]"
-            style={{ background: "rgba(255,255,255,0.92)", color: "#3b4666" }}
+            style={{
+              background: LOOK.dark ? "rgba(22,32,60,0.92)" : "rgba(255,255,255,0.92)",
+              color: LOOK.dark ? "#dce5ff" : "#3b4666",
+            }}
           >
             إعادة الزاوية
           </button>
           <span
             className="rounded-full px-3 py-1.5 text-[11px]"
-            style={{ background: "rgba(255,255,255,0.75)", color: "#6b7590" }}
+            style={{
+              background: LOOK.dark ? "rgba(22,32,60,0.7)" : "rgba(255,255,255,0.75)",
+              color: LOOK.dark ? "#93a3c8" : "#6b7590",
+            }}
           >
             اسحب للف · عجلة الفأرة للتقريب
           </span>
@@ -307,8 +314,24 @@ function Label({
       <span
         className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-1.5 whitespace-nowrap rounded-full shadow-[0_1px_6px_rgba(20,30,60,0.12)]"
         style={{
-          background: selected ? "#16203c" : "rgba(255,255,255,0.94)",
-          color: selected ? "#ffffff" : minor ? "#6b7590" : "#16203c",
+          background: selected
+            ? LOOK.dark
+              ? "#ffffff"
+              : "#16203c"
+            : LOOK.dark
+              ? "rgba(16,24,48,0.88)"
+              : "rgba(255,255,255,0.94)",
+          color: selected
+            ? LOOK.dark
+              ? "#0c1226"
+              : "#ffffff"
+            : LOOK.dark
+              ? minor
+                ? "#93a3c8"
+                : "#eaf0ff"
+              : minor
+                ? "#6b7590"
+                : "#16203c",
           padding: minor ? "2px 8px" : "3px 10px",
           fontSize: minor ? 10.5 : 12,
           fontWeight: minor ? 600 : 700,

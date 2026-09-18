@@ -3,7 +3,7 @@ import {
   GREENERY,
   GROUND_D,
   GROUND_W,
-  PALETTE,
+  LOOK,
   PAVING,
   POND,
   PLACES,
@@ -148,12 +148,40 @@ function shadowTexture(): THREE.Texture {
   canvas.height = size;
   const ctx = canvas.getContext("2d");
   if (ctx) {
+    // On a dark ground a dark blob is invisible, so the contact shadow there
+    // is a thin pool rather than the deep one a white model needs.
+    const tint = LOOK.dark ? "4,8,20" : "24,36,66";
     const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
-    g.addColorStop(0, "rgba(24,36,66,0.52)");
-    g.addColorStop(0.55, "rgba(28,42,74,0.16)");
-    g.addColorStop(1, "rgba(28,42,74,0)");
+    g.addColorStop(0, `rgba(${tint},${LOOK.dark ? 0.55 : 0.52})`);
+    g.addColorStop(0.55, `rgba(${tint},0.16)`);
+    g.addColorStop(1, `rgba(${tint},0)`);
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, size, size);
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+/** `#rrggbb` to `rgba(...)`, so a gradient can fade a look's own colour out. */
+function hexToRgba(hex: string, alpha: number): string {
+  const n = parseInt(hex.replace("#", ""), 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`;
+}
+
+/** The sky behind the model. A flat fill reads as a screenshot; a graded one
+ *  reads as a photograph of an object. */
+function skyTexture(): THREE.Texture {
+  const canvas = document.createElement("canvas");
+  canvas.width = 4;
+  canvas.height = 256;
+  const ctx = canvas.getContext("2d");
+  if (ctx) {
+    const g = ctx.createLinearGradient(0, 0, 0, 256);
+    g.addColorStop(0, LOOK.skyTop);
+    g.addColorStop(1, LOOK.skyBottom);
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 4, 256);
   }
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
@@ -168,12 +196,11 @@ function groundTexture(): THREE.Texture {
   canvas.height = size;
   const ctx = canvas.getContext("2d");
   if (ctx) {
-    ctx.fillStyle = PALETTE.ground;
+    ctx.fillStyle = LOOK.ground;
     ctx.fillRect(0, 0, size, size);
     const g = ctx.createRadialGradient(size / 2, size * 0.46, size * 0.04, size / 2, size * 0.46, size * 0.66);
-    g.addColorStop(0, PALETTE.groundInner);
-    g.addColorStop(0.55, "rgba(238,242,250,0.55)");
-    g.addColorStop(1, "rgba(238,242,250,0)");
+    g.addColorStop(0, LOOK.groundInner);
+    g.addColorStop(1, hexToRgba(LOOK.groundInner, 0));
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, size, size);
   }
@@ -232,11 +259,13 @@ export function createCity(canvas: HTMLCanvasElement, host: HTMLElement): CityHa
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 0.97;
+  renderer.toneMappingExposure = LOOK.exposure;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
 
   const scene = new THREE.Scene();
-  scene.fog = new THREE.Fog(0xeef1f8, 190, 320);
+  const sky = skyTexture();
+  scene.background = sky;
+  scene.fog = new THREE.Fog(new THREE.Color(LOOK.fog), LOOK.fogNear, LOOK.fogFar);
 
   const camera = new THREE.PerspectiveCamera(30, 1, 1, 600);
   const target = new THREE.Vector3(0, 4.5, 6);
@@ -250,9 +279,9 @@ export function createCity(canvas: HTMLCanvasElement, host: HTMLElement): CityHa
 
   /* ── light ───────────────────────────────────────────────────────────── */
 
-  scene.add(new THREE.HemisphereLight(0xe8efff, 0x9daaC4, 0.45));
+  scene.add(new THREE.HemisphereLight(new THREE.Color(LOOK.hemiSky), new THREE.Color(LOOK.hemiGround), LOOK.hemiIntensity));
 
-  const key = new THREE.DirectionalLight(0xfff4e4, 3.05);
+  const key = new THREE.DirectionalLight(new THREE.Color(LOOK.keyColor), LOOK.keyIntensity);
   key.position.set(-52, 78, 46);
   key.castShadow = true;
   key.shadow.mapSize.set(2048, 2048);
@@ -266,33 +295,33 @@ export function createCity(canvas: HTMLCanvasElement, host: HTMLElement): CityHa
   key.shadow.normalBias = 0.05;
   scene.add(key);
 
-  const fill = new THREE.DirectionalLight(0xbfd6ff, 0.42);
+  const fill = new THREE.DirectionalLight(new THREE.Color(LOOK.fillColor), LOOK.fillIntensity);
   fill.position.set(64, 34, -46);
   scene.add(fill);
 
-  const rim = new THREE.DirectionalLight(0xffffff, 0.35);
+  const rim = new THREE.DirectionalLight(new THREE.Color(LOOK.rimColor), LOOK.rimIntensity);
   rim.position.set(6, 22, -78);
   scene.add(rim);
 
   /* ── materials, shared by everything ─────────────────────────────────── */
 
-  const wallMat = new THREE.MeshStandardMaterial({ color: PALETTE.wall, roughness: 0.82, metalness: 0 });
-  const shadeMat = new THREE.MeshStandardMaterial({ color: PALETTE.wallShade, roughness: 0.86, metalness: 0 });
-  const plinthMat = new THREE.MeshStandardMaterial({ color: PALETTE.plinth, roughness: 0.92, metalness: 0 });
+  const wallMat = new THREE.MeshStandardMaterial({ color: LOOK.wall, roughness: 0.82, metalness: 0 });
+  const shadeMat = new THREE.MeshStandardMaterial({ color: LOOK.wallShade, roughness: 0.86, metalness: 0 });
+  const plinthMat = new THREE.MeshStandardMaterial({ color: LOOK.plinth, roughness: 0.92, metalness: 0 });
   const glassMat = new THREE.MeshStandardMaterial({
-    color: PALETTE.glass,
+    color: LOOK.glass,
     roughness: 0.16,
     metalness: 0.06,
     transparent: true,
     opacity: 0.86,
-    emissive: new THREE.Color("#5f96cc"),
-    emissiveIntensity: 0.28,
+    emissive: new THREE.Color(LOOK.glassEmissive),
+    emissiveIntensity: LOOK.glassEmissiveIntensity,
   });
-  const plateMat = new THREE.MeshStandardMaterial({ color: "#39445f", roughness: 0.62, metalness: 0.05 });
-  const skinMat = new THREE.MeshStandardMaterial({ color: PALETTE.skin, roughness: 0.75 });
-  const trunkMat = new THREE.MeshStandardMaterial({ color: "#b9bfcb", roughness: 0.9 });
-  const leafMat = new THREE.MeshStandardMaterial({ color: PALETTE.tree, roughness: 0.85, flatShading: true });
-  const roadMat = new THREE.MeshStandardMaterial({ color: PALETTE.road, roughness: 0.95, metalness: 0 });
+  const plateMat = new THREE.MeshStandardMaterial({ color: LOOK.sign, roughness: 0.62, metalness: 0.05 });
+  const skinMat = new THREE.MeshStandardMaterial({ color: LOOK.skin, roughness: 0.75 });
+  const trunkMat = new THREE.MeshStandardMaterial({ color: LOOK.trunk, roughness: 0.9 });
+  const leafMat = new THREE.MeshStandardMaterial({ color: LOOK.tree, roughness: 0.85, flatShading: true });
+  const roadMat = new THREE.MeshStandardMaterial({ color: LOOK.road, roughness: 0.95, metalness: 0 });
 
   const owned: Array<{ dispose: () => void }> = [
     wallMat, shadeMat, plinthMat, glassMat, plateMat, skinMat, trunkMat, leafMat, roadMat,
@@ -318,7 +347,7 @@ export function createCity(canvas: HTMLCanvasElement, host: HTMLElement): CityHa
   const groundTex = keep(groundTexture());
   const plate = new THREE.Mesh(
     keep(box(GROUND_W, 2.2, GROUND_D, 4)),
-    keep(new THREE.MeshStandardMaterial({ color: "#bcc6da", roughness: 0.95 })),
+    keep(new THREE.MeshStandardMaterial({ color: LOOK.plateSide, roughness: 0.95 })),
   );
   plate.position.y = -2.2;
   plate.receiveShadow = true;
@@ -349,7 +378,7 @@ export function createCity(canvas: HTMLCanvasElement, host: HTMLElement): CityHa
 
   /* ── paving and roads ────────────────────────────────────────────────── */
 
-  const pavingMat = keep(new THREE.MeshStandardMaterial({ color: "#f3f6fc", roughness: 0.94 }));
+  const pavingMat = keep(new THREE.MeshStandardMaterial({ color: LOOK.paving, roughness: 0.94 }));
   for (const pad of PAVING) {
     const disc = new THREE.Mesh(keep(new THREE.CircleGeometry(pad.r, 48)), pavingMat);
     disc.rotation.x = -Math.PI / 2;
@@ -360,7 +389,7 @@ export function createCity(canvas: HTMLCanvasElement, host: HTMLElement): CityHa
 
   const water = new THREE.Mesh(
     keep(new THREE.CircleGeometry(1, 56)),
-    keep(new THREE.MeshStandardMaterial({ color: "#a8c8e6", roughness: 0.22, metalness: 0.1 })),
+    keep(new THREE.MeshStandardMaterial({ color: LOOK.water, roughness: 0.22, metalness: 0.1 })),
   );
   water.rotation.x = -Math.PI / 2;
   water.scale.set(POND.rx, POND.rz, 1);
@@ -491,11 +520,16 @@ export function createCity(canvas: HTMLCanvasElement, host: HTMLElement): CityHa
     group.rotation.y = place.rot;
 
     const accent = accentMat(place.accent);
+    // With colour turned on, a building wears its own on its roof; with it off
+    // every roof is the same white and the only colour is the status light.
+    const trim = LOOK.colouredRoofs
+      ? keep(new THREE.MeshStandardMaterial({ color: place.accent, roughness: 0.66, metalness: 0 }))
+      : shadeMat;
     // Unlit until an agent reports for work there.
     const stateMat = keep(
       new THREE.MeshStandardMaterial({
-        color: "#c3cddf",
-        emissive: new THREE.Color("#c3cddf"),
+        color: LOOK.resting,
+        emissive: new THREE.Color(LOOK.resting),
         emissiveIntensity: 0.1,
         roughness: 0.6,
       }),
@@ -513,11 +547,11 @@ export function createCity(canvas: HTMLCanvasElement, host: HTMLElement): CityHa
       band.position.y = floor + h * 0.24;
       group.add(band);
 
-      const roof = mesh(box(w * 0.84, 0.55, d * 0.84, 0.6), wallMat);
+      const roof = mesh(box(w * 0.84, 0.55, d * 0.84, 0.6), trim);
       roof.position.y = floor + h * 0.62;
       group.add(roof);
 
-      const canopy = mesh(box(w * 0.5, 0.3, 4.2, 0.4), wallMat);
+      const canopy = mesh(box(w * 0.5, 0.3, 4.2, 0.4), trim);
       canopy.position.set(0, floor + h * 0.52, d / 2 + 1.6);
       group.add(canopy);
 
@@ -543,6 +577,9 @@ export function createCity(canvas: HTMLCanvasElement, host: HTMLElement): CityHa
         pane.position.y = floor + t.y + t.hh * 0.52;
         group.add(pane);
       }
+      const lid = mesh(box(w * 0.64, 0.42, d * 0.64, 0.5), trim);
+      lid.position.y = floor + h * 0.94;
+      group.add(lid);
       sign(place, group, floor + h * 0.2);
     }
 
@@ -561,7 +598,7 @@ export function createCity(canvas: HTMLCanvasElement, host: HTMLElement): CityHa
         group.add(pane);
       }
 
-      const cap = mesh(box(w * 0.66, 0.6, d * 0.66, 0.5), wallMat);
+      const cap = mesh(box(w * 0.66, 0.6, d * 0.66, 0.5), trim);
       cap.position.y = floor + 0.5 + h * 0.86;
       group.add(cap);
 
@@ -580,7 +617,7 @@ export function createCity(canvas: HTMLCanvasElement, host: HTMLElement): CityHa
       body.position.y = floor;
       group.add(body);
 
-      const vault = mesh(new THREE.CylinderGeometry(d * 0.46, d * 0.46, w * 0.92, 24, 1, false, 0, Math.PI), wallMat);
+      const vault = mesh(new THREE.CylinderGeometry(d * 0.46, d * 0.46, w * 0.92, 24, 1, false, 0, Math.PI), trim);
       vault.rotation.z = Math.PI / 2;
       vault.position.y = floor + h * 0.72;
       group.add(vault);
@@ -601,7 +638,7 @@ export function createCity(canvas: HTMLCanvasElement, host: HTMLElement): CityHa
       body.position.y = floor;
       group.add(body);
 
-      const roof = mesh(box(w * 1.04, 0.5, d * 1.04, 0.5), shadeMat);
+      const roof = mesh(box(w * 1.04, 0.5, d * 1.04, 0.5), trim);
       roof.position.y = floor + h * 0.66;
       group.add(roof);
 
@@ -632,7 +669,7 @@ export function createCity(canvas: HTMLCanvasElement, host: HTMLElement): CityHa
         group.add(lamp);
       }
 
-      const lintel = mesh(box(w, 1.5, d * 0.7), wallMat);
+      const lintel = mesh(box(w, 1.5, d * 0.7), trim);
       lintel.position.y = floor + h;
       group.add(lintel);
 
@@ -658,7 +695,7 @@ export function createCity(canvas: HTMLCanvasElement, host: HTMLElement): CityHa
       body.position.y = floor;
       group.add(body);
 
-      const roof = mesh(wedge(w * 1.06, h * 0.42, d * 1.04), shadeMat);
+      const roof = mesh(wedge(w * 1.06, h * 0.42, d * 1.04), trim);
       roof.position.y = floor + h * 0.62;
       group.add(roof);
 
@@ -688,7 +725,7 @@ export function createCity(canvas: HTMLCanvasElement, host: HTMLElement): CityHa
       awning.position.set(0, floor + h * 0.52, d / 2 + 1);
       awning.rotation.x = 0.22;
       group.add(awning);
-      const roof = mesh(box(w * 0.7, 0.5, d * 0.7, 0.4), wallMat);
+      const roof = mesh(box(w * 0.7, 0.5, d * 0.7, 0.4), trim);
       roof.position.y = floor + h * 0.7;
       group.add(roof);
       sign(place, group, floor + h * 0.56);
@@ -698,7 +735,7 @@ export function createCity(canvas: HTMLCanvasElement, host: HTMLElement): CityHa
       const shaft = mesh(box(w * 0.52, h * 0.82, d * 0.52, 0.4), wallMat);
       shaft.position.y = floor;
       group.add(shaft);
-      const head = mesh(box(w, h * 0.16, d, 0.5), wallMat);
+      const head = mesh(box(w, h * 0.16, d, 0.5), trim);
       head.position.y = floor + h * 0.82;
       group.add(head);
       const glassBand = mesh(box(w * 1.01, h * 0.1, d * 1.01, 0.5), glassMat);
@@ -950,8 +987,8 @@ export function createCity(canvas: HTMLCanvasElement, host: HTMLElement): CityHa
       entry.ring.visible = false;
       entry.halo.visible = false;
       entry.beacon.visible = false;
-      entry.stateMat.color.set("#c3cddf");
-      entry.stateMat.emissive.set("#c3cddf");
+      entry.stateMat.color.set(LOOK.resting);
+      entry.stateMat.emissive.set(LOOK.resting);
       entry.stateMat.emissiveIntensity = 0.1;
     }
 
@@ -986,7 +1023,7 @@ export function createCity(canvas: HTMLCanvasElement, host: HTMLElement): CityHa
       // Somebody stands in front of the building, wearing the colour of the
       // state it is in — or a plain uniform while there is nothing to report.
       if (place.kind !== "plaza" && place.kind !== "kiosk") {
-        const p = person(active ? hex : "#93a0ba");
+        const p = person(active ? hex : LOOK.wallShade);
         const slot = entry.people.length;
         p.group.position.set((slot - 0.5) * 2.4, 0.9, place.d / 2 + 2.9);
         p.group.rotation.y = 0.25 - slot * 0.4;
@@ -1202,6 +1239,7 @@ export function createCity(canvas: HTMLCanvasElement, host: HTMLElement): CityHa
     canvas.removeEventListener("pointercancel", onUp);
     canvas.removeEventListener("wheel", onWheel);
     for (const item of owned) item.dispose();
+    sky.dispose();
     scene.traverse((o) => {
       const m = o as THREE.Mesh;
       if (m.geometry) m.geometry.dispose();

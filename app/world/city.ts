@@ -30,26 +30,190 @@ export function toWorld(px: number, py: number): Vec2 {
 export const GROUND_W = CAMPUS_W / SCALE;
 export const GROUND_D = CAMPUS_H / SCALE + 4;
 
-/* ── palette ────────────────────────────────────────────────────────────── */
+/* ── how it looks ───────────────────────────────────────────────────────── */
 
 /**
- * Five materials, no more. A miniature reads as one object when every wall is
- * the same white and every window the same glass; the colour that carries
- * meaning is then unmistakable because it is the only colour in the frame.
+ * The look, as data.
+ *
+ * The geometry of this city and the mood of it are different decisions, and
+ * arguing about the second one should not mean rebuilding the first. Every
+ * colour, every light and the sky behind them live here; `city3d` reads them
+ * and never names a colour of its own.
  */
-export const PALETTE = {
+export type Look = {
+  key: string;
+  /** Arabic name, for talking about it. */
+  name: string;
+  dark: boolean;
+  /** The panel behind the canvas, and the sky drawn into it. */
+  panel: string;
+  skyTop: string;
+  skyBottom: string;
+  fog: string;
+  fogNear: number;
+  fogFar: number;
+  /** The ground plate and the surface on top of it. */
+  plateSide: string;
+  ground: string;
+  groundInner: string;
+  paving: string;
+  road: string;
+  water: string;
+  /** The buildings. */
+  wall: string;
+  wallShade: string;
+  plinth: string;
+  glass: string;
+  glassEmissive: string;
+  glassEmissiveIntensity: number;
+  sign: string;
+  /** A building with nothing to report. */
+  resting: string;
+  tree: string;
+  trunk: string;
+  skin: string;
+  /** Light. */
+  hemiSky: string;
+  hemiGround: string;
+  hemiIntensity: number;
+  keyColor: string;
+  keyIntensity: number;
+  fillColor: string;
+  fillIntensity: number;
+  rimColor: string;
+  rimIntensity: number;
+  exposure: number;
+  /** Whether each building wears its own accent on its roof and trim. */
+  colouredRoofs: boolean;
+};
+
+/** Matte white miniature under a soft studio light. */
+const STUDIO: Look = {
+  key: "studio",
+  name: "مجسّم أبيض",
+  dark: false,
+  panel: "#eef1f8",
+  skyTop: "#eef2fb",
+  skyBottom: "#e3e8f4",
+  fog: "#eef1f8",
+  fogNear: 190,
+  fogFar: 320,
+  plateSide: "#bcc6da",
   ground: "#d4dbea",
   groundInner: "#e6ebf6",
+  paving: "#f3f6fc",
+  road: "#c8d1e3",
+  water: "#a8c8e6",
   wall: "#fafbfe",
   wallShade: "#d8e0ee",
   plinth: "#ccd5e6",
   glass: "#93c0e6",
-  plate: "#242d47",
-  amber: "#f0a93c",
-  road: "#c8d1e3",
+  glassEmissive: "#5f96cc",
+  glassEmissiveIntensity: 0.28,
+  sign: "#39445f",
+  resting: "#c3cddf",
   tree: "#93bd9f",
+  trunk: "#b9bfcb",
   skin: "#f2c9a8",
-} as const;
+  hemiSky: "#e8efff",
+  hemiGround: "#9daac4",
+  hemiIntensity: 0.45,
+  keyColor: "#fff4e4",
+  keyIntensity: 3.05,
+  fillColor: "#bfd6ff",
+  fillIntensity: 0.42,
+  rimColor: "#ffffff",
+  rimIntensity: 0.35,
+  exposure: 0.97,
+  colouredRoofs: false,
+};
+
+/** The brand's own blue and violet, in a bright sky, with colour on the roofs. */
+const VIVID: Look = {
+  key: "vivid",
+  name: "ملوّن وحيوي",
+  dark: false,
+  panel: "#e7ecff",
+  skyTop: "#dbe6ff",
+  skyBottom: "#f4f1ff",
+  fog: "#e4eaff",
+  fogNear: 210,
+  fogFar: 360,
+  plateSide: "#b9c4ee",
+  ground: "#cfd9f7",
+  groundInner: "#eef2ff",
+  paving: "#ffffff",
+  road: "#bcc9f2",
+  water: "#6fb3f0",
+  wall: "#ffffff",
+  wallShade: "#dbe3fb",
+  plinth: "#c6d1f3",
+  glass: "#5b8bf5",
+  glassEmissive: "#3f6df0",
+  glassEmissiveIntensity: 0.5,
+  sign: "#2b3566",
+  resting: "#c9d3f0",
+  tree: "#5fbe90",
+  trunk: "#a9b2c8",
+  skin: "#f6c9a4",
+  hemiSky: "#dce9ff",
+  hemiGround: "#9fb0dd",
+  hemiIntensity: 0.6,
+  keyColor: "#fff1d8",
+  keyIntensity: 3.3,
+  fillColor: "#a9c7ff",
+  fillIntensity: 0.55,
+  rimColor: "#c9b8ff",
+  rimIntensity: 0.5,
+  exposure: 1.06,
+  colouredRoofs: true,
+};
+
+/** Night: a dark control room, lit by the system itself. */
+const NIGHT: Look = {
+  key: "night",
+  name: "ليلي",
+  dark: true,
+  panel: "#0c1226",
+  skyTop: "#0a0f22",
+  skyBottom: "#16203f",
+  fog: "#0c1226",
+  fogNear: 170,
+  fogFar: 330,
+  plateSide: "#0e1631",
+  ground: "#18234a",
+  groundInner: "#22305a",
+  paving: "#26365f",
+  road: "#2b3c68",
+  water: "#1d63a8",
+  wall: "#dfe6f7",
+  wallShade: "#9aa7c8",
+  plinth: "#2a3a66",
+  glass: "#4f8ef7",
+  glassEmissive: "#3f8bff",
+  glassEmissiveIntensity: 1.2,
+  sign: "#0b1226",
+  resting: "#46557f",
+  tree: "#3f7f66",
+  trunk: "#4a5570",
+  skin: "#e8bd99",
+  hemiSky: "#2a3a6b",
+  hemiGround: "#0d1730",
+  hemiIntensity: 0.55,
+  keyColor: "#cfe0ff",
+  keyIntensity: 1.5,
+  fillColor: "#4f7bd8",
+  fillIntensity: 0.5,
+  rimColor: "#8f7bff",
+  rimIntensity: 0.9,
+  exposure: 1.1,
+  colouredRoofs: true,
+};
+
+export const LOOKS: Record<string, Look> = { studio: STUDIO, vivid: VIVID, night: NIGHT };
+
+/** The look the page is built with. */
+export const LOOK: Look = VIVID;
 
 /** The state colours, matched to the roster's own tones. */
 export const TONE_HEX = {
@@ -116,7 +280,7 @@ const P = (
  * because the customer is not part of the machine.
  */
 export const PLACES: Place[] = [
-  P("reception", "pavilion", 17, 12.5, 7.6, 0.1, 10.8, PALETTE.amber),
+  P("reception", "pavilion", 17, 12.5, 7.6, 0.1, 10.8, "#f0a93c"),
   P("knowledge", "archive", 13, 11, 11.5, -0.12, 15, "#7b9cf0"),
   P("orchestrator", "hub", 12.5, 12.5, 14, 0.78, 18.2, "#5b6ef5"),
   P("booking", "hall", 14.5, 11.5, 10, -0.06, 13.2, "#3fb9a0"),
