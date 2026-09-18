@@ -31,6 +31,7 @@ import argparse
 import atexit
 import json
 import os
+import random
 import shutil
 import sys
 import tempfile
@@ -50,6 +51,12 @@ from core import world_policy as POL        # noqa: E402
 
 BAR = "─" * 78
 ORCH, RES, REV = "AGT-ORCHESTRATOR", "AGT-RESEARCHER", "AGT-REVIEWER"
+
+# Enough room that adaptive thinking cannot eat the whole budget and leave no
+# text — the R23 failure, which on a current model is the default behaviour
+# rather than an edge case. The `Probe` emits a few dozen bytes and is
+# unaffected either way.
+TURN_TOKENS = 2000
 
 
 def say(s=""):
@@ -144,9 +151,63 @@ class Probe(P.Provider):
         return (rest if end < 0 else rest[:end]).strip()
 
 
-def world(db=None):
+class Recorder(P.Provider):
+    """Keeps every prompt the runtime built, and changes nothing else.
+
+    `Probe` could answer the question "did the tool result reach the next
+    turn?" only because it was the thing being asked. A real model is not
+    going to tell us what it was shown, and the question is a property of the
+    RUNTIME anyway — so the recording moves into a wrapper that decides
+    nothing, and the same check reads the same field whoever is deciding.
+
+    Every attribute that an audit reads — `name`, `source`, `model` — passes
+    straight through. A wrapper that could disguise what it wraps would make
+    `runs.source` a decoration."""
+
+    def __init__(self, inner):
+        self.inner = inner
+        self.saw = []
+        self.got = []
+
+    @property
+    def name(self):
+        return self.inner.name
+
+    @property
+    def source(self):
+        return self.inner.source
+
+    @property
+    def model(self):
+        return getattr(self.inner, "model", None)
+
+    def available(self):
+        return self.inner.available()
+
+    def why_unavailable(self):
+        return self.inner.why_unavailable()
+
+    def complete(self, system, prompt, model=None, max_tokens=800):
+        self.saw.append(prompt)
+        res = self.inner.complete(system, prompt, model=model,
+                                  max_tokens=max_tokens)
+        self.got.append(res)
+        return res
+
+
+def world(db=None, mode="simulation"):
+    """The mode is not cosmetic: it is the no-fallback guarantee.
+
+    LAW 2 is a SQL trigger and it cuts both ways — a world founded
+    `simulation` refuses to record a `source='model'` run, and a world founded
+    `live` refuses to record a `mock` one. So a gate driven by a real model
+    must found `live`, and one driven by the `Probe` must found `simulation`;
+    getting it wrong is an IntegrityError, not a checkbox this file evaluates.
+
+    The default stays `simulation` because that is the right world for the
+    double, and because every existing caller is one."""
     con = store.connect(db or os.path.join(tempfile.mkdtemp(), "gate.db"))
-    store.found(con, mode="simulation")
+    store.found(con, mode=mode)
     W.found_agents(con)
     POL.seed(con)
     return con
@@ -160,8 +221,17 @@ def run_turn(con, prov, agent, tid, source, strip_observations=False):
     if W.assignee(con, tid) != agent:
         W.assign(con, tid, agent, by=ORCH)
     lease = W.claim_task(con, agent, task_id=tid)
+    # Names the deliverable and nothing else. "Report what it says" left the
+    # finish ambiguous — `{"type":"complete","result":…}` is a perfectly good
+    # answer to it, and a real model gave one. The `Probe` never noticed,
+    # because it called WRITE_ARTIFACT whatever the briefing said; that is the
+    # double papering over a gap in the brief. Which tool to reach for, the
+    # path, and the contents are still entirely the decider's.
     brief, _ = CTX.briefing(con, agent, tid, extra={
-        "the owner's instruction": "Read %s and report what it says." % source})
+        "the owner's instruction":
+            "Establish what %s says, then write an artifact recording what you "
+            "found, and finish by declaring that artifact. Work that is not "
+            "declared is not submitted." % source})
     if strip_observations:
         real_render = RT._render
 
@@ -171,7 +241,8 @@ def run_turn(con, prov, agent, tid, source, strip_observations=False):
         RT._render = blind
     try:
         return RT.run_agent_turn(con, gw, prov, agent, tid, instruction=brief,
-                                 lease_id=lease["lease_id"])
+                                 lease_id=lease["lease_id"],
+                                 max_tokens=TURN_TOKENS)
     finally:
         if strip_observations:
             RT._render = real_render
@@ -199,11 +270,41 @@ def main(argv=None):
 
     # The gate below runs either way. With no model it exercises the RUNTIME and
     # says so; it never reports the model checkboxes as passed.
-    prov_for_loop = live if real else None
+    # Wrapped, not replaced: the Recorder keeps the prompts so the "did the
+    # observation come back" check can read them, and decides nothing.
+    prov_for_loop = Recorder(live) if real else None
+    # With a model answering this must be a LIVE world, or LAW 2 rejects the
+    # row. That same trigger is then what forbids a double from sneaking in.
+    mode = "live" if real else "simulation"
+    say("  world mode        %s  (LAW 2 refuses the other kind of run)" % mode)
 
     head("2. A PERSISTENT AGENT AND A PERSISTENT TASK")
-    con = world(a.db)
-    source = os.path.join(HERE, "AGENT_COGNITION.md")
+    con = world(a.db, mode=mode)
+    # The source is WRITTEN HERE, with a fact invented at run time, rather than
+    # being a document in the tree. Two reasons, and the second is the one that
+    # matters:
+    #
+    #   - a heading in a checked-in file can be reproduced from priors or from
+    #     an earlier run; `%d blue %s at dawn` cannot be. If it comes back, it
+    #     came back through the gateway, and there is no other route.
+    #   - the old check asked whether the output QUOTED the first line
+    #     verbatim. A model that reads the file and paraphrases it — which is
+    #     what being asked to report on a file normally produces — failed it.
+    #     That is a bad question, not a bad answer: it grades style, and the
+    #     `Probe` only ever passed it because it was built to echo.
+    #
+    # Inside the repo root because READ_REPO's grant is scoped there.
+    src_dir = tempfile.mkdtemp(dir=HERE)
+    atexit.register(shutil.rmtree, src_dir, True)
+    fact_noun = random.choice(["pineapples", "lighthouses", "accordions",
+                               "tangerines", "zeppelins", "metronomes"])
+    fact_n = random.randint(3, 99)
+    source = os.path.join(src_dir, "restarting.md")
+    with open(source, "w", encoding="utf-8") as fh:
+        fh.write("# Restarting the world\n\nThe world is restarted by feeding "
+                 "it %d blue %s at dawn.\nNothing else restarts it.\n"
+                 % (fact_n, fact_noun))
+    say("  planted fact      %d blue %s at dawn" % (fact_n, fact_noun))
     agent = RES
     g.check("the agent is persistent, not a demo fixture",
             bool(con.execute("SELECT 1 FROM principals WHERE id=? AND "
@@ -212,7 +313,8 @@ def main(argv=None):
             bool(con.execute("SELECT 1 FROM agent_bodies WHERE principal_id=?",
                              (agent,)).fetchone()), "")
     tid = W.discover_task(
-        con, "Read AGENT_COGNITION.md and report what it says about the briefing.",
+        con, "Establish what the source says about restarting the world, "
+             "and record it.",
         by=ORCH, required_caps=["research"], evidence_required=1,
         conditions=[{"description": "a source was actually read", "kind": "evidence"}])
     W.transition(con, tid, "PROPOSED", ORCH)
@@ -246,30 +348,66 @@ def main(argv=None):
                 "bytes the gateway returned are in the prompt" if reached
                 else "the model never saw what the tool returned")
 
-    g.check("the artifact was built from the observation",
-            bool(turn.artifact_body) and first in (turn.artifact_body or ""),
-            "quotes the source" if turn.artifact_body else "no artifact")
+    # The runtime offers the model TWO ways to finish, in the contract it hands
+    # it: `{"type":"complete","artifact":…}` and `{"type":"complete","result":…}`.
+    # The gate used to read only the first, because the `Probe` only ever used
+    # the first. A real model took the second — after writing the artifact
+    # through the gateway — and the gate called a completed turn "no artifact".
+    # What is being tested is whether the OUTPUT depended on the OBSERVATION,
+    # so the thing to grade is whatever the runtime accepted as the submission.
+    produced = turn.artifact_body or turn.answer or ""
+    form = ("artifact" if turn.artifact_body else
+            "answer" if turn.answer else "nothing")
+    g.check("the decider submitted something", bool(produced),
+            "submitted as %s, %d bytes" % (form, len(produced)))
+    g.check("what it submitted came from the observation",
+            fact_noun in produced.lower(),
+            "contains the planted fact (%r)" % fact_noun if fact_noun in
+            produced.lower() else "the planted fact is absent — it did not read")
+
+    # ── the transcript, so the record is readable and not just graded ──
+    # Printed rather than asserted: a check reports a verdict, and what the
+    # model actually said is the evidence the verdict is drawn from.
+    head("3b. WHAT THE MODEL ACTUALLY DECIDED, IN ORDER")
+    for i, res in enumerate(getattr(driver, "got", []), 1):
+        say("  decision %d  %s" % (i, (res.text or "").strip().replace("\n", " ")[:300]))
+    obs_marker = "TOOL RESULT [READ_REPO]:\n"
+    for pmt in seen[1:]:
+        j = pmt.find(obs_marker)
+        if j >= 0:
+            shown = pmt[j + len(obs_marker):].strip()
+            say("")
+            say("  the observation the model received (first 400 chars of %d):"
+                % len(shown))
+            for ln in shown[:400].splitlines():
+                say("    | %s" % ln)
+            break
 
     # ── 4. §6 — the negative control ─────────────────────────────────
     head("4. CONTEXT NECESSITY — remove the tool result and the gate must fail")
-    con2 = world()
+    con2 = world(mode=mode)
     tid2 = W.discover_task(con2, "Same task, blinded.", by=ORCH,
                            required_caps=["research"])
     W.transition(con2, tid2, "PROPOSED", ORCH)
     W.transition(con2, tid2, "APPROVED", ORCH)
-    blind_probe = Probe(source)
-    blind_turn = run_turn(con2, blind_probe, agent, tid2, source,
+    # The control must be the SAME decider as the positive run, or it compares
+    # two different things and proves nothing about either. When a model is
+    # answering, the model is blinded — not a double standing in for it.
+    blind_driver = Recorder(live) if real else Probe(source)
+    blind_turn = run_turn(con2, blind_driver, agent, tid2, source,
                           strip_observations=True)
-    blinded_body = blind_turn.artifact_body or ""
-    say("  with the observation    : artifact %d bytes, quotes source = %s"
-        % (len(turn.artifact_body or ""), first in (turn.artifact_body or "")))
-    say("  without the observation : artifact %d bytes, quotes source = %s"
-        % (len(blinded_body), first in blinded_body))
+    blinded = blind_turn.artifact_body or blind_turn.answer or ""
+    say("  with the observation    : %4d bytes, has the fact = %s"
+        % (len(produced), fact_noun in produced.lower()))
+    say("  without the observation : %4d bytes, has the fact = %s"
+        % (len(blinded), fact_noun in blinded.lower()))
+    if blinded:
+        say("  blinded, it said        : %s"
+            % blinded.strip().replace("\n", " ")[:160])
     g.check("blinding the agent changes what it produces",
-            (turn.artifact_body or "") != blinded_body,
-            "the two artifacts differ")
-    g.check("blinded, it cannot quote what it never saw",
-            first not in blinded_body,
+            produced != blinded, "the two submissions differ")
+    g.check("blinded, it cannot state what it never saw",
+            fact_noun not in blinded.lower(),
             "it would have been reciting, not reading")
 
     # ── 5. security, against the same path ───────────────────────────
@@ -348,6 +486,64 @@ def main(argv=None):
                       if x["source"] != "model" and (x["tokens_in"] or 0) > 0]
         g.check("no token count is fabricated by a non-model", not fabricated,
                 "%d suspect row(s)" % len(fabricated))
+
+    # ── 7. persistence, provenance, verification, review ─────────────
+    # None of this calls a model. Verification here is deterministic code and
+    # review is a different principal, which is the point: the thing that
+    # produced the work is not the thing that signs it off.
+    head("7. PERSISTENCE, PROVENANCE, VERIFICATION AND REVIEW")
+    if not turn.artifact_path:
+        # Explicit submission is the world's rule, not a formality: bytes the
+        # agent never declared are not its work product. Skipped, not failed —
+        # nothing here is wrong, the decider simply answered instead of filing.
+        why = "the decider submitted an %s, not a declared artifact" % form
+        for nm in ("the artifact is a row with a sha",
+                   "the artifact's source is 'model'",
+                   "the chain reconstructs from rows alone",
+                   "verification ran outside the agent, as code",
+                   "the artifact passed its declared requirements",
+                   "the reviewer is not the producer"):
+            g.skip(nm, why)
+    else:
+        art = RT.persist_artifact(con, turn, None)
+        row = dict(con.execute("SELECT * FROM artifacts WHERE id=?",
+                               (art,)).fetchone())
+        g.check("the artifact is a row with a sha", bool(row["sha"]),
+                row["sha"][:16])
+        # LAW 1: an artifact's source must equal the source of the run that
+        # produced it. A mock run cannot file model work.
+        g.check("the artifact's source is 'model'", row["source"] == "model",
+                row["source"])
+
+        chain = RT.provenance_chain(con, tid)
+        links = [c["link"] for c in chain]
+        need = ("task", "lease", "model_run", "tool_call", "artifact")
+        missing = [n for n in need if n not in links]
+        g.check("the chain reconstructs from rows alone", not missing,
+                " -> ".join(links[:9]) + (" (+%d)" % (len(links) - 9)
+                                          if len(links) > 9 else ""))
+
+        ver = RT.verify_artifact(con, art, [
+            ("states what the source said about restarting",
+             lambda b: fact_noun in b.lower()),
+            ("mentions restarting", lambda b: "restart" in b.lower()),
+            ("is not empty", lambda b: len(b.strip()) > 40)])
+        say("  verification      %s" % ("PASSED" if ver["passed"] else
+            "FAILED — " + ", ".join(c["requirement"] for c in ver["checks"]
+                                    if not c["passed"])))
+        g.check("verification ran outside the agent, as code",
+                bool(ver["evidence_id"]), "evidence #%d" % ver["evidence_id"])
+        g.check("the artifact passed its declared requirements", ver["passed"], "")
+
+        rev = RT.persist_review(con, art, REV,
+                                "APPROVE" if ver["passed"] else "REJECT",
+                                {"checks": ver["checks"]},
+                                evidence_id=ver["evidence_id"])
+        reviewer = con.execute("SELECT reviewer_id FROM reviews WHERE id=?",
+                               (rev,)).fetchone()["reviewer_id"]
+        # LAW 5 refuses self-review; this shows it was a different principal.
+        g.check("the reviewer is not the producer", reviewer != row["principal_id"],
+                "%s reviewed %s's work" % (reviewer, row["principal_id"]))
 
     # ── verdict ──────────────────────────────────────────────────────
     head("VERDICT")

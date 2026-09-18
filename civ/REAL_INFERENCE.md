@@ -1,24 +1,92 @@
 # The real intelligence gate
 
-**STATUS: REAL INFERENCE NOT DEMONSTRATED.**
+**STATUS: REAL INFERENCE DEMONSTRATED — 2026-09-18, Google AI Studio free tier.**
 
-Nothing in this repository has ever been driven by a model. Every agent turn
-ever recorded here was decided by a deterministic double. This document is the
-audit that establishes that, the machinery built so it can stop being true, and
-the single condition that closes it.
-
-```
-python3 real_inference_gate.py
-```
+It is no longer true that nothing in this repository has ever been driven by a
+model. The section below this one is the audit as it stood, kept because the
+argument it makes is still the argument; §0 records what closed it.
 
 ```
-31 passed · 1 failed · 0 not applicable
-
-REAL INFERENCE NOT DEMONSTRATED
+CIV_PROVIDER=gemini CIV_ASSUME_FREE=1 CIV_MODEL=gemini-3.1-flash-lite \
+    python3 real_inference_gate.py
 ```
 
-The one failing check is `a real model process is reachable`. It is failing
-because it is true.
+```
+39 passed · 0 failed · 0 not applicable
+
+REAL INFERENCE DEMONSTRATED
+  provider gemini · model gemini-3.1-flash-lite
+```
+
+---
+
+## 0. What actually closed it, and what the double had been hiding
+
+`no_cost_audit.py` reported `generativelanguage.googleapis.com` reachable with
+a key already set. That was the whole of the missing piece — no weight host is
+reachable, no runtime is installed, and `api.anthropic.com` stays unused.
+
+Pointing the gate at a real model took four changes, and **three of them are
+gaps the `Probe` had been papering over.** That is the honest finding of this
+work: a gate exercised only by a double grades the double.
+
+1. **The world was founded `simulation`.** LAW 2 is a trigger and it cuts both
+   ways, so the first real turn died on
+   `IntegrityError: LAW 2: a model run cannot enter a world founded as
+   simulation`. Correct behaviour, wrong world: a model needs `live`. `world()`
+   now takes the mode, and the same trigger is what now forbids a double here.
+
+2. **The briefing never named a deliverable.** It said *"report what it says"*,
+   and `{"type":"complete","result":…}` is a perfectly good answer to that — a
+   real model gave one. The `Probe` called `WRITE_ARTIFACT` whatever the brief
+   said, so the gap never showed. The brief now names the deliverable and the
+   completion criterion; it still names no tool, no path and no content.
+
+3. **The gate read only `artifact_body`.** The runtime offers the model two
+   ways to finish and tells it both. A model wrote its artifact through the
+   gateway and then finished with `result`, and the gate called that completed
+   turn *"no artifact"*. It now grades whatever the runtime accepted as the
+   submission, and says which form it was.
+
+4. **The observation check graded style, not reading.** It asked whether the
+   output quoted the source's first line verbatim, which fails a model that
+   paraphrases — the normal result of asking for a report. The source is now
+   written at run time with a fact invented then (`78 blue tangerines at
+   dawn`), and the check asks whether that fact came back. A heading can be
+   guessed; this cannot.
+
+`Recorder` also replaces `Probe` as the thing that captures prompts, because
+"did the observation reach the next turn" is a property of the runtime and
+should not depend on the decider being the instrument.
+
+### The run
+
+| | |
+|---|---|
+| provider / model | `gemini` · `gemini-3.1-flash-lite`, `runs.source = model` |
+| model calls | 5 rows — 3 answered, 2 transport failures the runtime retried |
+| tools the model chose | `READ_REPO` → `WRITE_ARTIFACT`, both ALLOW |
+| observation | 114 bytes, returned by the gateway, present in turn 2's prompt |
+| artifact | `restarting_evidence.md`, sha `891a4baa…`, `source = model` |
+| provenance | 15 links: task → transitions → lease → model_run → tool_call → artifact |
+| verification | evidence #1, 3/3, `collected_by = OWNER_PLANE` |
+| review | AGT-REVIEWER APPROVE — not the producer (LAW 5) |
+| blinded control | 0 bytes, fact absent — it fails when blinded, as it must |
+| tokens | 2000 in / 155 out, provider-reported |
+| cost | no API fee. `usd` is `0.0` with `rate_known` FALSE — **unpriced, not a measured zero**, and `CIV_ASSUME_FREE=1` is the Owner's assertion, not a measurement |
+
+`bench_seal.drift()` reports NONE, before and after. Campaigns #1–#3 are
+untouched; the full suite runs 1033 tests with the same 13 pre-existing errors
+before and after the change.
+
+### Still not claimed
+
+The model that answered is a small free-tier one, and it shows: two others
+(`gemini-2.5-flash`, `gemini-3.5-flash`) drove the same loop and never
+submitted — one re-read a file it had already read five times, the other wrote
+its artifact four times without declaring it. **That a loop carries a model's
+decisions is not evidence that the decisions are good.** §8 below stands
+unchanged except for its second point.
 
 ---
 
@@ -245,7 +313,7 @@ flips. Nothing else in it is waiting on anything.
 
 1. **No reasoning has been demonstrated.** The single most important line here.
 2. **`LocalProvider` has never been executed** against a live runtime, here or
-   anywhere.
+   anywhere. `GeminiProvider` now has; `ClaudeProvider` still has not.
 3. **The doubles are policies I wrote.** They react to real observations, and
    it is still my policy reacting, not an agent's judgement.
 4. **Passing `model_check.py` with a double says the PROTOCOL works**, not that
