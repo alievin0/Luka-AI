@@ -79,13 +79,21 @@ class Cap:
         est_in = (len(system or "") + len(prompt or "")) / CHARS_PER_TOKEN
         return (est_in * rin + int(max_tokens) * rout) / 1_000_000, True
 
-    def refuse_reason(self, model, system, prompt, max_tokens):
-        """Why this call must not be made, or None."""
+    def refuse_reason(self, model, system, prompt, max_tokens, free=False):
+        """Why this call must not be made, or None.
+
+        `free` is the provider declaring that calling it costs no API fee — a
+        local runtime, or an endpoint the Owner has asserted is on a free tier.
+        It skips the pricing requirement and NOTHING else: the call cap still
+        applies, because an unbounded loop against a free endpoint is still an
+        unbounded loop."""
         if self.calls >= self.max_calls:
             return "call cap reached: %d of %d" % (self.calls, self.max_calls)
         if self.max_tokens and self.tokens_in + self.tokens_out >= self.max_tokens:
             return ("token cap reached: %d of %d"
                     % (self.tokens_in + self.tokens_out, self.max_tokens))
+        if free:
+            return None
         ceiling, known = self.ceiling_for(model, system, prompt, max_tokens)
         if not known:
             return ("%s has no published rate here, so this call cannot be "
@@ -158,7 +166,8 @@ class Budgeted(P.Provider):
             self.cap.refusals.append(why)
             return P.Result("BUDGET", self.inner.source, self.inner.name, model,
                             error=why)
-        why = self.cap.refuse_reason(model, system, prompt, max_tokens)
+        why = self.cap.refuse_reason(model, system, prompt, max_tokens,
+                                     free=getattr(self.inner, "free", False))
         if why:
             self.cap.refusals.append(why)
             return P.Result("BUDGET", self.inner.source, self.inner.name, model,

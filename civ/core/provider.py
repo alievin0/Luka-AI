@@ -24,6 +24,24 @@ RATES = {
 UNKNOWN_RATE = (0.0, 0.0)
 
 
+def _truthy_env(name):
+    return (os.environ.get(name) or "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _safe_body(e):
+    """An HTTP error body, clipped — and never echoing a credential back."""
+    try:
+        raw = e.read()[:200].decode("utf-8", "replace")
+    except Exception:            # noqa: BLE001 — a body we cannot read is fine
+        return ""
+    for name in ("ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY",
+                 "OPENAI_COMPAT_KEY"):
+        v = os.environ.get(name)
+        if v and v in raw:
+            raw = raw.replace(v, "<redacted>")
+    return raw
+
+
 def rate_for(model):
     """Rate for a model id, or (0,0) plus a flag when we genuinely do not know.
 
@@ -79,6 +97,12 @@ class Result:
 class Provider(ABC):
     name = "abstract"
     source = "model"
+    # Does calling this provider cost money at the API? A local runtime charges
+    # no API fee — which is not the same as being free, because the electricity
+    # and the hardware are still real and are accounted for nowhere here. The
+    # spend cap reads this to decide whether an unpriced call may be made at
+    # all; anything that might bill leaves it False and gets refused.
+    free = False
 
     @abstractmethod
     def available(self):
@@ -238,7 +262,7 @@ class ClaudeProvider(Provider):
                 out = json.loads(r.read().decode("utf-8"))
         except urllib.error.HTTPError as e:
             return Result("FAILED", "model", self.name, model,
-                          error="HTTP %s: %s" % (e.code, e.read()[:200].decode("utf-8", "replace")),
+                          error="HTTP %s: %s" % (e.code, _safe_body(e)),
                           latency_ms=int((time.time() - t0) * 1000))
         except (urllib.error.URLError, OSError, ValueError) as e:
             return Result("FAILED", "model", self.name, model, error=repr(e),
@@ -270,18 +294,27 @@ def from_env():
         # be selected is not an option.
         p = LocalProvider()
         return p if p.available() else NotConfigured(p.why_unavailable())
+    if want in ("openai-compat", "openai_compat", "oai"):
+        p = OpenAICompatProvider()
+        return p if p.available() else NotConfigured(p.why_unavailable())
+    if want == "gemini":
+        p = GeminiProvider()
+        return p if p.available() else NotConfigured(p.why_unavailable())
     if want:
-        return NotConfigured("unknown provider %r; expected 'claude', 'local' or 'mock'" % want)
+        return NotConfigured(
+            "unknown provider %r; expected 'claude', 'local', 'openai-compat', "
+            "'gemini' or 'mock'" % want)
     return NotConfigured("CIV_PROVIDER unset and no ANTHROPIC_API_KEY")
 
 
 class LocalProvider(Provider):
-    """Ollama or any OpenAI-ish local server. Keeps the org provider-agnostic.
+    """Ollama’s own /api/generate. For everything else, see OpenAICompatProvider.
 
     UNVERIFIED here: no local server is reachable from the build container.
     """
     name = "local"
     source = "model"
+    free = True          # no API fee. Electricity and hardware are not free.
 
     def __init__(self, model=None, url=None):
         # NO DEFAULT MODEL. A hardcoded name is a guess about someone else's
@@ -332,6 +365,164 @@ class LocalProvider(Provider):
         return Result("OK" if text else "FAILED", "model", self.name, model, text=text,
                       tokens_in=out.get("prompt_eval_count"),
                       tokens_out=out.get("eval_count"), usd=0.0,
+                      latency_ms=int((time.time() - t0) * 1000),
+                      error=None if text else "empty completion")
+
+
+class OpenAICompatProvider(Provider):
+    """Anything speaking the OpenAI chat wire format, at an address you give it.
+
+    That format is what `llama-server` (llama.cpp’s own server), vLLM, LM
+    Studio, LocalAI, text-generation-webui and most local gateways expose, so
+    one provider covers every common no-cost runtime. It is a WIRE FORMAT, not
+    a vendor: nothing here talks to OpenAI unless the Owner points it there,
+    and there is no default that reaches the internet.
+
+    The endpoint is required. There is no fallback address, because guessing
+    where somebody’s model lives and silently succeeding against the wrong one
+    is worse than failing.
+    """
+    name = "openai-compat"
+    source = "model"
+    free = True          # a local endpoint charges no API fee
+
+    def __init__(self, model=None, url=None, key=None):
+        self.model = (model or os.environ.get("LOCAL_MODEL_NAME")
+                      or os.environ.get("CIV_MODEL") or None)
+        base = (url or os.environ.get("OPENAI_COMPAT_URL")
+                or os.environ.get("LOCAL_MODEL_URL") or "")
+        self.url = (base.rstrip("/") + "/v1/chat/completions") if base else None
+        # Local servers usually need no key. One is sent only if given.
+        self.key = key or os.environ.get("OPENAI_COMPAT_KEY") or None
+
+    def available(self):
+        if not self.url or not self.model:
+            return False
+        try:
+            root = self.url.rsplit("/v1/", 1)[0]
+            urllib.request.urlopen(root + "/v1/models", timeout=3)
+            return True
+        except urllib.error.HTTPError:
+            return True          # it answered; it just wants different arguments
+        except (urllib.error.URLError, OSError, ValueError):
+            return False
+
+    def why_unavailable(self):
+        if not self.url:
+            return "set OPENAI_COMPAT_URL to where the server is, e.g. http://127.0.0.1:8080"
+        if not self.model:
+            return "set LOCAL_MODEL_NAME to the model the server is serving"
+        return "nothing answered at %s" % self.url
+
+    def complete(self, system, prompt, model=None, max_tokens=800):
+        model = model or self.model
+        if not self.url or not model:
+            return Result("NOT_CONFIGURED", self.source, self.name, model or "-",
+                          error=self.why_unavailable())
+        t0 = time.time()
+        body = json.dumps({
+            "model": model, "max_tokens": max_tokens, "temperature": 0,
+            "messages": [{"role": "system", "content": system},
+                         {"role": "user", "content": prompt}],
+        }, ensure_ascii=False).encode("utf-8")
+        headers = {"content-type": "application/json"}
+        if self.key:
+            headers["authorization"] = "Bearer " + self.key
+        try:
+            req = urllib.request.Request(self.url, data=body, method="POST",
+                                         headers=headers)
+            with urllib.request.urlopen(req, timeout=300) as r:
+                out = json.loads(r.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            return Result("FAILED", self.source, self.name, model,
+                          error="HTTP %s: %s" % (e.code, _safe_body(e)),
+                          latency_ms=int((time.time() - t0) * 1000))
+        except (urllib.error.URLError, OSError, ValueError) as e:
+            return Result("FAILED", self.source, self.name, model, error=repr(e),
+                          latency_ms=int((time.time() - t0) * 1000))
+        choices = out.get("choices") or []
+        text = ((choices[0].get("message") or {}).get("content") or "").strip() \
+            if choices else ""
+        usage = out.get("usage") or {}
+        return Result("OK" if text else "FAILED", self.source, self.name,
+                      out.get("model") or model, text=text,
+                      tokens_in=usage.get("prompt_tokens"),
+                      tokens_out=usage.get("completion_tokens"),
+                      usd=0.0, rate_known=False,
+                      latency_ms=int((time.time() - t0) * 1000),
+                      error=None if text else "empty completion")
+
+
+class GeminiProvider(Provider):
+    """Google AI Studio. The one no-cost inference endpoint reachable from here.
+
+    Its free tier needs no payment method and no credit — but it needs a key,
+    which the Owner creates. Nothing in this repository can produce one, and
+    nothing here will pretend to.
+
+    **`free` is the Owner’s assertion, not a measurement.** The same endpoint
+    serves paid tiers, and this code cannot tell from the outside which tier a
+    key is on. So it declares itself billable by default, which makes the spend
+    cap refuse it, and only `CIV_ASSUME_FREE=1` says otherwise — a statement by
+    whoever set it, recorded as such.
+    """
+    name = "gemini"
+    source = "model"
+    HOST = "https://generativelanguage.googleapis.com"
+
+    def __init__(self, model=None, key=None, base_url=None):
+        self.model = (model or os.environ.get("CIV_MODEL")
+                      or os.environ.get("GEMINI_MODEL") or "gemini-2.0-flash")
+        self.key = (key or os.environ.get("GEMINI_API_KEY")
+                    or os.environ.get("GOOGLE_API_KEY"))
+        self.base = (base_url or os.environ.get("GEMINI_BASE_URL")
+                     or self.HOST).rstrip("/")
+        self.free = _truthy_env("CIV_ASSUME_FREE")
+
+    def available(self):
+        return bool(self.key)
+
+    def why_unavailable(self):
+        return ("GEMINI_API_KEY is not set. Google AI Studio issues one at no "
+                "cost and with no payment method; this project cannot create it "
+                "for you.")
+
+    def complete(self, system, prompt, model=None, max_tokens=800):
+        model = model or self.model
+        if not self.key:
+            return Result("NOT_CONFIGURED", self.source, self.name, model,
+                          error=self.why_unavailable())
+        t0 = time.time()
+        url = "%s/v1beta/models/%s:generateContent" % (self.base, model)
+        body = json.dumps({
+            "systemInstruction": {"parts": [{"text": system}]},
+            "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+            "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0},
+        }, ensure_ascii=False).encode("utf-8")
+        try:
+            # The key travels in a header, never in the URL: a URL reaches logs,
+            # proxies and error messages that a header does not.
+            req = urllib.request.Request(url, data=body, method="POST", headers={
+                "content-type": "application/json", "x-goog-api-key": self.key})
+            with urllib.request.urlopen(req, timeout=180) as r:
+                out = json.loads(r.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            return Result("FAILED", self.source, self.name, model,
+                          error="HTTP %s: %s" % (e.code, _safe_body(e)),
+                          latency_ms=int((time.time() - t0) * 1000))
+        except (urllib.error.URLError, OSError, ValueError) as e:
+            return Result("FAILED", self.source, self.name, model, error=repr(e),
+                          latency_ms=int((time.time() - t0) * 1000))
+        cands = out.get("candidates") or []
+        parts = ((cands[0].get("content") or {}).get("parts") or []) if cands else []
+        text = "".join(p.get("text", "") for p in parts).strip()
+        usage = out.get("usageMetadata") or {}
+        return Result("OK" if text else "FAILED", self.source, self.name, model,
+                      text=text,
+                      tokens_in=usage.get("promptTokenCount"),
+                      tokens_out=usage.get("candidatesTokenCount"),
+                      # No rate is published here, so cost is UNKNOWN, not zero.
+                      usd=0.0, rate_known=False,
                       latency_ms=int((time.time() - t0) * 1000),
                       error=None if text else "empty completion")
 

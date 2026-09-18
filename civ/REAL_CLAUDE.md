@@ -255,6 +255,25 @@ no-fallback, LAW 2 both ways, the cap, the switch, the wrapper's honesty, the
 credential, and the exact bytes of the request. **Not one of them makes a
 network call, and two of them fail if anything does.**
 
+## 7b. If there is no API budget
+
+The Anthropic path above is paid. Two no-cost paths exist behind the same
+`Provider` interface, and `python3 no_cost_audit.py` says which of them this
+machine can actually use:
+
+```
+CIV_PROVIDER=openai-compat OPENAI_COMPAT_URL=http://127.0.0.1:8080 \
+    LOCAL_MODEL_NAME=<model>          # llama-server, vLLM, LM Studio, LocalAI
+CIV_PROVIDER=gemini                   # Google AI Studio free tier, GEMINI_API_KEY
+```
+
+Neither has ever been run here either: nothing is listening on this machine and
+no free-tier key is set. `no_cost_audit.py` distinguishes *"no key"* from
+*"no such thing"*, because those are different answers and only one of them is
+about the code.
+
+---
+
 ## 8. Running it
 
 ```
