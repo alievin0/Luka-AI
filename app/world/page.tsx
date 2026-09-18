@@ -66,9 +66,9 @@ const STATE_AR: Record<string, string> = {
  * is deliberately muted so that these carry all the meaning.
  */
 const STATE_COLOR: Record<string, number> = {
-  idle: 0x9aa4b2, working: 0x2563eb, processing: 0x2563eb, waiting: 0xd97706,
-  using_tool: 0x7c3aed, escalated: 0xdc2626, error: 0xdc2626,
-  offline: 0xc4c4c4, deploying: 0x059669,
+  idle: 0x7c8aa3, working: 0x3d8bfd, processing: 0x3d8bfd, waiting: 0xf59e0b,
+  using_tool: 0x8b7bff, escalated: 0xff4d4d, error: 0xff4d4d,
+  offline: 0xc3cbd8, deploying: 0x2dd4a0,
 };
 
 const LEGEND: Array<{ state: string; label: string }> = [
@@ -82,28 +82,33 @@ const LEGEND: Array<{ state: string; label: string }> = [
 
 /** The material palette of the model itself: warm, low-saturation, quiet. */
 /**
- * The material palette of the model.
+ * The material palette, taken from the reference the client supplied.
  *
- * A true neutral scale, deliberately: warm sand and oak read as a default
- * rather than as a decision, and they were the loudest thing on a board whose
- * whole rule is that only the agents carry colour. Every surface here is grey,
- * separated by value alone, so the state colours are the only chroma in the
- * frame and nothing competes with them. The one exception is the screen face,
- * which needs to read as a display.
+ * Light and airy rather than the flat grey this replaced: white architecture,
+ * pale plaza, glass, and real greenery. Colour is semantic — the policy gate
+ * is red because it stops things, the paths glow because data is moving — and
+ * nowhere is it decorative.
  */
 const P = {
-  ground: 0xd4d4d4,
-  floor: 0xfafafa,
-  rug: 0xededed,
-  rim: 0xa3a3a3,
-  wall: 0xe5e5e5,
-  oak: 0xa8a8a8,
-  oakDark: 0x787878,
-  charcoal: 0x262626,
-  screen: 0x33415a,
-  plant: 0x93a394,
-  plantDark: 0x7a8a7c,
-  ink: 0x525252,
+  sky: 0xeef2f9,
+  plaza: 0xe9eef7,
+  plazaEdge: 0xd7dfec,
+  slab: 0xffffff,
+  slabSide: 0xdde5f0,
+  wall: 0xfafcff,
+  glass: 0xcfe0f5,
+  board: 0x272c38,
+  metal: 0xb8c4d6,
+  desk: 0xe8edf6,
+  screen: 0x2b3444,
+  trunk: 0x8d7f6e,
+  leaf: 0x63b183,
+  leafDark: 0x4a8f68,
+  planter: 0xf0f3f9,
+  customer: 0x2a3040,
+  orb: 0x141c2e,
+  path: 0x4a9eff,
+  pathAlt: 0x8b7bff,
 };
 
 /**
@@ -431,7 +436,13 @@ function Banner({ tone, children }: { tone: "warn" | "error"; children: React.Re
   );
 }
 
-/* ══ the model ════════════════════════════════════════════════════════ */
+/* ══ the campus ══════════════════════════════════════════════════════
+   Built to the reference the client supplied: a light, airy miniature
+   campus rather than a grey model. Each function of the system is a
+   pavilion; each agent is a glossy dark orb held in a lit halo on a
+   pedestal, which is what reads as a presence without being a person or a
+   machine; and the connections are lit paths with data visibly running
+   along them. Everything shown still comes from what the pipeline wrote. */
 
 type SceneApi = {
   setAgents: (agents: Agent[]) => void;
@@ -441,61 +452,48 @@ type SceneApi = {
   dispose: () => void;
 };
 
-/**
- * Rounded boxes, built at true size and cached by size.
- *
- * Razor-sharp box edges are the clearest tell of untouched 3D: nothing
- * manufactured has them. A small constant fillet — the same physical radius on
- * every object, not a radius proportional to its size — is what reads as a
- * moulded model rather than a stack of primitives.
- *
- * It has to be built at final size. Scaling one shared rounded box, the way the
- * previous `block()` scaled a unit cube, stretches the corner radius with it:
- * a 26 x 0.9 plinth would come out with a 1.3-unit fillet along one axis and a
- * 0.05 one along another. So the size goes into the geometry and the mesh scale
- * stays at 1. The rooms are identical, so the cache collapses this to about
- * twenty geometries for the whole model.
- */
-const CORNER = 0.045;
-const boxCache = new Map<string, THREE.BufferGeometry>();
+/** Zones whose meaning is a warning carry it in the architecture. */
+const ZONE_ACCENT: Record<string, number> = {
+  escalation: 0xff4d4d,
+  business: 0xf59e0b,
+};
 
-function roundedBox(w: number, h: number, d: number): THREE.BufferGeometry {
-  const r = Math.min(CORNER, w / 2, h / 2, d / 2);
+const CORNER = 0.05;
+const boxCache = new Map<string, THREE.BufferGeometry>();
+const cachedGeometries = new Set<THREE.BufferGeometry>();
+let maxAnisotropy = 1;
+
+function roundedBox(w: number, h: number, d: number, r = CORNER): THREE.BufferGeometry {
+  const rad = Math.min(r, w / 2, h / 2, d / 2);
   const q = (n: number) => Math.round(n * 100) / 100;
-  const key = `${q(w)}|${q(h)}|${q(d)}|${q(r)}`;
+  const key = `${q(w)}|${q(h)}|${q(d)}|${q(rad)}`;
   let g = boxCache.get(key);
   if (!g) {
     // segments must be >= 1: at 0 the constructor returns before the requested
-    // width/height/depth are ever applied, and hands back a unit cube.
-    g = new RoundedBoxGeometry(w, h, d, 1, r);
+    // dimensions are applied and hands back a unit cube.
+    g = new RoundedBoxGeometry(w, h, d, 1, rad);
     boxCache.set(key, g);
     cachedGeometries.add(g);
   }
   return g;
 }
 
-/** Set from the renderer's capabilities; text is the reason it matters. */
-let maxAnisotropy = 1;
-
-/** Identity set for dispose(): these geometries outlive any one scene. */
-const cachedGeometries = new Set<THREE.BufferGeometry>();
-
 function surface(
   color: number,
   opts: Partial<THREE.MeshStandardMaterialParameters> = {},
 ): THREE.MeshStandardMaterial {
   return new THREE.MeshStandardMaterial({
-    color, roughness: 0.85, metalness: 0, envMapIntensity: 0.6, ...opts,
+    color, roughness: 0.82, metalness: 0, envMapIntensity: 0.7, ...opts,
   });
 }
 
-/** A box placed by centre and size, so furniture reads as dimensions. */
+/** Built at true size so the fillet is never sheared by a mesh scale. */
 function block(
   parent: THREE.Object3D, material: THREE.Material,
   x: number, y: number, z: number, w: number, h: number, d: number,
-  shadow = true,
+  shadow = true, radius = CORNER,
 ): THREE.Mesh {
-  const mesh = new THREE.Mesh(roundedBox(w, h, d), material);
+  const mesh = new THREE.Mesh(roundedBox(w, h, d, radius), material);
   mesh.position.set(x, y, z);
   mesh.castShadow = shadow;
   mesh.receiveShadow = true;
@@ -503,287 +501,194 @@ function block(
   return mesh;
 }
 
-/**
- * A soft radial gradient for the pool of shade under an object.
- *
- * The eye reads "resting on the floor" almost entirely from this. A flat disc
- * at uniform opacity, which is what was here before, reads as a sticker.
- */
-let _contactMap: THREE.CanvasTexture | null = null;
-
-function contactTexture(): THREE.CanvasTexture {
-  if (_contactMap) return _contactMap;
-  const c = document.createElement("canvas");
-  c.width = c.height = 128;
-  const g = c.getContext("2d");
-  if (g) {
-    const grd = g.createRadialGradient(64, 64, 0, 64, 64, 64);
-    grd.addColorStop(0, "rgba(0,0,0,1)");
-    grd.addColorStop(0.45, "rgba(0,0,0,0.55)");
-    grd.addColorStop(1, "rgba(0,0,0,0)");
-    g.fillStyle = grd;
-    g.fillRect(0, 0, 128, 128);
-  }
-  // Used as an alpha map, so it stays linear — no colour space on this one.
-  _contactMap = new THREE.CanvasTexture(c);
-  return _contactMap;
-}
-
 function buildScene(mount: HTMLElement, onPick: (code: string) => void): SceneApi {
   const renderer = new THREE.WebGLRenderer({ antialias: true });
-  renderer.setClearColor(0xfafafa, 1);
+  renderer.setClearColor(P.sky, 1);
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-  // Neutral, not ACES. ACES brightens by 67% before its filmic curve even
-  // starts, then adds contrast and pushes warm tones orange — it would eat a
-  // palette chosen to be pale. Neutral is mathematically identity below a peak
-  // of 0.76 and only rolls off the highlights, which stops a surface facing the
-  // key light square-on from clipping to flat white.
+  // Neutral, not ACES: on a deliberately pale scene ACES brightens by 67%
+  // before its curve begins and pushes every highlight orange.
   renderer.toneMapping = THREE.NeutralToneMapping;
   renderer.toneMappingExposure = 1.0;
   mount.appendChild(renderer.domElement);
   renderer.domElement.style.display = "block";
   renderer.domElement.style.width = "100%";
   renderer.domElement.style.height = "100%";
-
   maxAnisotropy = renderer.capabilities.getMaxAnisotropy();
 
   const scene = new THREE.Scene();
-  // An infinity-cove gradient behind the model. A flat fill reads as a
-  // screenshot; a graded backdrop reads as a photograph of an object.
   scene.background = coveTexture();
 
-  /**
-   * Orthographic, not perspective. Parallel projection is what makes this read
-   * as a model on a table rather than a game camera, and it keeps every room
-   * the same size wherever it sits on the floor.
-   */
-  /** Screen-space extent the model needs, measured from the plinth. */
-  const NEED_W = 27.6;
-  const NEED_H = 20;
-  const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 400);
-
-  /**
-   * Ambient light from an environment rather than a constant.
-   *
-   * A plain AmbientLight adds the same value to every surface whatever way it
-   * faces, which is the single biggest flattener available: it removes exactly
-   * the shading that gives a box its form. An irradiance environment lights
-   * up-facing surfaces more than down-facing ones for free, and it puts a thin
-   * highlight on the rounded edges — the two changes compound, and together
-   * they are most of the difference between "built" and "assembled".
-   */
+  /* ── light: a large soft key, a cool fill, an environment for the gloss ── */
   const pmrem = new THREE.PMREMGenerator(renderer);
-  const room = new RoomEnvironment();
-  // A little pre-blur: unblurred, the room's light panels read as legible
-  // reflections, which is not what a matte model wants.
-  const envRT = pmrem.fromScene(room, 0.04);
+  const envRT = pmrem.fromScene(new RoomEnvironment(), 0.04);
   scene.environment = envRT.texture;
-  scene.environmentIntensity = 0.62;
-  room.dispose();
+  scene.environmentIntensity = 0.85;
   pmrem.dispose();
 
-  /* One warm key light at a fixed angle, so every shadow in the model falls
-     the same way — the thing that most makes a set of boxes look built. */
-  const key = new THREE.DirectionalLight(0xfffdf8, 2.05);
-  /** Held relative to whatever the camera is framing, so the light direction —
-      and every shadow with it — stays put as the view moves. */
-  const KEY_OFFSET = new THREE.Vector3(-26, 38, 20);
+  const key = new THREE.DirectionalLight(0xffffff, 1.9);
+  const KEY_OFFSET = new THREE.Vector3(-22, 34, 18);
   key.position.copy(KEY_OFFSET);
   key.castShadow = true;
   key.shadow.mapSize.set(2048, 2048);
-  // Tight bounds around what is actually framed. At the old ±34 a shadow texel
-  // covered more ground than a monitor bezel is thick, which is why fine
-  // contact detail came out mushy.
-  key.shadow.camera.left = -14; key.shadow.camera.right = 14;
-  key.shadow.camera.top = 14; key.shadow.camera.bottom = -14;
-  key.shadow.camera.near = 20; key.shadow.camera.far = 90;
+  key.shadow.camera.left = -16; key.shadow.camera.right = 16;
+  key.shadow.camera.top = 16; key.shadow.camera.bottom = -16;
+  key.shadow.camera.near = 18; key.shadow.camera.far = 84;
   key.shadow.camera.updateProjectionMatrix();
-  // normalBias offsets along the surface normal in world units, so it scales
-  // with the scene and does not detach a shadow from the object casting it;
-  // a flat depth bias always trades acne for that detachment.
   key.shadow.bias = -0.0004;
   key.shadow.normalBias = 0.014;
-  // Shadows that describe form without becoming holes. Faking this by raising
-  // ambient would flatten everything else to get it.
-  key.shadow.intensity = 0.7;
+  // Shadows that describe form without becoming holes.
+  key.shadow.intensity = 0.52;
   scene.add(key);
   scene.add(key.target);
-  // A cool cast in the shade against the warm bounce off the sand. Kept low:
-  // the environment is doing the fill now, and no AmbientLight at all.
-  scene.add(new THREE.HemisphereLight(0xe8f0ff, 0xc8c8c8, 0.24));
-  const fill = new THREE.DirectionalLight(0xd4e4ff, 0.42);
-  fill.position.set(22, 12, -18);
+  scene.add(new THREE.HemisphereLight(0xeaf2ff, 0xd5dee9, 0.55));
+  const fill = new THREE.DirectionalLight(0xd9e8ff, 0.45);
+  fill.position.set(20, 12, -16);
   scene.add(fill);
-  // A low bounce from the front, standing in for light coming back off the
-  // plinth. It keeps the near faces of the walls from going flat.
-  const bounce = new THREE.DirectionalLight(0xf2f6ff, 0.2);
-  bounce.position.set(4, 3, 26);
-  scene.add(bounce);
 
-  // Scoped to this scene: a module-level list would outlive dispose() and the
-  // frame loop would go on turning signs belonging to a torn-down world.
-  const signs: THREE.Group[] = [];
-
-  // Roughness is art direction here, not realism: the screen is the one glossy
-  // thing in the room so it reads as glass, the rug is fully matte so it reads
-  // as fabric, and everything else sits between them.
-  const contactMap = contactTexture();
   const mats = {
-    ground: surface(P.ground, { roughness: 0.95 }),
-    floor: surface(P.floor, { roughness: 0.9 }),
-    rug: surface(P.rug, { roughness: 1 }),
-    rim: surface(P.rim, { roughness: 0.92 }),
-    wall: surface(P.wall, { roughness: 0.88 }),
-    oak: surface(P.oak, { roughness: 0.72 }),
-    oakDark: surface(P.oakDark, { roughness: 0.78 }),
-    charcoal: surface(P.charcoal, { roughness: 0.6 }),
-    screen: surface(P.screen, { roughness: 0.28, envMapIntensity: 1.1 }),
-    plant: surface(P.plant, { roughness: 0.8 }),
-    plantDark: surface(P.plantDark, { roughness: 0.82 }),
-    shadow: new THREE.MeshBasicMaterial({
-      color: 0x404040, alphaMap: contactMap, transparent: true,
-      opacity: 0.3, depthWrite: false,
+    plaza: surface(P.plaza, { roughness: 0.9 }),
+    plazaEdge: surface(P.plazaEdge, { roughness: 0.9 }),
+    slab: surface(P.slab, { roughness: 0.78 }),
+    slabSide: surface(P.slabSide, { roughness: 0.85 }),
+    wall: surface(P.wall, { roughness: 0.8 }),
+    glass: new THREE.MeshStandardMaterial({
+      color: P.glass, roughness: 0.08, metalness: 0.1,
+      transparent: true, opacity: 0.4, envMapIntensity: 1.6,
     }),
+    board: surface(P.board, { roughness: 0.5 }),
+    metal: surface(P.metal, { roughness: 0.3, metalness: 0.7 }),
+    desk: surface(P.desk, { roughness: 0.7 }),
+    screen: surface(P.screen, { roughness: 0.22, envMapIntensity: 1.2 }),
+    trunk: surface(P.trunk, { roughness: 0.9 }),
+    leaf: surface(P.leaf, { roughness: 0.75 }),
+    leafDark: surface(P.leafDark, { roughness: 0.78 }),
+    planter: surface(P.planter, { roughness: 0.85 }),
+    customer: surface(P.customer, { roughness: 0.6 }),
   };
 
-  /* ── the plinth the whole model sits on ────────────────────────────── */
-  const base = new THREE.Mesh(roundedBox(18.5, 0.64, 20.5), mats.ground);
-  base.position.set(0, -0.32, 3.25);
-  base.receiveShadow = true;
-  scene.add(base);
+  const signs: THREE.Group[] = [];
+  const picks: THREE.Object3D[] = [];
+  const contactMap = contactTexture();
 
-  const baseRim = new THREE.Mesh(roundedBox(19.3, 0.26, 21.3), mats.rim);
-  baseRim.position.set(0, -0.7, 3.25);
-  baseRim.receiveShadow = true;
-  scene.add(baseRim);
+  /* ── the plaza ─────────────────────────────────────────────────────── */
+  const plaza = new THREE.Mesh(roundedBox(26, 0.5, 28, 0.3), mats.plaza);
+  plaza.position.set(0, -0.25, 3);
+  plaza.receiveShadow = true;
+  scene.add(plaza);
 
-  // A wide, very soft pool under the whole plinth. Without it the model floats
-  // in a void; with it, it is an object resting on a surface.
+  const plazaEdge = new THREE.Mesh(roundedBox(27, 0.28, 29, 0.3), mats.plazaEdge);
+  plazaEdge.position.set(0, -0.62, 3);
+  plazaEdge.receiveShadow = true;
+  scene.add(plazaEdge);
+
   const groundShade = new THREE.Mesh(
-    new THREE.PlaneGeometry(32, 34),
+    new THREE.PlaneGeometry(52, 54),
     new THREE.MeshBasicMaterial({
-      color: 0x404040, alphaMap: contactMap, transparent: true,
-      opacity: 0.22, depthWrite: false,
+      color: 0x9aa8bd, alphaMap: contactMap, transparent: true,
+      opacity: 0.3, depthWrite: false,
     }),
   );
   groundShade.rotation.x = -Math.PI / 2;
-  groundShade.position.set(0, -0.86, 3.25);
+  groundShade.position.set(0, -0.78, 3);
   scene.add(groundShade);
 
-  /* ── rooms ─────────────────────────────────────────────────────────── */
-  /**
-   * One room per zone, at a scale that agrees with itself.
-   *
-   * The first pass had no consistent ruler: taking the figure as 1.8m, the
-   * room worked out at 39 square metres for one person, the desk at 2.5m long
-   * and the monitor at 1.4m wide. Everything here is now derived from the
-   * figure, so the model reads as a place at a believable size.
-   */
-  const ROOM = 4.4;
-  const half = ROOM / 2;
-  const FLOOR_TOP = 0.18;
-  const leafGeo = new THREE.IcosahedronGeometry(0.19, 1);
-  const leafGeoSmall = new THREE.IcosahedronGeometry(0.14, 1);
+  /* ── pavilions ─────────────────────────────────────────────────────── */
+  const PAV = 5.6;
+  const half = PAV / 2;
+  const TOP = 0.28;
+  const leafGeo = new THREE.IcosahedronGeometry(0.42, 1);
+  const leafGeoS = new THREE.IcosahedronGeometry(0.3, 1);
+
+  function tree(parent: THREE.Object3D, x: number, z: number, scale = 1) {
+    const g = new THREE.Group();
+    g.position.set(x, 0, z);
+    g.scale.setScalar(scale);
+    const pot = new THREE.Mesh(roundedBox(0.52, 0.34, 0.52, 0.06), mats.planter);
+    pot.position.y = TOP + 0.17;
+    pot.castShadow = true;
+    g.add(pot);
+    const trunk = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.05, 0.06, 0.5, 8), mats.trunk,
+    );
+    trunk.position.y = TOP + 0.58;
+    g.add(trunk);
+    for (const [ox, oy, oz, geo, m] of [
+      [0, 1.02, 0, leafGeo, mats.leaf],
+      [-0.2, 1.28, 0.12, leafGeoS, mats.leafDark],
+      [0.18, 1.32, -0.1, leafGeoS, mats.leaf],
+    ] as Array<[number, number, number, THREE.BufferGeometry, THREE.Material]>) {
+      const l = new THREE.Mesh(geo, m);
+      l.position.set(ox, TOP + oy, oz);
+      l.castShadow = true;
+      g.add(l);
+    }
+    parent.add(g);
+  }
 
   Object.entries(ZONE_POS).forEach(([zone, [x, z]], index) => {
-    const room = new THREE.Group();
-    room.position.set(x, 0, z);
-    scene.add(room);
+    const pav = new THREE.Group();
+    pav.position.set(x, 0, z);
+    scene.add(pav);
 
-    block(room, mats.floor, 0, 0.09, 0, ROOM, FLOOR_TOP, ROOM, false);
+    // A raised white slab with a visible side, so it reads as a platform a
+    // building sits on rather than as paint on the plaza.
+    block(pav, mats.slabSide, 0, 0.12, 0, PAV, 0.24, PAV, false, 0.1);
+    block(pav, mats.slab, 0, 0.26, 0, PAV - 0.3, 0.06, PAV - 0.3, false, 0.08);
 
-    // Walls a person could not step over. At the old 0.52 they read as a kerb
-    // around a platform rather than as a room.
-    const t = 0.13, wallH = 0.95, wallY = FLOOR_TOP + wallH / 2;
-    const gap = z > 3 ? "front" : z < -1 ? "back" : x < 0 ? "right" : "left";
-    if (gap !== "back") block(room, mats.wall, 0, wallY, -half, ROOM, wallH, t);
-    if (gap !== "front") block(room, mats.wall, 0, wallY, half, ROOM, wallH, t);
-    if (gap !== "left") block(room, mats.wall, -half, wallY, 0, t, wallH, ROOM);
-    if (gap !== "right") block(room, mats.wall, half, wallY, 0, t, wallH, ROOM);
-
-    /* desk, monitor, chair — the agent stands at all of it */
-    const dz = -1.15;
-    block(room, mats.rug, 0, FLOOR_TOP + 0.005, dz + 0.4, 2.3, 0.01, 1.9, false);
-
-    const deskTop = 0.74;
-    block(room, mats.oak, 0, deskTop, dz, 1.55, 0.07, 0.72);
-    block(room, mats.oakDark, -0.7, (FLOOR_TOP + deskTop) / 2, dz, 0.07, deskTop - FLOOR_TOP, 0.64);
-    block(room, mats.oakDark, 0.7, (FLOOR_TOP + deskTop) / 2, dz, 0.07, deskTop - FLOOR_TOP, 0.64);
-
-    const surfaceY = deskTop + 0.035;
-    block(room, mats.charcoal, 0, surfaceY + 0.01, dz - 0.05, 0.22, 0.02, 0.14);
-    block(room, mats.charcoal, 0, surfaceY + 0.1, dz - 0.05, 0.05, 0.16, 0.05);
-    const panel = block(room, mats.charcoal, 0, surfaceY + 0.36, dz - 0.05, 0.62, 0.36, 0.028);
-    panel.rotation.x = -0.1;
-    // A faint lit face. Eight softly glowing screens is most of what says
-    // these offices are occupied; the emissive is kept well below the
-    // saturation of any state colour so the palette rule holds.
-    const face = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.575, 0.325),
-      new THREE.MeshStandardMaterial({
-        color: P.screen, roughness: 0.28,
-        emissive: 0x24405c, emissiveIntensity: 0.4,
-      }),
+    // An L of low walls with a glass panel, which is what gives each pavilion
+    // an interior without closing it off from an overhead view.
+    const t = 0.14, wallH = 0.72, wallY = TOP + wallH / 2;
+    block(pav, mats.wall, 0, wallY, -half + 0.08, PAV, wallH, t);
+    block(pav, mats.wall, -half + 0.08, wallY, 0, t, wallH, PAV);
+    const glass = new THREE.Mesh(
+      roundedBox(PAV - 1.4, 0.62, 0.05, 0.02), mats.glass,
     );
-    face.position.set(0, surfaceY + 0.36, dz - 0.05 + 0.016);
-    face.rotation.x = -0.1;
-    room.add(face);
+    glass.position.set(0.3, TOP + 1.12, -half + 0.08);
+    pav.add(glass);
 
-    // A chair with a column and a splayed base, because two boxes rendered as
-    // an unidentifiable dark wedge.
-    const cz = dz + 0.8;
-    block(room, mats.charcoal, 0, 0.46, cz, 0.46, 0.07, 0.44);
-    const back = block(room, mats.charcoal, 0, 0.72, cz + 0.2, 0.44, 0.44, 0.06);
-    back.rotation.x = 0.12;
-    const column = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.035, 0.035, 0.26, 10), mats.charcoal,
-    );
-    column.position.set(0, 0.31, cz);
-    column.castShadow = true;
-    room.add(column);
-    const chairBase = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.24, 0.26, 0.035, 5), mats.charcoal,
-    );
-    chairBase.position.set(0, FLOOR_TOP + 0.02, cz);
-    chairBase.castShadow = true;
-    room.add(chairBase);
-
-    // Eight identical offices read as a tiling error, so the greenery moves
-    // corner by room and every other one gets a cabinet.
-    const corners: Array<[number, number]> = [
-      [half - 0.7, -half + 0.7], [half - 0.7, half - 0.7],
-      [-half + 0.7, -half + 0.7], [half - 0.7, half - 1.3],
-    ];
-    const [px, pz] = corners[index % corners.length];
-    const pot = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.15, 0.12, 0.2, 12), mats.oakDark,
-    );
-    pot.position.set(px, FLOOR_TOP + 0.1, pz);
-    pot.castShadow = true;
-    room.add(pot);
-    for (const [ox, oy, oz, geo] of [
-      [0, 0.3, 0, leafGeo], [-0.13, 0.42, 0.08, leafGeoSmall], [0.12, 0.45, -0.06, leafGeoSmall],
-    ] as Array<[number, number, number, THREE.BufferGeometry]>) {
-      const leaf = new THREE.Mesh(geo, oy > 0.4 ? mats.plantDark : mats.plant);
-      leaf.position.set(px + ox, FLOOR_TOP + oy, pz + oz);
-      leaf.castShadow = true;
-      room.add(leaf);
-    }
-
-    if (index % 2 === 0) {
-      block(room, mats.oakDark, -half + 0.55, FLOOR_TOP + 0.3, -half + 0.85, 0.85, 0.6, 0.42);
-    }
-
-    // The sign stands clear of the plant. Previously the two shared a corner
-    // in two of the eight rooms and the greenery grew straight through it.
-    const sign = signPost(ZONE_AR[zone] ?? zone);
-    sign.position.set(-half + 0.65, 0, half - 0.5);
-    room.add(sign);
+    // The sign is the pavilion's face: a large dark board on two posts,
+    // standing clear of the walls so it is legible from any angle.
+    const sign = signBoard(ZONE_AR[zone] ?? zone, ZONE_ACCENT[zone]);
+    sign.position.set(-half + 1.0, 0, half - 0.45);
+    pav.add(sign);
     signs.push(sign);
+
+    // desk and screen
+    const dz = -1.8;
+    block(pav, mats.desk, -0.9, TOP + 0.5, dz, 1.9, 0.08, 0.8);
+    block(pav, mats.metal, -1.7, TOP + 0.25, dz, 0.06, 0.44, 0.7);
+    block(pav, mats.metal, -0.1, TOP + 0.25, dz, 0.06, 0.44, 0.7);
+    const panel = block(pav, mats.screen, -0.9, TOP + 0.86, dz - 0.05, 0.9, 0.52, 0.04);
+    panel.rotation.x = -0.08;
+
+    tree(pav, half - 0.85, -half + 0.85, 0.95);
+    if (index % 2 === 0) tree(pav, -half + 0.9, half - 1.1, 0.8);
+
+    // A zone whose meaning is a warning says so in the floor, not in a label.
+    const accent = ZONE_ACCENT[zone];
+    if (accent) {
+      const strip = new THREE.Mesh(
+        new THREE.PlaneGeometry(PAV - 0.6, 0.1),
+        new THREE.MeshBasicMaterial({ color: accent, toneMapped: false }),
+      );
+      strip.rotation.x = -Math.PI / 2;
+      strip.position.set(0, TOP + 0.031, half - 0.9);
+      pav.add(strip);
+      const wash = new THREE.Mesh(
+        new THREE.PlaneGeometry(PAV * 1.5, PAV * 1.5),
+        new THREE.MeshBasicMaterial({
+          color: accent, alphaMap: contactMap, transparent: true,
+          opacity: 0.16, depthWrite: false, toneMapped: false,
+        }),
+      );
+      wash.rotation.x = -Math.PI / 2;
+      wash.position.y = 0.26;
+      pav.add(wash);
+    }
   });
 
-  /* ── the doorway and its approach ──────────────────────────────────── */
+  /* ── the approach: where customers arrive ──────────────────────────── */
   const nodePos = new Map<string, THREE.Vector3>();
   for (const [id, meta] of Object.entries(EXTRA_NODES)) {
     const [x, z] = meta.pos;
@@ -791,63 +696,188 @@ function buildScene(mount: HTMLElement, onPick: (code: string) => void): SceneAp
     pad.position.set(x, 0, z);
     scene.add(pad);
 
-    block(pad, mats.floor, 0, 0.09, 0, 2.0, 0.18, 2.0, false);
-    block(pad, mats.wall, 0, 0.26, 0, 1.3, 0.16, 1.3, false);
-    // A low rounded post, not a hex gem: the gem was a shape language that
-    // appeared nowhere else in the model.
-    const marker = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.28, 0.32, 0.72, 20),
-      surface(meta.color, { roughness: 0.7 }),
-    );
-    marker.position.y = 0.7;
-    marker.castShadow = true;
-    pad.add(marker);
+    block(pad, mats.slabSide, 0, 0.12, 0, 2.6, 0.24, 2.6, false, 0.1);
+    block(pad, mats.slab, 0, 0.26, 0, 2.3, 0.06, 2.3, false, 0.08);
 
-    const sign = signPost(meta.label);
-    sign.position.set(-0.75, 0, 0.7);
-    sign.scale.setScalar(0.85);
+    const post = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.26, 0.3, 0.62, 24), mats.metal,
+    );
+    post.position.y = TOP + 0.31;
+    post.castShadow = true;
+    pad.add(post);
+
+    const sign = signBoard(meta.label);
+    sign.position.set(0, 0, 1.0);
+    sign.scale.setScalar(0.8);
     pad.add(sign);
     signs.push(sign);
 
-    nodePos.set(id, new THREE.Vector3(x, 1.0, z));
+    nodePos.set(id, new THREE.Vector3(x, TOP + 0.9, z));
+  }
+
+  // Small dark figures around the entrance. These are the customers — the
+  // only human shapes in the scene, and deliberately not the agents.
+  for (const [cx, cz, rot] of [
+    [-1.5, 13.4, 0.4], [-0.6, 14.1, -0.2], [1.4, 13.7, 2.4], [2.2, 14.6, 1.1],
+  ] as Array<[number, number, number]>) {
+    const g = new THREE.Group();
+    g.position.set(cx, 0, cz);
+    g.rotation.y = rot;
+    const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.17, 0.34, 4, 12), mats.customer);
+    body.position.y = 0.44;
+    body.castShadow = true;
+    g.add(body);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.16, 16, 12), mats.customer);
+    head.position.y = 0.84;
+    head.castShadow = true;
+    g.add(head);
+    scene.add(g);
+  }
+
+  for (const [tx, tz] of [
+    [-13, 12], [13, 12], [-13.5, -1], [13.5, -1], [-12, -8], [12, -8], [0, -10.5],
+  ] as Array<[number, number]>) {
+    tree(scene, tx, tz, 1.15);
   }
 
   /* ── agents ────────────────────────────────────────────────────────── */
-  type Figure = {
+  type Orb = {
     group: THREE.Group;
-    skin: THREE.MeshStandardMaterial;
+    core: THREE.Mesh;
+    dome: THREE.Mesh;
+    domeMat: THREE.MeshStandardMaterial;
     ring: THREE.Mesh;
-    base: THREE.Mesh;
+    halo: THREE.Mesh;
+    face: Face;
     label: Label;
     agent: Agent;
     phase: number;
-    facing: number;
   };
-  const figures = new Map<string, Figure>();
-  const picks: THREE.Object3D[] = [];
-  const pulses: Array<{
-    mesh: THREE.Mesh; shade: THREE.Mesh; trail: THREE.Mesh[];
-    curve: THREE.QuadraticBezierCurve3; t: number;
-  }> = [];
-  const flashes: Array<{ mesh: THREE.Mesh; t: number }> = [];
+  const orbs = new Map<string, Orb>();
+
+  const PEDESTAL = new THREE.CylinderGeometry(0.52, 0.64, 0.3, 36);
+  const PED_RIM = new THREE.TorusGeometry(0.55, 0.035, 10, 48);
+  const CORE_GEO = new THREE.SphereGeometry(0.52, 44, 32);
+  // A crescent hood rather than a full shell, so the face is never covered.
+  // phi is measured from -X in three.js, so +Z (the face) sits at 0.5π. The
+  // shell therefore starts a little past the face and wraps the whole way
+  // round, leaving a window centred on the front.
+  const SHELL_GEO = new THREE.SphereGeometry(
+    0.63, 44, 32, Math.PI * 0.92, Math.PI * 1.16, 0, Math.PI,
+  );
+  const RING_GEO = new THREE.TorusGeometry(0.88, 0.026, 10, 72);
+
+  function makeOrb(agent: Agent): Orb {
+    const group = new THREE.Group();
+
+    const ped = new THREE.Mesh(PEDESTAL, mats.metal);
+    ped.position.y = TOP + 0.15;
+    ped.castShadow = true;
+    ped.receiveShadow = true;
+    ped.userData.code = agent.code;
+    group.add(ped);
+    picks.push(ped);
+
+    const rim = new THREE.Mesh(
+      PED_RIM,
+      new THREE.MeshBasicMaterial({ color: 0x7c8aa3, toneMapped: false }),
+    );
+    rim.rotation.x = -Math.PI / 2;
+    rim.position.y = TOP + 0.31;
+    group.add(rim);
+
+    // The dark glossy core. It is the only deep value in a pale scene, so the
+    // eye finds every agent immediately.
+    const core = new THREE.Mesh(
+      CORE_GEO,
+      new THREE.MeshStandardMaterial({
+        color: P.orb, roughness: 0.05, metalness: 0.3, envMapIntensity: 2.4,
+      }),
+    );
+    core.position.y = TOP + 1.05;
+    core.castShadow = true;
+    core.userData.code = agent.code;
+    group.add(core);
+    picks.push(core);
+
+    const shell = new THREE.Mesh(
+      SHELL_GEO,
+      new THREE.MeshStandardMaterial({
+        color: 0xf6f8fc, roughness: 0.12, metalness: 0.12,
+        envMapIntensity: 1.8, side: THREE.DoubleSide,
+      }),
+    );
+    shell.position.y = TOP + 1.05;
+    shell.castShadow = true;
+    group.add(shell);
+
+    // The expression. This is what makes a pod read as an agent rather than
+    // as an object, and it is the one part that changes with what it is doing.
+    const face = makeFace();
+    face.mesh.position.set(0, TOP + 1.06, 0.55);
+    group.add(face.mesh);
+
+    const ring = new THREE.Mesh(
+      RING_GEO,
+      new THREE.MeshBasicMaterial({
+        color: 0x7c8aa3, transparent: true, opacity: 0.85, toneMapped: false,
+      }),
+    );
+    ring.rotation.x = -Math.PI / 2 + 0.22;
+    ring.position.y = TOP + 1.02;
+    group.add(ring);
+
+    const domeMat = new THREE.MeshStandardMaterial({
+      color: 0x7c8aa3, roughness: 0.1, metalness: 0,
+      transparent: true, opacity: 0.12, envMapIntensity: 1.4,
+      side: THREE.BackSide, depthWrite: false,
+    });
+    const dome = new THREE.Mesh(new THREE.SphereGeometry(0.92, 32, 24), domeMat);
+    dome.position.y = TOP + 1.05;
+    group.add(dome);
+
+    const halo = new THREE.Mesh(
+      new THREE.TorusGeometry(1.12, 0.012, 8, 72),
+      new THREE.MeshBasicMaterial({
+        color: 0x7c8aa3, transparent: true, opacity: 0.5, toneMapped: false,
+      }),
+    );
+    halo.rotation.x = -Math.PI / 2;
+    halo.position.y = TOP + 0.33;
+    group.add(halo);
+
+    const contact = new THREE.Mesh(
+      new THREE.PlaneGeometry(2.2, 2.2),
+      new THREE.MeshBasicMaterial({
+        color: 0x8fa0bb, alphaMap: contactMap, transparent: true,
+        opacity: 0.42, depthWrite: false,
+      }),
+    );
+    contact.rotation.x = -Math.PI / 2;
+    contact.position.y = TOP + 0.032;
+    group.add(contact);
+
+    const label = makeLabel(agent);
+    group.add(label.sprite);
+
+    scene.add(group);
+    return {
+      group, core, dome, domeMat, ring, halo, face, label, agent,
+      phase: Math.random() * Math.PI * 2,
+    };
+  }
 
   function setAgents(agents: Agent[]) {
-    // Retire anyone no longer on the roster, or switching business would leave
-    // the previous company's figures standing in the rooms — and leave dead
-    // raycast targets still answering clicks with a stale code.
     const live = new Set(agents.map((a) => a.code));
-    for (const [code, fig] of Array.from(figures.entries())) {
+    for (const [code, o] of Array.from(orbs.entries())) {
       if (live.has(code)) continue;
-      scene.remove(fig.group);
-      fig.group.traverse((o) => {
-        const m = o as THREE.Mesh;
+      scene.remove(o.group);
+      o.group.traverse((n) => {
+        const m = n as THREE.Mesh;
         const i = picks.indexOf(m);
         if (i >= 0) picks.splice(i, 1);
-        if (m.geometry && !cachedGeometries.has(m.geometry)) m.geometry.dispose();
-        const mat = m.material as THREE.Material | undefined;
-        mat?.dispose();
       });
-      figures.delete(code);
+      orbs.delete(code);
       nodePos.delete(code);
     }
 
@@ -861,60 +891,52 @@ function buildScene(mount: HTMLElement, onPick: (code: string) => void): SceneAp
     for (const [zone, list] of Array.from(byZone.entries())) {
       const [zx, zz] = ZONE_POS[zone] ?? [0, 0];
       list.forEach((agent, i) => {
-        // At the workstation, just behind the chair. Placing them at the desk
-        // itself put each figure standing inside its own chair.
-        const spread = 0.95;
-        const offset = (i - (list.length - 1) / 2) * spread;
+        const offset = (i - (list.length - 1) / 2) * 1.5;
         const x = zx + offset;
-        const z = zz + 0.42;
+        const z = zz + 1.0;
 
-        let fig = figures.get(agent.code);
-        if (!fig) {
-          fig = makeFigure(agent, picks);
-          scene.add(fig.group);
-          figures.set(agent.code, fig);
+        let o = orbs.get(agent.code);
+        if (!o) {
+          o = makeOrb(agent);
+          orbs.set(agent.code, o);
         }
-        const changed =
-          fig.agent.state !== agent.state || fig.agent.lifecycle !== agent.lifecycle;
-        fig.agent = agent;
-        fig.group.position.set(x, 0, z);
-        nodePos.set(agent.code, new THREE.Vector3(x, 1.2, z));
-        if (changed) fig.label.draw(agent);
-        applyState(fig);
+        o.group.position.set(x, 0, z);
+        nodePos.set(agent.code, new THREE.Vector3(x, TOP + 0.92, z));
+        const planned = agent.lifecycle === "planned";
+        if (o.agent.state !== agent.state || o.agent.lifecycle !== agent.lifecycle) {
+          o.label.draw(agent);
+          o.face.draw(agent.state, planned);
+        }
+        o.agent = agent;
+
+        const color = STATE_COLOR[agent.state] ?? 0x7c8aa3;
+        o.domeMat.color.setHex(color);
+        o.domeMat.opacity = planned ? 0.05 : 0.12;
+        (o.ring.material as THREE.MeshBasicMaterial).color.setHex(color);
+        (o.ring.material as THREE.MeshBasicMaterial).opacity = planned ? 0.3 : 0.85;
+        (o.halo.material as THREE.MeshBasicMaterial).color.setHex(color);
+        // A planned agent never glows like a working one, at any frame.
+        (o.core.material as THREE.MeshStandardMaterial).color.setHex(
+          planned ? 0x9fabbf : P.orb,
+        );
       });
     }
   }
 
-  function applyState(fig: Figure) {
-    const planned = fig.agent.lifecycle === "planned";
-    const color = STATE_COLOR[fig.agent.state] ?? 0x9bb0c9;
-    // Solid, not translucent: a see-through figure sorted badly against its
-    // own floor ring. Pale and desaturated says "not built" just as clearly.
-    fig.skin.color.setHex(planned ? 0xd0d0d0 : color);
-    fig.skin.transparent = false;
-    fig.skin.opacity = 1;
-    (fig.ring.material as THREE.MeshBasicMaterial).color.setHex(color);
-    const baseMat = fig.base.material as THREE.MeshBasicMaterial;
-    baseMat.color.setHex(color);
-    baseMat.opacity = planned ? 0.35 : 0.85;
-    // A planned agent must never look busy, at any frame.
-    fig.ring.visible = !planned && fig.agent.state !== "idle";
-  }
-
-  /* ── routes, drawn from real traffic ───────────────────────────────── */
+  /* ── paths, drawn from real traffic ────────────────────────────────── */
   const edgeGroup = new THREE.Group();
   scene.add(edgeGroup);
   let edgeKey = "";
 
-  function curveBetween(a: THREE.Vector3, b: THREE.Vector3): THREE.QuadraticBezierCurve3 {
+  function curveBetween(a: THREE.Vector3, b: THREE.Vector3) {
     const mid = a.clone().add(b).multiplyScalar(0.5);
-    mid.y += Math.max(2.4, a.distanceTo(b) * 0.3);
+    mid.y += Math.max(1.1, a.distanceTo(b) * 0.16);
     return new THREE.QuadraticBezierCurve3(a.clone(), mid, b.clone());
   }
 
-  function setEdges(edges: Edge[]) {
-    const key = edges.map((e) => `${e.from}>${e.to}:${e.count}`).sort().join("|");
-    if (key === edgeKey) return;
+  function setEdges(list: Edge[]) {
+    const k = list.map((e) => `${e.from}>${e.to}:${e.count}`).sort().join("|");
+    if (k === edgeKey) return;
 
     for (const child of [...edgeGroup.children]) {
       edgeGroup.remove(child);
@@ -923,36 +945,34 @@ function buildScene(mount: HTMLElement, onPick: (code: string) => void): SceneAp
       (m.material as THREE.Material)?.dispose();
     }
 
-    const heaviest = edges.reduce((max, e) => Math.max(max, e.count), 1);
+    const heaviest = list.reduce((max, e) => Math.max(max, e.count), 1);
     let complete = true;
-    for (const e of edges) {
+    for (const e of list) {
       const a = nodePos.get(e.from);
       const b = nodePos.get(e.to);
-      if (!a || !b) {
-        // An endpoint the roster has not placed yet. Draw the rest, but do not
-        // cache this key, or the route would never be retried once it can be.
-        complete = false;
-        continue;
-      }
+      if (!a || !b) { complete = false; continue; }
       const weight = e.count / heaviest;
-      // Ink on a plan: dark enough to be the graphic it is meant to be, and
-      // neutral, so the agents keep the only colour on the board.
+      // Lit rather than inked: on a pale plaza a dark line reads as a crack,
+      // and light reads as something running.
       const tube = new THREE.Mesh(
-        new THREE.TubeGeometry(curveBetween(a, b), 44, 0.03 + weight * 0.04, 8, false),
-        new THREE.MeshStandardMaterial({
-          color: P.ink, roughness: 0.86, metalness: 0,
-          transparent: true, opacity: 0.72 + weight * 0.28,
+        new THREE.TubeGeometry(curveBetween(a, b), 56, 0.03 + weight * 0.028, 8, false),
+        new THREE.MeshBasicMaterial({
+          color: weight > 0.6 ? P.path : P.pathAlt,
+          transparent: true, opacity: 0.55 + weight * 0.35,
+          toneMapped: false,
         }),
       );
       edgeGroup.add(tube);
     }
-    if (complete) edgeKey = key;
+    if (complete) edgeKey = k;
   }
 
   /* ── pulses ────────────────────────────────────────────────────────── */
-  const PULSE_GEO = new THREE.SphereGeometry(0.17, 18, 14);
-  const SHADE_GEO = new THREE.PlaneGeometry(0.85, 0.85);
-  const TRAIL = 4;
+  const PULSE_GEO = new THREE.SphereGeometry(0.15, 18, 14);
+  const pulses: Array<{
+    mesh: THREE.Mesh; trail: THREE.Mesh[];
+    curve: THREE.QuadraticBezierCurve3; t: number;
+  }> = [];
 
   function pulse(from: string, to: string) {
     const a = nodePos.get(from);
@@ -961,70 +981,45 @@ function buildScene(mount: HTMLElement, onPick: (code: string) => void): SceneAp
 
     const mesh = new THREE.Mesh(
       PULSE_GEO,
-      new THREE.MeshStandardMaterial({
-        color: 0x2f6df0, emissive: 0x2f6df0, emissiveIntensity: 0.9, roughness: 0.35,
-      }),
+      new THREE.MeshBasicMaterial({ color: P.path, toneMapped: false }),
     );
     scene.add(mesh);
-
-    // A shadow tracking along the floor beneath it. Small touch, and the one
-    // that makes the pulse read as travelling *over* the model.
-    const shade = new THREE.Mesh(SHADE_GEO, mats.shadow.clone());
-    shade.rotation.x = -Math.PI / 2;
-    scene.add(shade);
-
     const trail: THREE.Mesh[] = [];
-    for (let i = 0; i < TRAIL; i++) {
-      const t = new THREE.Mesh(
+    for (let i = 0; i < 5; i++) {
+      const sp = new THREE.Mesh(
         PULSE_GEO,
         new THREE.MeshBasicMaterial({
-          color: 0x6d97f5, transparent: true, opacity: 0, depthWrite: false,
+          color: P.path, transparent: true, opacity: 0, toneMapped: false,
         }),
       );
-      t.scale.setScalar(1 - (i + 1) / (TRAIL + 1.2));
-      scene.add(t);
-      trail.push(t);
+      sp.scale.setScalar(1 - (i + 1) / 7);
+      scene.add(sp);
+      trail.push(sp);
     }
-    pulses.push({ mesh, shade, trail, curve: curveBetween(a, b), t: 0 });
+    pulses.push({ mesh, trail, curve: curveBetween(a, b), t: 0 });
   }
 
-  function flash(at: THREE.Vector3) {
-    const mesh = new THREE.Mesh(
-      new THREE.RingGeometry(0.3, 0.42, 40),
-      new THREE.MeshBasicMaterial({
-        color: 0x2f6df0, transparent: true, opacity: 0.85, side: THREE.DoubleSide,
-      }),
-    );
-    mesh.rotation.x = -Math.PI / 2;
-    mesh.position.set(at.x, 0.22, at.z);
-    scene.add(mesh);
-    flashes.push({ mesh, t: 0 });
-  }
-
-  /* ── camera rig ────────────────────────────────────────────────────── */
-  const orb = { a: Math.PI * 0.25, p: 0.86, zoom: 1, drag: false, lx: 0, ly: 0 };
+  /* ── camera ────────────────────────────────────────────────────────── */
+  const NEED_W = 30;
+  const NEED_H = 21;
+  const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 400);
+  const orb = { a: Math.PI * 0.25, p: 0.84, zoom: 1, drag: false, lx: 0, ly: 0 };
   const want = { a: orb.a, p: orb.p, zoom: 1 };
-  const lookAt = new THREE.Vector3(0, 0, 3.25);
-  const lookWant = new THREE.Vector3(0, 0, 3.25);
+  const lookAt = new THREE.Vector3(0, 0, 3);
+  const lookWant = new THREE.Vector3(0, 0, 3);
   let focused: string | null = null;
+  const DIST = 90;
 
   function focus(code: string | null) {
     focused = code;
     const p = code ? nodePos.get(code) : null;
-    if (p) {
-      lookWant.set(p.x, 0, p.z);
-      want.zoom = 2.1;
-    } else {
-      lookWant.set(0, 0, 3.25);
-      want.zoom = 1;
-    }
+    if (p) { lookWant.set(p.x, 0, p.z); want.zoom = 2.2; }
+    else { lookWant.set(0, 0, 3); want.zoom = 1; }
   }
 
-  const DIST = 90;
   function place() {
-    // Elevation is held in a narrow band: the model must always be read from
-    // above, never from the side.
-    const p = Math.max(0.52, Math.min(1.0, orb.p));
+    // The elevation is held in a narrow band: this is always read from above.
+    const p = Math.max(0.5, Math.min(1.0, orb.p));
     camera.position.set(
       lookAt.x + Math.cos(orb.a) * Math.sin(p) * DIST,
       Math.cos(p) * DIST,
@@ -1046,8 +1041,8 @@ function buildScene(mount: HTMLElement, onPick: (code: string) => void): SceneAp
   };
   const onMove = (e: PointerEvent) => {
     if (!orb.drag) return;
-    want.a -= (e.clientX - orb.lx) * 0.006;
-    want.p = Math.max(0.52, Math.min(1.0, want.p - (e.clientY - orb.ly) * 0.003));
+    want.a -= (e.clientX - orb.lx) * 0.005;
+    want.p = Math.max(0.5, Math.min(1.0, want.p - (e.clientY - orb.ly) * 0.003));
     orb.lx = e.clientX; orb.ly = e.clientY;
   };
   const onUp = (e: PointerEvent) => {
@@ -1057,7 +1052,7 @@ function buildScene(mount: HTMLElement, onPick: (code: string) => void): SceneAp
   };
   const onWheel = (e: WheelEvent) => {
     e.preventDefault();
-    want.zoom = Math.max(0.6, Math.min(3.2, want.zoom * (1 - e.deltaY * 0.0012)));
+    want.zoom = Math.max(0.65, Math.min(3.2, want.zoom * (1 - e.deltaY * 0.0012)));
   };
 
   const raycaster = new THREE.Raycaster();
@@ -1079,11 +1074,22 @@ function buildScene(mount: HTMLElement, onPick: (code: string) => void): SceneAp
   el.addEventListener("wheel", onWheel, { passive: false });
   el.addEventListener("click", onClick);
 
+  /* ── post: ambient occlusion is what stops each pavilion reading as a
+        decal printed on the plaza ─────────────────────────────────────── */
+  const composer = new EffectComposer(renderer);
+  composer.addPass(new RenderPass(scene, camera));
+  const gtao = new GTAOPass(scene, camera, 1, 1);
+  gtao.updateGtaoMaterial({
+    radius: 0.3, distanceExponent: 1.2, thickness: 0.4,
+    scale: 1.1, samples: 16, screenSpaceRadius: false,
+  });
+  gtao.blendIntensity = 0.8;
+  composer.addPass(gtao);
+  composer.addPass(new OutputPass());
+
   function resize() {
     const w = mount.clientWidth || 1;
     const h = mount.clientHeight || 1;
-    // 1.5 rather than 2: the composer shades every pixel several times over,
-    // and on a flat-shaded model the difference is not visible.
     const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
     renderer.setPixelRatio(dpr);
     renderer.setSize(w, h, false);
@@ -1091,6 +1097,8 @@ function buildScene(mount: HTMLElement, onPick: (code: string) => void): SceneAp
     composer.setSize(w, h);
     gtao.setSize(w, h);
     const aspect = w / h;
+    // Fit both axes: fixing only the vertical extent clips the campus
+    // horizontally on any viewport narrower than its own aspect.
     const f = Math.max(NEED_H, NEED_W / aspect) * 1.06;
     camera.left = (-f * aspect) / 2;
     camera.right = (f * aspect) / 2;
@@ -1098,26 +1106,6 @@ function buildScene(mount: HTMLElement, onPick: (code: string) => void): SceneAp
     camera.bottom = -f / 2;
     camera.updateProjectionMatrix();
   }
-  const composer = new EffectComposer(renderer);
-  composer.addPass(new RenderPass(scene, camera));
-  const gtao = new GTAOPass(scene, camera, 1, 1);
-  // Radius in world units: the rooms are 4.4 across and the walls 0.13 thick,
-  // so this is tuned to catch wall-to-floor junctions and the undersides of
-  // furniture without smearing shade across open floor.
-  gtao.updateGtaoMaterial({
-    radius: 0.32,
-    distanceExponent: 1.2,
-    thickness: 0.4,
-    scale: 1.1,
-    samples: 16,
-    screenSpaceRadius: false,
-  });
-  // Well below full strength: this is contact shade on a bright model, not a
-  // dirt pass.
-  gtao.blendIntensity = 0.9;
-  composer.addPass(gtao);
-  composer.addPass(new OutputPass());
-
   const ro = new ResizeObserver(resize);
   ro.observe(mount);
   resize();
@@ -1144,74 +1132,55 @@ function buildScene(mount: HTMLElement, onPick: (code: string) => void): SceneAp
     }
     place();
 
-    // Signs turn about Y only, so they stay upright and legible as the model
+    // Signs turn about Y only, so they stay upright and legible as the campus
     // rotates without ever tipping toward the camera.
     camera.getWorldDirection(camDir);
     const faceY = Math.atan2(-camDir.x, -camDir.z);
-    for (const s of signs) s.rotation.y = faceY - (s.parent?.rotation.y ?? 0);
+    for (const sgn of signs) sgn.rotation.y = faceY - (sgn.parent?.rotation.y ?? 0);
 
-    figures.forEach((fig, code) => {
-      const planned = fig.agent.lifecycle === "planned";
-      const active = !planned && fig.agent.state !== "idle" && fig.agent.state !== "offline";
-
-      fig.group.position.y = reduced ? 0
-        : active ? Math.abs(Math.sin(t * 3.1 + fig.phase)) * 0.09
-          : Math.sin(t * 0.85 + fig.phase) * 0.02;
-
-      // Idle agents glance around; working ones square up to the desk.
-      const drift = active ? 0 : Math.sin(t * 0.32 + fig.phase) * 0.45;
-      fig.facing = ease(fig.facing, Math.PI + drift, dt * 1.5);
-      fig.group.rotation.y = fig.facing;
-
+    orbs.forEach((o, code) => {
+      const planned = o.agent.lifecycle === "planned";
+      const active = !planned
+        && o.agent.state !== "idle" && o.agent.state !== "offline";
       const sel = code === focused;
-      fig.group.scale.setScalar(ease(fig.group.scale.x, sel ? 1.12 : 1, k));
 
-      if (fig.ring.visible) {
-        fig.ring.scale.setScalar(1 + Math.abs(Math.sin(t * 2.3 + fig.phase)) * 0.28);
-        (fig.ring.material as THREE.MeshBasicMaterial).opacity =
-          0.5 - Math.abs(Math.sin(t * 2.3 + fig.phase)) * 0.28;
-      }
-      fig.label.sprite.visible = sel || active;
+      const lift = reduced ? 0 : Math.sin(t * (active ? 1.9 : 0.8) + o.phase)
+        * (active ? 0.07 : 0.03);
+      // The whole pod turns to face the viewer: an expression nobody can see
+      // is not an expression.
+      o.group.rotation.y = faceY;
+      o.group.position.y = lift;
+      o.ring.rotation.z += dt * (active ? 0.9 : 0.25);
+
+      const beat = active ? Math.abs(Math.sin(t * 2.2 + o.phase)) : 0;
+      o.domeMat.opacity = (planned ? 0.07 : 0.16) + beat * 0.16 + (sel ? 0.1 : 0);
+      const hm = o.halo.material as THREE.MeshBasicMaterial;
+      hm.opacity = (planned ? 0.18 : 0.42) + beat * 0.4 + (sel ? 0.25 : 0);
+      o.halo.scale.setScalar(1 + beat * 0.12 + (sel ? 0.08 : 0));
+      o.ring.scale.setScalar(1 + beat * 0.06);
+
+      o.label.sprite.visible = sel || active;
     });
 
     for (let i = pulses.length - 1; i >= 0; i--) {
-      const p = pulses[i];
-      p.t += dt * 0.7;
-      if (p.t >= 1) {
-        flash(p.curve.getPoint(1));
-        for (const m of [p.mesh, p.shade, ...p.trail]) {
+      const pu = pulses[i];
+      pu.t += dt * 0.68;
+      if (pu.t >= 1) {
+        for (const m of [pu.mesh, ...pu.trail]) {
           scene.remove(m);
           (m.material as THREE.Material).dispose();
         }
+        pu.mesh.geometry.dispose();
         pulses.splice(i, 1);
         continue;
       }
-      const at = p.curve.getPoint(p.t);
-      p.mesh.position.copy(at);
-      p.shade.position.set(at.x, 0.2, at.z);
-      const lift = Math.max(0.2, at.y);
-      p.shade.scale.setScalar(1 + lift * 0.22);
-      (p.shade.material as THREE.MeshBasicMaterial).opacity = 0.2 / (1 + lift * 0.35);
-      p.trail.forEach((m, j) => {
-        const lag = Math.max(0, p.t - (j + 1) * 0.04);
-        m.position.copy(p.curve.getPoint(lag));
-        (m.material as THREE.MeshBasicMaterial).opacity =
-          Math.sin(p.t * Math.PI) * 0.55 * (1 - (j + 1) / (TRAIL + 1.2));
+      const at = pu.curve.getPoint(pu.t);
+      pu.mesh.position.copy(at);
+      const fade = Math.sin(pu.t * Math.PI);
+      pu.trail.forEach((m, j) => {
+        m.position.copy(pu.curve.getPoint(Math.max(0, pu.t - (j + 1) * 0.03)));
+        (m.material as THREE.MeshBasicMaterial).opacity = fade * 0.55 * (1 - (j + 1) / 7);
       });
-    }
-
-    for (let i = flashes.length - 1; i >= 0; i--) {
-      const f = flashes[i];
-      f.t += dt * 2;
-      if (f.t >= 1) {
-        scene.remove(f.mesh);
-        f.mesh.geometry.dispose();
-        (f.mesh.material as THREE.Material).dispose();
-        flashes.splice(i, 1);
-        continue;
-      }
-      f.mesh.scale.setScalar(1 + f.t * 3);
-      (f.mesh.material as THREE.MeshBasicMaterial).opacity = (1 - f.t) * 0.7;
     }
 
     composer.render();
@@ -1227,25 +1196,22 @@ function buildScene(mount: HTMLElement, onPick: (code: string) => void): SceneAp
     dispose() {
       cancelAnimationFrame(raf);
       ro.disconnect();
-      composer.dispose();
       el.removeEventListener("pointerdown", onDown);
       el.removeEventListener("pointermove", onMove);
       el.removeEventListener("pointerup", onUp);
       el.removeEventListener("pointercancel", onUp);
       el.removeEventListener("wheel", onWheel);
       el.removeEventListener("click", onClick);
+      composer.dispose();
+      envRT.dispose();
       scene.traverse((o) => {
         const m = o as THREE.Mesh;
+        // The size cache is module-level and shared with the next mount.
         if (m.geometry && !cachedGeometries.has(m.geometry)) m.geometry.dispose();
         const mat = m.material as THREE.Material | THREE.Material[] | undefined;
         if (Array.isArray(mat)) mat.forEach((x) => x.dispose());
         else mat?.dispose();
       });
-      // The rounded-box cache is module-level and shared with the next mount,
-      // so it is deliberately never disposed here.
-      envRT.dispose();
-      PULSE_GEO.dispose();
-      SHADE_GEO.dispose();
       renderer.dispose();
       if (el.parentElement === mount) mount.removeChild(el);
     },
@@ -1254,119 +1220,204 @@ function buildScene(mount: HTMLElement, onPick: (code: string) => void): SceneAp
 
 /* ── pieces ──────────────────────────────────────────────────────────── */
 
-type Label = { sprite: THREE.Sprite; draw: (agent: Agent) => void };
-
-/**
- * A figure at roughly two and a half heads tall. Realistic proportions read as
- * a blob at this scale; an oversized head reads as a character.
- */
-function makeFigure(agent: Agent, picks: THREE.Object3D[]) {
+/** A large dark board on two posts — the pavilion's face. */
+function signBoard(text: string, accent?: number): THREE.Group {
   const group = new THREE.Group();
-  const skin = surface(0x9bb0c9, { roughness: 0.55 });
-
-  // About three heads tall. The previous figure was 2.3 heads — below a Funko
-  // Pop, and not a human proportion at all. Its feet also sat 0.10 below the
-  // floor, hidden by an opaque disc, so it never made visible ground contact.
-  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.3, 0.66, 6, 16), skin);
-  body.position.y = 0.81;
-  body.castShadow = true;
-  body.userData.code = agent.code;
-  group.add(body);
-  picks.push(body);
-
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.29, 24, 18), skin);
-  head.position.y = 1.51;
-  head.castShadow = true;
-  head.userData.code = agent.code;
-  group.add(head);
-  picks.push(head);
-
-  // A frontal arc for a face. This was a full revolution before — a band right
-  // around the head — so the figures had no front at all and the animation
-  // that turns them toward the desk was turning something nobody could see.
-  const visor = new THREE.Mesh(
-    new THREE.SphereGeometry(
-      0.295, 24, 18, -Math.PI * 0.34, Math.PI * 0.68, Math.PI * 0.34, Math.PI * 0.24,
-    ),
-    surface(0x2c2f38, { roughness: 0.22, envMapIntensity: 1.2 }),
-  );
-  visor.position.y = 1.51;
-  group.add(visor);
-
-  // Arms, so the silhouette is a person rather than a chess pawn.
-  for (const side of [-1, 1]) {
-    const arm = new THREE.Mesh(new THREE.CapsuleGeometry(0.075, 0.3, 4, 10), skin);
-    arm.position.set(side * 0.3, 0.86, 0.04);
-    arm.rotation.z = side * 0.16;
-    arm.castShadow = true;
-    group.add(arm);
+  const postMat = new THREE.MeshStandardMaterial({
+    color: P.board, roughness: 0.5, metalness: 0.1,
+  });
+  for (const ox of [-0.54, 0.54]) {
+    const post = new THREE.Mesh(roundedBox(0.055, 0.96, 0.055, 0.025), postMat);
+    post.position.set(ox, 0.48, 0);
+    post.castShadow = true;
+    group.add(post);
   }
 
-  const contact = new THREE.Mesh(
-    new THREE.PlaneGeometry(1.3, 1.3),
-    new THREE.MeshBasicMaterial({
-      color: 0x404040, alphaMap: contactTexture(), transparent: true,
-      opacity: 0.4, depthWrite: false,
-    }),
-  );
-  contact.rotation.x = -Math.PI / 2;
-  contact.position.y = 0.19;
-  group.add(contact);
-
-  // A colour under every agent, always. Hiding it while idle left a floor of
-  // identical grey figures with nothing to read.
-  const base = new THREE.Mesh(
-    new THREE.RingGeometry(0.36, 0.47, 40),
-    new THREE.MeshBasicMaterial({
-      color: 0x9bb0c9, transparent: true, opacity: 0.85,
-      side: THREE.DoubleSide, depthWrite: false,
-    }),
-  );
-  base.rotation.x = -Math.PI / 2;
-  base.position.y = 0.2;
-  group.add(base);
-
-  // The expanding ring is the extra signal, shown only while the agent is
-  // doing something and never for a planned one.
-  const ring = new THREE.Mesh(
-    new THREE.RingGeometry(0.48, 0.56, 40),
-    new THREE.MeshBasicMaterial({
-      color: 0x9bb0c9, transparent: true, opacity: 0.45,
-      side: THREE.DoubleSide, depthWrite: false,
-    }),
-  );
-  ring.rotation.x = -Math.PI / 2;
-  ring.position.y = 0.205;
-  ring.visible = false;
-  group.add(ring);
-
-  const label = makeLabel(agent);
-  group.add(label.sprite);
-
-  return {
-    group, skin, ring, base, label, agent,
-    phase: Math.random() * Math.PI * 2, facing: Math.PI,
-  };
-}
-
-/**
- * Name and state on a small card above the agent, shown only while it is
- * working or selected. Labelling everything at once is what made the previous
- * version noisy.
- */
-function makeLabel(agent: Agent): Label {
   const canvas = document.createElement("canvas");
-  canvas.width = 400;
-  canvas.height = 132;
+  canvas.width = 440;
+  canvas.height = 150;
+  const ctx = canvas.getContext("2d");
+  if (ctx) {
+    ctx.fillStyle = "#272c38";
+    roundRect(ctx, 0, 0, canvas.width, canvas.height, 22);
+    ctx.fill();
+    if (accent !== undefined) {
+      ctx.fillStyle = "#" + accent.toString(16).padStart(6, "0");
+      roundRect(ctx, 22, canvas.height - 20, canvas.width - 44, 8, 4);
+      ctx.fill();
+    }
+    ctx.direction = "rtl";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.font = '600 62px "Segoe UI", system-ui, sans-serif';
+    ctx.fillStyle = "#f4f7fc";
+    ctx.fillText(text, canvas.width / 2, canvas.height / 2 - 4, canvas.width - 44);
+  }
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = maxAnisotropy;
-  const sprite = new THREE.Sprite(
-    new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }),
+  // Unlit: a billboard turns its normal to the camera, so a lit board's
+  // brightness would swing by more than half as the campus rotates.
+  const board = new THREE.Mesh(
+    new THREE.PlaneGeometry(1.34, 0.46),
+    new THREE.MeshBasicMaterial({ map: tex, transparent: true, toneMapped: false }),
   );
-  sprite.scale.set(2.1, 0.7, 1);
-  sprite.position.y = 2.35;
-  sprite.renderOrder = 10;
+  board.position.y = 1.18;
+  group.add(board);
+  return group;
+}
+
+type Face = { mesh: THREE.Mesh; draw: (state: string, planned: boolean) => void };
+
+/**
+ * The agent's expression, drawn as an LED on its glass face.
+ *
+ * This is the whole reason a pod reads as an agent and not as an object: a
+ * thing with an expression is attending to you. The expression is not
+ * decorative either — it is the state, so what the agent is doing can be read
+ * from the agent itself rather than from a legend somewhere else.
+ */
+function makeFace(): Face {
+  const canvas = document.createElement("canvas");
+  canvas.width = 256;
+  canvas.height = 192;
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = maxAnisotropy;
+
+  const mesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.78, 0.58),
+    new THREE.MeshBasicMaterial({
+      map: tex, transparent: true, toneMapped: false, depthWrite: false,
+    }),
+  );
+
+  const draw = (state: string, planned: boolean) => {
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // An LED is bright or it is off — it is never a muted state swatch. The
+    // default is the reference's blue and only a meaningful state changes it,
+    // which is why the expression reads at this size when a tinted state
+    // colour did not.
+    const LED: Record<string, number> = {
+      idle: 0x3d8bfd, working: 0x3d8bfd, using_tool: 0x9b8bff,
+      processing: 0x9b8bff, waiting: 0xffb02e,
+      escalated: 0xff5a5a, error: 0xff5a5a, deploying: 0x2ee6b0,
+      offline: 0x5a6472,
+    };
+    const lit = planned ? "#59626f" : hex(LED[state] ?? 0x3d8bfd);
+    ctx.strokeStyle = lit;
+    ctx.fillStyle = lit;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.shadowColor = lit;
+    ctx.shadowBlur = planned ? 8 : 34;
+
+    const cx = 128, cy = 96, eye = 40;
+    const kind = planned || state === "offline" ? "offline"
+      : state === "escalated" || state === "error" ? "alert"
+        : state === "working" || state === "using_tool" ? "working"
+          : state === "processing" ? "thinking"
+            : state === "waiting" ? "waiting"
+              : state === "deploying" ? "success"
+                : "friendly";
+
+    if (kind === "alert") {
+      // A warning reads as a shape, not as a colour alone.
+      ctx.lineWidth = 11;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - 46);
+      ctx.lineTo(cx + 50, cy + 40);
+      ctx.lineTo(cx - 50, cy + 40);
+      ctx.closePath();
+      ctx.stroke();
+      ctx.lineWidth = 12;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - 14);
+      ctx.lineTo(cx, cy + 12);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(cx, cy + 28, 6, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (kind === "offline") {
+      ctx.lineWidth = 12;
+      for (const ox of [-eye, eye]) {
+        ctx.beginPath();
+        ctx.moveTo(cx + ox - 20, cy);
+        ctx.lineTo(cx + ox + 20, cy);
+        ctx.stroke();
+      }
+    } else if (kind === "working") {
+      ctx.lineWidth = 13;
+      for (const [ox, dir] of [[-eye, 1], [eye, -1]] as Array<[number, number]>) {
+        ctx.beginPath();
+        ctx.moveTo(cx + ox - 16 * dir, cy - 20);
+        ctx.lineTo(cx + ox + 14 * dir, cy);
+        ctx.lineTo(cx + ox - 16 * dir, cy + 20);
+        ctx.stroke();
+      }
+    } else if (kind === "thinking") {
+      ctx.lineWidth = 12;
+      for (const ox of [-eye, eye]) {
+        ctx.beginPath();
+        ctx.arc(cx + ox, cy, 17, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - 16);
+      ctx.lineTo(cx, cy + 16);
+      ctx.stroke();
+    } else if (kind === "waiting") {
+      for (const ox of [-34, 0, 34]) {
+        ctx.beginPath();
+        ctx.arc(cx + ox, cy, 9, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    } else {
+      // friendly and success: closed, upward-curving eyes
+      ctx.lineWidth = 14;
+      for (const ox of [-eye, eye]) {
+        ctx.beginPath();
+        ctx.arc(cx + ox, cy + 12, 24, Math.PI * 1.15, Math.PI * 1.85);
+        ctx.stroke();
+      }
+      if (kind === "success") {
+        ctx.lineWidth = 11;
+        ctx.beginPath();
+        ctx.arc(cx, cy + 34, 22, Math.PI * 0.18, Math.PI * 0.82);
+        ctx.stroke();
+      }
+    }
+
+    tex.needsUpdate = true;
+  };
+  draw("idle", false);
+  return { mesh, draw };
+}
+
+type Label = { sprite: THREE.Sprite; draw: (agent: Agent) => void };
+
+/** The agent's name and state, on a small card above its orb. */
+function makeLabel(agent: Agent): Label {
+  const canvas = document.createElement("canvas");
+  canvas.width = 384;
+  canvas.height = 116;
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = maxAnisotropy;
+
+  const sprite = new THREE.Sprite(
+    new THREE.SpriteMaterial({
+      map: tex, transparent: true, toneMapped: false,
+    }),
+  );
+  sprite.scale.set(2.1, 0.64, 1);
+  sprite.position.y = 2.6;
+  sprite.renderOrder = 20;
+  // Shown only when the agent is selected or doing something: a name card
+  // over every pod at once is noise, and the reference keeps them off too.
   sprite.visible = false;
 
   const draw = (a: Agent) => {
@@ -1377,30 +1428,27 @@ function makeLabel(agent: Agent): Label {
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
 
-    const color = hex(STATE_COLOR[a.state] ?? 0x9bb0c9);
-
+    const color = hex(STATE_COLOR[a.state] ?? 0x7c8aa3);
     ctx.save();
-    ctx.shadowColor = "rgba(90,76,52,0.28)";
-    ctx.shadowBlur = 14;
+    ctx.shadowColor = "rgba(40,60,100,0.22)";
+    ctx.shadowBlur = 16;
     ctx.shadowOffsetY = 4;
     ctx.fillStyle = "#ffffff";
-    roundRect(ctx, 14, 14, canvas.width - 28, 92, 20);
+    roundRect(ctx, 12, 12, canvas.width - 24, 80, 18);
     ctx.fill();
     ctx.restore();
 
-    // The state colour as a spine on the trailing edge, so the card carries
-    // the same signal as the figure without shouting.
     ctx.fillStyle = color;
-    roundRect(ctx, canvas.width - 32, 22, 12, 76, 6);
+    ctx.beginPath();
+    ctx.arc(canvas.width - 40, 52, 8, 0, Math.PI * 2);
     ctx.fill();
 
-    ctx.font = '600 34px "Segoe UI", system-ui, sans-serif';
-    ctx.fillStyle = "#38342e";
-    ctx.fillText(a.name, canvas.width / 2 - 6, 48, canvas.width - 90);
-
-    ctx.font = '500 25px "Segoe UI", system-ui, sans-serif';
+    ctx.font = '600 32px "Segoe UI", system-ui, sans-serif';
+    ctx.fillStyle = "#1b2233";
+    ctx.fillText(a.name, canvas.width / 2 - 14, 40, canvas.width - 90);
+    ctx.font = '500 23px "Segoe UI", system-ui, sans-serif';
     ctx.fillStyle = color;
-    ctx.fillText(STATE_AR[a.state] ?? a.state, canvas.width / 2 - 6, 82, canvas.width - 90);
+    ctx.fillText(STATE_AR[a.state] ?? a.state, canvas.width / 2 - 14, 72, canvas.width - 90);
 
     tex.needsUpdate = true;
   };
@@ -1408,48 +1456,47 @@ function makeLabel(agent: Agent): Label {
   return { sprite, draw };
 }
 
-/** A small standing sign: a post, a board, and the room's name on it. */
-function signPost(text: string): THREE.Group {
-  const group = new THREE.Group();
-
-  const post = new THREE.Mesh(roundedBox(0.07, 1.32, 0.07), surface(P.charcoal));
-  post.position.y = 0.84;
-  post.castShadow = true;
-  group.add(post);
-
-  const canvas = document.createElement("canvas");
-  canvas.width = 288;
-  canvas.height = 80;
-  const ctx = canvas.getContext("2d");
-  if (ctx) {
-    // Cream on charcoal. A pale board on a pale floor was the reason none of
-    // these could be read at the distance the model is actually viewed from.
-    ctx.fillStyle = "#38342e";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.direction = "rtl";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.font = '700 46px "Segoe UI", system-ui, sans-serif';
-    ctx.fillStyle = "#f7f2e9";
-    ctx.fillText(text, canvas.width / 2, canvas.height / 2 + 2, canvas.width - 18);
+let _contactMap: THREE.CanvasTexture | null = null;
+/** A soft radial falloff for every pool of shade in the scene. */
+function contactTexture(): THREE.CanvasTexture {
+  if (_contactMap) return _contactMap;
+  const c = document.createElement("canvas");
+  c.width = c.height = 128;
+  const g = c.getContext("2d");
+  if (g) {
+    const grd = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+    grd.addColorStop(0, "rgba(0,0,0,1)");
+    grd.addColorStop(0.45, "rgba(0,0,0,0.55)");
+    grd.addColorStop(1, "rgba(0,0,0,0)");
+    g.fillStyle = grd;
+    g.fillRect(0, 0, 128, 128);
   }
-  const boardTex = new THREE.CanvasTexture(canvas);
-  boardTex.colorSpace = THREE.SRGBColorSpace;
-  boardTex.anisotropy = maxAnisotropy;
-  const board = new THREE.Mesh(
-    new THREE.PlaneGeometry(1.5, 0.4),
-    new THREE.MeshBasicMaterial({
-      map: boardTex, side: THREE.DoubleSide, toneMapped: false,
-    }),
-  );
-  board.position.y = 1.56;
-  board.castShadow = true;
-  group.add(board);
-
-  return group;
+  // Used as an alpha map, so it stays linear — no colour space on this one.
+  _contactMap = new THREE.CanvasTexture(c);
+  return _contactMap;
 }
 
-/** A studio cove: warm light above, settling into the plinth's own tone. */
+let _glow: THREE.CanvasTexture | null = null;
+/** A soft radial sprite, shared by every halo and every pulse. */
+function glowTexture(): THREE.CanvasTexture {
+  if (_glow) return _glow;
+  const c = document.createElement("canvas");
+  c.width = c.height = 256;
+  const g = c.getContext("2d");
+  if (g) {
+    const grd = g.createRadialGradient(128, 128, 0, 128, 128, 128);
+    grd.addColorStop(0, "rgba(255,255,255,1)");
+    grd.addColorStop(0.2, "rgba(255,255,255,0.5)");
+    grd.addColorStop(0.5, "rgba(255,255,255,0.12)");
+    grd.addColorStop(1, "rgba(255,255,255,0)");
+    g.fillStyle = grd;
+    g.fillRect(0, 0, 256, 256);
+  }
+  _glow = new THREE.CanvasTexture(c);
+  return _glow;
+}
+
+/** A studio cove: light above, settling into the plaza's own tone. */
 function coveTexture(): THREE.CanvasTexture {
   const c = document.createElement("canvas");
   c.width = 4;
@@ -1457,9 +1504,9 @@ function coveTexture(): THREE.CanvasTexture {
   const g = c.getContext("2d");
   if (g) {
     const grd = g.createLinearGradient(0, 0, 0, 256);
-    grd.addColorStop(0, "#f7f7f7");
-    grd.addColorStop(0.42, "#e9e9e9");
-    grd.addColorStop(1, "#cfcfcf");
+    grd.addColorStop(0, "#fbfcfe");
+    grd.addColorStop(0.5, "#eef2f9");
+    grd.addColorStop(1, "#dde5f1");
     g.fillStyle = grd;
     g.fillRect(0, 0, 4, 256);
   }
