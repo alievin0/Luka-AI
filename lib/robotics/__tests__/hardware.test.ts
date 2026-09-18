@@ -13,6 +13,7 @@ import {
   CRAWL_LINEAR,
   ARC2_TEMPLATE,
   modeLimits,
+  transitionLimits,
   type RobotProfile,
 } from "../hal/profile.ts";
 import { Deadman } from "../hal/deadman.ts";
@@ -763,4 +764,56 @@ test("ARC-2 claims nothing, including the number its first hypothesis turned on"
   assert.equal(ARC2_TEMPLATE.morphology!.normalForceAuthority, undefined);
   assert.ok((ARC2_TEMPLATE.absent ?? []).length >= 3, "it should say what it does not know");
   assert.equal(ARC2_TEMPLATE.kinematics, undefined, "unmeasured kinematics are absent, not guessed");
+});
+
+test("the state between two shapes is an unknown, not one of the two", () => {
+  // A transformation is not an instant between two modes. It is seconds during
+  // which the robot is in neither, on some intermediate set of contacts. The
+  // first version of the morphology block gave a transition a duration and
+  // nothing else, so anything reading the profile would have taken the limits
+  // of whichever mode was current and applied them to a machine that was not in
+  // it. That is this repository's whole bug family, written one commit after
+  // documenting it.
+  const between = transitionLimits(ARC2_TEMPLATE, "wheel", "leg");
+  assert.equal(between.declared, false, "the template should not claim to have measured this");
+
+  const wheel = modeLimits(ARC2_TEMPLATE, "wheel");
+  const leg = modeLimits(ARC2_TEMPLATE, "leg");
+  assert.equal(between.limits.maxLinear, Math.min(wheel.maxLinear, leg.maxLinear));
+  assert.equal(between.limits.maxDecel, Math.min(wheel.maxDecel, leg.maxDecel));
+
+  // And the audit says so out loud, rather than letting the inference pass for
+  // a measurement.
+  const codes = auditProfile(ARC2_TEMPLATE).map((f) => f.code);
+  assert.ok(
+    codes.includes("transition-limits-unknown"),
+    `the audit was quiet about it: ${codes.join(", ")}`,
+  );
+
+  // A profile that has measured it gets what it measured, and says it did.
+  const measured: RobotProfile = {
+    ...ARC2_TEMPLATE,
+    morphology: {
+      ...ARC2_TEMPLATE.morphology!,
+      transitions: [
+        {
+          from: "wheel",
+          to: "leg",
+          seconds: 4,
+          // Worse than either endpoint, which is the case the inference cannot
+          // represent and the reason the field exists.
+          limits: { maxLinear: 0, maxAngular: 0.1, maxDecel: 0.2 },
+          source: "measured",
+        },
+      ],
+    },
+  };
+  const known = transitionLimits(measured, "wheel", "leg");
+  assert.equal(known.declared, true);
+  assert.equal(known.limits.maxLinear, 0);
+  assert.ok(
+    known.limits.maxDecel < between.limits.maxDecel,
+    "the measured figure should be able to be worse than the inference, and here it is not",
+  );
+  assert.ok(!auditProfile(measured).map((f) => f.code).includes("transition-limits-unknown"));
 });

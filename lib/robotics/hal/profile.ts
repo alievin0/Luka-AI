@@ -99,6 +99,38 @@ export type MorphologyMode = {
   source: "measured" | "datasheet" | "assumed";
 };
 
+/**
+ * Changing shape, and the state the machine is in while it does.
+ *
+ * A transformation is not an instant between two modes — it is seconds during
+ * which the robot is in neither of them, on some intermediate set of contacts,
+ * very possibly unable to drive or to stop the way either endpoint can. The
+ * first version of this type gave a transition a duration and nothing else,
+ * which meant anything reading the profile would take the limits of whichever
+ * mode was current and apply them to a machine that was not in it.
+ *
+ * That is this repository's entire bug family, written by me one commit after
+ * documenting it: an absence read as one of the good values. Left undeclared
+ * the limits are *inferred* as the worst of both endpoints, and `transitionLimits`
+ * says so rather than handing back a number that looks measured.
+ */
+export type MorphologyTransition = {
+  from: string;
+  to: string;
+  seconds: number;
+  joules?: number;
+  /**
+   * What the machine can do *while transforming*. Absent means nobody has
+   * measured it, and the inference that replaces it is a lower bound rather
+   * than a description — a robot halfway between two shapes can be worse than
+   * either, and nothing here would know.
+   */
+  limits?: { maxLinear: number; maxAngular: number; maxDecel: number };
+  /** Whether it has to hold itself up during the change. */
+  stance?: "static" | "dynamic";
+  source: "measured" | "assumed";
+};
+
 export type MorphologyProfile = {
   modes: MorphologyMode[];
   /** The shape the machine powers up in. */
@@ -107,13 +139,7 @@ export type MorphologyProfile = {
    * What it costs to change shape. Absent means nobody has measured it, which
    * matters because every decision to switch is a decision about this number.
    */
-  transitions?: Array<{
-    from: string;
-    to: string;
-    seconds: number;
-    joules?: number;
-    source: "measured" | "assumed";
-  }>;
+  transitions?: MorphologyTransition[];
   /**
    * The fraction of body weight the actuators can take off any one contact,
    * 0..1. This is the thing legs physically buy that a passive suspension
@@ -261,6 +287,35 @@ export function modeLimits(
     maxLinear: Math.min(...morphology.modes.map((m) => m.maxLinear)),
     maxAngular: Math.min(...morphology.modes.map((m) => m.maxAngular)),
     maxDecel: Math.min(...morphology.modes.map((m) => m.maxDecel)),
+  };
+}
+
+/**
+ * What the machine is allowed to do while it is changing shape, and whether
+ * anybody actually measured it.
+ *
+ * `declared: false` means the numbers are the worst of the two endpoints, which
+ * is a guess in the safe direction and not a measurement. A transformation can
+ * leave a robot less capable than either shape it is between.
+ */
+export function transitionLimits(
+  profile: RobotProfile,
+  from: string,
+  to: string,
+): { limits: { maxLinear: number; maxAngular: number; maxDecel: number }; declared: boolean } {
+  const morphology = profile.morphology;
+  if (!morphology) throw new Error(`${profile.id} does not change shape.`);
+  const declared = morphology.transitions?.find((t) => t.from === from && t.to === to);
+  if (declared?.limits) return { limits: declared.limits, declared: true };
+  const a = modeLimits(profile, from);
+  const b = modeLimits(profile, to);
+  return {
+    limits: {
+      maxLinear: Math.min(a.maxLinear, b.maxLinear),
+      maxAngular: Math.min(a.maxAngular, b.maxAngular),
+      maxDecel: Math.min(a.maxDecel, b.maxDecel),
+    },
+    declared: false,
   };
 }
 
@@ -519,6 +574,7 @@ export const ARC2_TEMPLATE: RobotProfile = {
     "Every number in this profile. No ARC-2 has been built.",
     "normalForceAuthority — what the legs can actually take off a wheel.",
     "The energy cost of a mode change, as opposed to its duration.",
+    "What the machine can do while it is changing shape, as opposed to at either end of it.",
     "Whether the leg mode can be entered from a standstill only, or while moving.",
   ],
   notes: [
@@ -763,6 +819,20 @@ export function auditProfile(profile: RobotProfile): Finding[] {
         `This platform will not move below ${floor} m/s and its speed limit is ` +
         `${profile.maxLinear} m/s. There is no speed it is both allowed and able to travel at.`,
     });
+  }
+
+  for (const transition of profile.morphology?.transitions ?? []) {
+    if (!transition.limits) {
+      findings.push({
+        level: "warn",
+        code: "transition-limits-unknown",
+        message:
+          `Nobody has measured what this robot can do while changing from ${transition.from} to ` +
+          `${transition.to}, which takes ${transition.seconds} s. Until somebody does, the limits ` +
+          "used are the worst of the two shapes — and a machine halfway between them can be " +
+          "worse than either, which that inference cannot represent.",
+      });
+    }
   }
 
   if (link) {
