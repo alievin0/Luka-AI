@@ -39,6 +39,109 @@ STRUCTURE = [
 ]
 
 
+# ── the spatial projection ───────────────────────────────────────────
+# The World screen is a PROJECTION of database state onto a floor plan. The
+# mapping lives here, in Python, deterministic and tested — not in JavaScript,
+# where "where is this agent standing" could quietly become a decision rather
+# than a lookup. A station is occupied because a row says so or it is empty.
+STATIONS = [
+    {"id": "discovery", "label": "Discovery", "order": 0,
+     "about": "noticed, not yet agreed to"},
+    {"id": "research", "label": "Research", "order": 1,
+     "about": "investigating; evidence is gathered here"},
+    {"id": "build", "label": "Build", "order": 2,
+     "about": "an approved task becomes an artifact"},
+    {"id": "verify", "label": "Verification", "order": 3,
+     "about": "deterministic checks, run outside the producer"},
+    {"id": "review", "label": "Review", "order": 4,
+     "about": "independent judgement; may reject"},
+    {"id": "output", "label": "Output", "order": 5,
+     "about": "accepted work"},
+]
+
+# Where an agent stands when it holds nothing. Its district, not a task.
+HOME = {"AGT-ORCHESTRATOR": "discovery", "AGT-RESEARCHER": "research",
+        "AGT-BUILDER": "build", "AGT-REVIEWER": "review",
+        "AGT-OPERATOR": "verify"}
+
+
+def task_station(task):
+    """Which station a task occupies. One row in, one station out."""
+    s = task["status"]
+    if s in ("DISCOVERED", "PROPOSED"):
+        return "discovery"
+    if s == "ACCEPTED":
+        return "output"
+    if s == "COMPLETED":
+        return "verify"
+    if s in ("REVIEW", "REJECTED", "FAILED"):
+        # A rejected or failed task stalled at judgement. It stays visible there
+        # rather than disappearing: work that did not pass is still work that
+        # happened, and the world should not tidy it away.
+        return "review"
+    caps = set(json.loads(task["required_caps"] or "[]"))
+    if "build" in caps:
+        return "build"
+    if "review" in caps:
+        return "review"
+    return "research"
+
+
+def world_stage(con):
+    """Stations, who is standing where, and why — all of it from rows.
+
+    `reason` on every placement names the row that put the agent there, so a
+    viewer can always ask the world to justify what it is showing."""
+    tasks = _rows(con, "SELECT * FROM tasks ORDER BY id")
+    live = {r["task_id"]: r for r in _rows(
+        con, "SELECT task_id, principal_id, expires_at FROM leases "
+             "WHERE status='ACTIVE'")}
+    occupancy = {s["id"]: [] for s in STATIONS}
+    for t in tasks:
+        if t["status"] == "ARCHIVED":
+            continue
+        st = task_station(t)
+        occupancy[st].append({
+            "task_id": t["id"], "status": t["status"], "objective": t["objective"],
+            "assignee": W.assignee(con, t["id"]),
+            "project_id": t["project_id"],
+            "leased_by": (live.get(t["id"]) or {}).get("principal_id"),
+            "open_conditions": [c["description"] for c in W.open_conditions(con, t["id"])],
+        })
+
+    placement = {}
+    for a in W.CREW:
+        aid = a["id"]
+        if not con.execute("SELECT 1 FROM principals WHERE id=?", (aid,)).fetchone():
+            continue
+        held = [t for t in tasks if live.get(t["id"], {}).get("principal_id") == aid
+                and t["status"] == "RUNNING"]
+        if held:
+            placement[aid] = {"station": task_station(held[0]), "state": "RUNNING",
+                              "task_id": held[0]["id"],
+                              "reason": "holds lease on task #%d" % held[0]["id"]}
+            continue
+        mine = [t for t in tasks if W.assignee(con, t["id"]) == aid
+                and t["status"] in ("ASSIGNED", "BLOCKED", "REVIEW", "COMPLETED")]
+        if mine:
+            t = mine[0]
+            placement[aid] = {
+                "station": task_station(t),
+                "state": "BLOCKED" if t["status"] == "BLOCKED" else
+                         ("REVIEW" if t["status"] == "REVIEW" else "ASSIGNED"),
+                "task_id": t["id"],
+                "reason": "assigned task #%d (%s)" % (t["id"], t["status"])}
+            continue
+        placement[aid] = {"station": HOME.get(aid, "discovery"), "state": "IDLE",
+                          "task_id": None, "reason": "holds no lease"}
+    return {"stations": STATIONS, "occupancy": occupancy, "placement": placement,
+            "artifacts": _rows(con, "SELECT a.id, a.name, a.task_id, a.principal_id, "
+                                    "a.project_id, a.sha, a.created_at FROM artifacts a "
+                                    "ORDER BY a.id"),
+            "verdicts": _rows(con, "SELECT id, artifact_id, reviewer_id, verdict, "
+                                   "rationale, created_at FROM reviews ORDER BY id")}
+
+
 def connect(path):
     return store.connect(path)
 
@@ -160,6 +263,7 @@ def world_payload(con):
         "tasks_by_state": st["tasks_by_state"],
         "running": st["running"],
         "relationships": relationships(con),
+        "stage": world_stage(con),
         "away": W.while_you_were_away(con),
         "activity": activity(con, 60),
     }

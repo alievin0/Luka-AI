@@ -8,8 +8,10 @@ and reviewed by someone else before anything is called done.
 
 ```
 python3 agent_world_v01_demo.py --fresh      # the whole flow, including a rejection
+python3 agent_world_v01_demo.py --fresh --leave-running \
+        --db agent-world-live.db             # stop mid-flight, with a lease still held
 python3 world_server.py                      # the Owner-facing World at :8790
-python3 test_agent_world_v01.py              # 60 tests
+python3 test_agent_world_v01.py              # 84 tests
 ```
 
 ---
@@ -199,25 +201,99 @@ Stated here, asserted in code, and not to be described as isolation.
 
 ---
 
-## World UI
+## World UI — the digital world
 
 `world_server.py` (stdlib only) serves `/api/world`, `/api/agent/<id>`,
 `/api/project/<id>`, `/api/activity`, `/api/away`, `/api/record/<kind>/<id>`.
-`world_ui/` is the window: the Owner above the Orchestrator above four
-functional areas, agents as persistent entities with state-coloured rings, a
-live activity rail, projects and tasks, and a drawer for the Agent Inspector,
-Project Passport and any underlying record. Every record is deep-linkable
-(`?open=agent/AGT-RESEARCHER`, `#task/2`).
+`world_ui/` is the window onto it.
 
-**No fake world.** `running` is the list of tasks with a **live lease** — an
-agent shown RUNNING is an agent holding one. When nothing is running the world
-says `quiet`. A test greps the UI source and fails on `Math.random`, `demoData`,
-`placeholder`, or any `fetch()` that is not `/api`. Another test walks every
-relationship the UI would draw and checks it against the foreign key it claims.
+### It is a place, not a dashboard
 
-Screenshots in `world_ui/`: `screenshot-world.png` (completed run),
-`screenshot-running.png` (Researcher genuinely RUNNING under a live lease),
-`screenshot-inspector.png`, `screenshot-passport.png`, `screenshot-provenance.png`.
+The screen is a **floor plan**, and everything on it is somewhere for a reason:
+
+| Region | What it is | What decides it |
+|---|---|---|
+| **Owner Observatory** | the Owner's instrument panel, off the line entirely | `while_you_were_away()` counts |
+| **The Line** | six stations: Discovery → Research → Build → Verification → Review → Output | `STATIONS` in `world_server.py` |
+| **The band above the deck** | where the five agents stand | `stage.placement` |
+| **Project Yards** | a project as a place, with its own progress and spend | `projects` + its tasks |
+
+### The projection lives in Python, and is tested
+
+`task_station(row)` and `world_stage(con)` in `world_server.py` map rows onto
+that floor. They are deliberately **not** in JavaScript: "where does this agent
+stand" is a claim about state, and a claim about state belongs somewhere it can
+be asserted against the database. `SpatialProjection` (14 tests) holds them to
+it — every non-archived task lands in exactly one station, an archived one in
+none, no task is shown twice or dropped, and every placement carries a `reason`
+naming the row that produced it (`holds lease on task #2`, `assigned task #1
+(BLOCKED)`, `holds no lease`).
+
+### Real state → visual state
+
+- An entity is **RUNNING** only where a row in `leases` is `ACTIVE` and its task
+  is `RUNNING`. Nothing else can light it. Close the lease and it goes dark.
+- An entity **moves** only when its placement changes. Reading the world twice
+  without a write returns byte-identical placement, so there is no drift, no
+  wandering, no idle animation pretending to be activity. The CSS transitions
+  `left`/`top`; the server decides what those become.
+- A bay is **occupied** because tasks are standing in it, **attention** (red)
+  because one of them is FAILED, REJECTED or BLOCKED.
+- The conveyor between two bays is lit only where work has actually reached
+  both; otherwise it is a dashed hint of a path not yet taken.
+
+### Five entities, five silhouettes
+
+Not five recolours and not humanoid robots — five machine-forms that say what
+the role does, drawn as inline SVG and coloured only by state:
+
+| Agent | Form | Reading |
+|---|---|---|
+| Orchestrator | a hub with five radiating nodes | connects, holds no tool |
+| Researcher | an aperture with a scan arc | looks, and brings back evidence |
+| Builder | a lattice of stacked bars on a spine | assembles |
+| Reviewer | opposing calipers around a crosshair | measures someone else's work |
+| Operator | a rotor with drive teeth | executes |
+
+Capability **pips** under each entity are one per authorised tool — the
+Orchestrator's single dim pip is the visual form of "it can never do the work it
+delegates". The Owner has its own form and sits outside the crew entirely.
+
+### Camera, inspector, log
+
+World / The Line / Observatory framing buttons, wheel zoom, drag to pan, and a
+`?focus=` deep link so a view can be linked and captured. The **Agent
+Inspector** opens on click or `?open=agent/AGT-RESEARCHER` and ends in a
+**provenance timeline** — a spine whose knots are colour-coded by the kind of
+record behind them (teal = artifact, violet = review, green = verification, red
+= a denied tool call) and each of which opens that row. The **Project Passport**
+carries objective, team, cost, tasks with their open conditions, artifacts,
+evidence, claims, reviews, failures and decisions.
+
+Raw events are not the world: the Observatory translates counts into sentences
+("1 work sent back", "failed task #1 needs a decision"), each clickable through
+to the rows behind it. The unprocessed feed stays behind the **FORENSIC LOG**
+tab, for when you want it.
+
+**No fake world.** `running` is the list of tasks with a **live lease**. When
+nothing is running the world says `quiet`. A test greps the UI source and fails
+on `Math.random`, `demoData`, `placeholder`, or any `fetch()` that is not
+`/api`; another checks the UI holds no opinion of its own about where an agent
+stands (no client-side `HOME`, no client-side `taskStation`); another walks
+every relationship the UI would draw and checks it against the foreign key it
+claims.
+
+### Screenshots (`world_ui/`)
+
+| File | What it shows |
+|---|---|
+| `world-01-world.png` | the whole world after a completed run |
+| `world-02-factory.png` | The Line, framed — six stations, task #1 failed at Review, task #2 accepted at Output |
+| `world-03-running.png` | the Researcher genuinely RUNNING under live lease #1 |
+| `world-04-observatory.png` | the Owner Control Center |
+| `world-05..09-agent-*.png` | each of the five agents in the Inspector |
+| `world-10-project-passport.png` | the Project Passport |
+| `world-11-provenance.png` | the provenance timeline, whole |
 
 ---
 
@@ -257,6 +333,13 @@ and each artifact says **SIMULATED** in its own header. Tests assert both.
 8. **Single-process and sequential.** Leases bound concurrency and are tested;
    nothing runs in parallel.
 9. **The UI polls every 5 s** and pauses while a drawer is open. No streaming.
+10. **The world is a floor plan, not a simulation.** Positions are a projection
+    of status onto six fixed stations; there is no physical space, no pathing
+    and no distance. An agent "moves" because a row changed.
+11. **It is laid out for a desktop viewport.** The camera makes it usable at
+    other sizes; the composition is not designed for a phone.
+12. **Six stations are the whole vocabulary.** A task whose required capability
+    is neither `build` nor `review` is shown at Research by default.
 
 ---
 

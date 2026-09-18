@@ -737,6 +737,238 @@ class WorldServerReadsRealState(unittest.TestCase):
             self.assertNotIn(invented, js, "the UI synthesises state: %s" % invented)
 
 
+class SpatialProjection(unittest.TestCase):
+    """The World screen is a projection of rows onto a floor plan.
+
+    These tests hold the projection to the one rule the redesign is built on:
+    a thing is drawn somewhere because a row put it there. A station is occupied
+    or it is empty; an agent is RUNNING or it is not. There is no third state in
+    which the world looks busy because looking busy is nicer."""
+
+    def test_every_station_is_declared_once_and_ordered(self):
+        ids = [s["id"] for s in SRV.STATIONS]
+        self.assertEqual(len(ids), len(set(ids)))
+        self.assertEqual([s["order"] for s in SRV.STATIONS], list(range(len(ids))))
+        for s in SRV.STATIONS:
+            self.assertTrue(s["label"] and s["about"], s["id"])
+
+    def test_every_home_is_a_real_station(self):
+        ids = {s["id"] for s in SRV.STATIONS}
+        self.assertTrue(set(SRV.HOME.values()) <= ids)
+        self.assertEqual(set(SRV.HOME), {a["id"] for a in W.CREW})
+
+    def test_a_task_maps_to_exactly_one_station_from_its_own_row(self):
+        con = world()
+        tid = ready_task(con, caps=("research",))
+        row = con.execute("SELECT * FROM tasks WHERE id=?", (tid,)).fetchone()
+        first = SRV.task_station(row)
+        self.assertIn(first, {s["id"] for s in SRV.STATIONS})
+        # pure: the same row answers the same way, however often it is asked
+        for _ in range(3):
+            self.assertEqual(SRV.task_station(row), first)
+
+    def test_each_status_lands_where_the_map_says(self):
+        con = world()
+        cases = {"DISCOVERED": "discovery", "PROPOSED": "discovery",
+                 "COMPLETED": "verify", "REVIEW": "review", "REJECTED": "review",
+                 "FAILED": "review", "ACCEPTED": "output"}
+        tid = ready_task(con)
+        for status, station in cases.items():
+            row = dict(con.execute("SELECT * FROM tasks WHERE id=?", (tid,)).fetchone())
+            row["status"] = status
+            self.assertEqual(SRV.task_station(row), station, status)
+
+    def test_an_unfinished_task_is_placed_by_the_capability_it_requires(self):
+        con = world()
+        for caps, agent, station in ((("build",), BUILD, "build"),
+                                     (("review",), REV, "review"),
+                                     (("research",), RES, "research")):
+            tid = ready_task(con, caps=caps, agent=agent)
+            row = con.execute("SELECT * FROM tasks WHERE id=?", (tid,)).fetchone()
+            self.assertEqual(SRV.task_station(row), station, caps)
+
+    def test_an_archived_task_occupies_nothing(self):
+        con = world()
+        tid = ready_task(con)
+        W.transition(con, tid, "ARCHIVED", ORCH, "shelved")
+        stage = SRV.world_stage(con)
+        shown = [t["task_id"] for ts in stage["occupancy"].values() for t in ts]
+        self.assertNotIn(tid, shown)
+
+    def test_no_task_is_shown_twice_and_none_is_dropped(self):
+        con = world()
+        D.run(con, verbose=False)
+        stage = SRV.world_stage(con)
+        shown = [t["task_id"] for ts in stage["occupancy"].values() for t in ts]
+        live = [r["id"] for r in con.execute(
+            "SELECT id FROM tasks WHERE status != 'ARCHIVED'")]
+        self.assertEqual(sorted(shown), sorted(live))
+        self.assertEqual(len(shown), len(set(shown)))
+
+    def test_an_idle_agent_stands_at_its_own_district_and_says_so(self):
+        con = world()
+        stage = SRV.world_stage(con)
+        for aid, p in stage["placement"].items():
+            self.assertEqual(p["state"], "IDLE", aid)
+            self.assertEqual(p["station"], SRV.HOME[aid], aid)
+            self.assertIsNone(p["task_id"])
+            self.assertEqual(p["reason"], "holds no lease")
+
+    def test_running_is_drawn_only_where_a_live_lease_row_exists(self):
+        con = world()
+        tid = ready_task(con)
+        lease = W.claim_task(con, RES, task_id=tid, lease_seconds=600)
+        stage = SRV.world_stage(con)
+        self.assertEqual(stage["placement"][RES]["state"], "RUNNING")
+        self.assertEqual(stage["placement"][RES]["task_id"], tid)
+        self.assertIn("lease", stage["placement"][RES]["reason"])
+        # every other agent is still idle: one lease lights one agent
+        for aid, p in stage["placement"].items():
+            if aid != RES:
+                self.assertNotEqual(p["state"], "RUNNING", aid)
+        # and when the lease closes, the world stops showing it as running
+        W.release_lease(con, lease["lease_id"])
+        self.assertNotEqual(SRV.world_stage(con)["placement"][RES]["state"], "RUNNING")
+
+    def test_an_assigned_agent_waits_at_the_station_it_was_assigned_to(self):
+        con = world()
+        tid = ready_task(con, caps=("build",), agent=BUILD)
+        p = SRV.world_stage(con)["placement"][BUILD]
+        self.assertEqual(p["state"], "ASSIGNED")
+        self.assertEqual(p["station"], "build")
+        self.assertEqual(p["task_id"], tid)
+
+    def test_a_blocked_task_shows_its_agent_blocked(self):
+        con = world()
+        tid = ready_task(con)
+        W.transition(con, tid, "BLOCKED", RES, "waiting on the owner")
+        self.assertEqual(SRV.world_stage(con)["placement"][RES]["state"], "BLOCKED")
+
+    def test_an_agent_moves_only_when_a_row_moved_it(self):
+        con = world()
+        tid = ready_task(con, caps=("build",), agent=BUILD)
+        before = SRV.world_stage(con)["placement"][BUILD]
+        # reading the world twice changes nothing: there is no drift, no jitter
+        self.assertEqual(SRV.world_stage(con)["placement"][BUILD], before)
+        lease = W.claim_task(con, BUILD, task_id=tid, lease_seconds=600)
+        W.transition(con, tid, "COMPLETED", BUILD, "artifact produced")
+        W.release_lease(con, lease["lease_id"])
+        after = SRV.world_stage(con)["placement"][BUILD]
+        self.assertNotEqual(after["station"], before["station"])
+        self.assertEqual(after["station"], "verify")
+
+    def test_every_placement_names_a_row_that_exists(self):
+        con = world()
+        D.run(con, verbose=False)
+        stage = SRV.world_stage(con)
+        for aid, p in stage["placement"].items():
+            self.assertTrue(p["reason"], aid)
+            if p["task_id"] is not None:
+                self.assertIsNotNone(con.execute(
+                    "SELECT 1 FROM tasks WHERE id=?", (p["task_id"],)).fetchone())
+            self.assertIn(p["station"], {s["id"] for s in SRV.STATIONS})
+
+    def test_the_stage_never_invents_an_agent(self):
+        con = world()
+        stage = SRV.world_stage(con)
+        registered = {r["id"] for r in con.execute(
+            "SELECT id FROM principals WHERE id LIKE 'AGT-%'")}
+        self.assertTrue(set(stage["placement"]) <= registered)
+        self.assertEqual(len(stage["placement"]), 5)
+
+    def test_an_unfounded_world_places_nobody(self):
+        con = store.connect(os.path.join(tempfile.mkdtemp(), "empty.db"))
+        store.found(con, mode="simulation")
+        stage = SRV.world_stage(con)
+        self.assertEqual(stage["placement"], {})
+        self.assertEqual([t for ts in stage["occupancy"].values() for t in ts], [])
+
+    def test_artifacts_and_verdicts_on_the_stage_are_the_stored_ones(self):
+        con = world()
+        D.run(con, verbose=False)
+        stage = SRV.world_stage(con)
+        self.assertEqual([a["id"] for a in stage["artifacts"]],
+                         [r["id"] for r in con.execute(
+                             "SELECT id FROM artifacts ORDER BY id")])
+        self.assertEqual([v["id"] for v in stage["verdicts"]],
+                         [r["id"] for r in con.execute(
+                             "SELECT id FROM reviews ORDER BY id")])
+
+    def test_the_payload_carries_the_stage(self):
+        con = world()
+        p = SRV.world_payload(con)
+        self.assertIn("stage", p)
+        self.assertEqual(p["stage"]["stations"], SRV.STATIONS)
+
+
+class WorldLooksLikeAWorld(unittest.TestCase):
+    """The redesign's visual promises, checked against the files that keep them.
+
+    A screenshot proves a moment; these prove the rules that produced it."""
+
+    def _read(self, name):
+        with open(os.path.join(HERE, "world_ui", name), encoding="utf-8") as fh:
+            return fh.read()
+
+    def js(self):
+        return self._read("world.js")
+
+    def css(self):
+        return self._read("world.css")
+
+    def test_each_of_the_five_agents_has_its_own_silhouette(self):
+        js = self.js()
+        forms = re.findall(r'"(AGT-[A-Z]+)": `(.*?)`,', js, re.S)
+        self.assertEqual({f[0] for f in forms}, {a["id"] for a in W.CREW})
+        bodies = [re.sub(r"\s+", " ", f[1]).strip() for f in forms]
+        self.assertEqual(len(set(bodies)), 5, "two agents share a silhouette")
+        # distinct geometry, not five copies with a different fill
+        shapes = [tuple(sorted(set(re.findall(r"<(\w+)", b)))) for b in bodies]
+        self.assertGreater(len(set(shapes)), 1, "every form uses the same primitives")
+
+    def test_the_ui_asks_the_server_where_an_agent_stands(self):
+        js = self.js()
+        self.assertIn("st.placement", js)
+        self.assertIn("data-station", js)
+        # no client-side opinion about which station an agent belongs to
+        self.assertNotIn("HOME", js)
+        self.assertNotIn("function taskStation", js)
+
+    def test_state_colour_is_driven_by_the_state_attribute_only(self):
+        css = self.css()
+        for state in ("RUNNING", "ASSIGNED", "REVIEW", "BLOCKED", "IDLE"):
+            self.assertIn('.entity[data-state="%s"]' % state, css, state)
+
+    def test_movement_is_a_transition_not_an_animation_loop(self):
+        css = self.css()
+        self.assertIn("transition:left", css)
+        self.assertNotIn("@keyframes drift", css)
+        self.assertNotIn("@keyframes wander", css)
+        self.assertIn("@media (prefers-reduced-motion:reduce)", css)
+
+    def test_the_factory_is_visually_present(self):
+        js, css = self.js(), self.css()
+        self.assertIn("THE LINE", js)
+        self.assertIn(".bay", css)
+        self.assertIn(".linetag", css)
+        for s in SRV.STATIONS:
+            self.assertIn(s["label"], json.dumps(SRV.STATIONS))
+
+    def test_the_owner_is_drawn_outside_the_hierarchy(self):
+        js, css = self.js(), self.css()
+        self.assertIn("OWNER_FORM", js)
+        self.assertIn(".observatory", css)
+        self.assertIn("outside the hierarchy", js)
+        self.assertNotIn('HOME["owner"]', js)
+
+    def test_the_world_fills_the_viewport_and_can_be_moved(self):
+        js, css = self.js(), self.css()
+        self.assertIn("fitWorld", js)
+        self.assertIn("wheel", js)
+        self.assertIn("pointerdown", js)
+        self.assertIn("transform-origin:0 0", css)
+
+
 class SuiteHygiene(unittest.TestCase):
     def test_every_test_class_is_collected(self):
         import inspect

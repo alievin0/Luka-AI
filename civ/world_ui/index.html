@@ -7,76 +7,76 @@
 <link rel="stylesheet" href="/world.css">
 </head>
 <body>
-<div class="grain" aria-hidden="true"></div>
+<div class="vignette" aria-hidden="true"></div>
 
-<header class="topbar">
-  <div class="mark">
-    <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
-      <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.1"/>
-      <circle cx="12" cy="12" r="3.1" fill="currentColor"/>
-      <path d="M12 3v3.2M12 17.8V21M3 12h3.2M17.8 12H21" stroke="currentColor" stroke-width="1.1"/>
+<header class="chrome">
+  <div class="identity">
+    <svg viewBox="0 0 28 28" width="20" height="20" aria-hidden="true" class="seal">
+      <circle cx="14" cy="14" r="11" fill="none" stroke="currentColor" stroke-width="1"/>
+      <circle cx="14" cy="14" r="4" fill="none" stroke="currentColor" stroke-width="1"/>
+      <circle cx="14" cy="14" r="1.6" fill="currentColor"/>
+      <path d="M14 3v4M14 21v4M3 14h4M21 14h4" stroke="currentColor" stroke-width="1"/>
     </svg>
-    <span class="wordmark">AGENT&nbsp;WORLD</span>
-    <span class="ver">v0.1</span>
+    <span class="name">AGENT&nbsp;WORLD</span>
+    <span class="rev">v0.1</span>
   </div>
-  <div class="worldmeta" id="worldmeta"></div>
-  <div class="pulse" id="pulse"><i></i><span>reading live state</span></div>
+  <nav class="viewbar" id="viewbar">
+    <button class="vb on" data-focus="world">World</button>
+    <button class="vb" data-focus="line">The Line</button>
+    <button class="vb" data-focus="observatory">Observatory</button>
+    <span class="sep"></span>
+    <button class="vb ghost" data-zoom="-1" title="Zoom out">−</button>
+    <button class="vb ghost" data-zoom="1" title="Zoom in">+</button>
+    <span class="zoomread" id="zoomread">100%</span>
+  </nav>
+  <div class="condition" id="condition"></div>
 </header>
 
-<section class="away" id="away"></section>
+<main class="world" id="world">
+  <div class="plate" id="plate">
+    <svg class="flow" id="flow" aria-hidden="true"></svg>
 
-<main class="stage">
-  <div class="canvas" id="canvas">
-    <svg class="wires" id="wires" aria-hidden="true"></svg>
-
-    <div class="tier tier-owner">
-      <div class="node owner" id="node-owner" data-kind="owner">
-        <div class="glyph"><span>◆</span></div>
-        <div class="nlabel">OWNER</div>
-        <div class="nsub">control plane</div>
+    <!-- OWNER — outside the hierarchy, above the floor -->
+    <section class="observatory" id="observatory" data-zone="observatory">
+      <div class="obshead">
+        <span class="obstitle">OWNER OBSERVATORY</span>
+        <span class="obsmeta" id="obsmeta"></span>
       </div>
-    </div>
+      <div class="signals" id="signals"></div>
+      <div class="obsfoot" id="obsfoot"></div>
+    </section>
 
-    <div class="tier tier-coord" id="tier-coord"></div>
+    <!-- THE LINE — six bays, each a real station -->
+    <section class="line" id="line" data-zone="line"></section>
 
-    <div class="divisions" id="divisions"></div>
+    <!-- PROJECTS — workspaces off the line -->
+    <section class="yards" id="yards" data-zone="yards"></section>
+
+    <!-- AGENTS — positioned by the server's placement, never by chance -->
+    <div class="agents" id="agents"></div>
   </div>
 
-  <aside class="rail">
-    <div class="railhead">
-      <h2>ACTIVITY</h2>
-      <span class="hint" id="activityhint"></span>
+  <aside class="ledger" id="ledger">
+    <button class="ledgertab" id="ledgertab">FORENSIC LOG</button>
+    <div class="ledgerbody">
+      <div class="ledgerhead"><h2>RAW EVENTS</h2><span id="ledgercount"></span></div>
+      <ol class="rawlist" id="rawlist"></ol>
     </div>
-    <ol class="stream" id="stream"></ol>
   </aside>
 </main>
 
-<section class="lower">
-  <div class="panel">
-    <h2>PROJECTS</h2>
-    <div id="projects" class="projects"></div>
-  </div>
-  <div class="panel">
-    <h2>TASKS</h2>
-    <div id="tasks" class="tasks"></div>
-  </div>
-</section>
-
-<div class="drawer" id="drawer" aria-hidden="true">
-  <div class="drawerhead">
-    <div>
-      <div class="dtitle" id="dtitle">—</div>
-      <div class="dsub" id="dsub"></div>
+<div class="inspector" id="inspector" aria-hidden="true">
+  <div class="ihead">
+    <div class="iform" id="iform"></div>
+    <div class="ititles">
+      <div class="ititle" id="ititle">—</div>
+      <div class="isub" id="isub"></div>
     </div>
-    <button class="close" id="close" aria-label="Close">×</button>
+    <button class="iclose" id="iclose" aria-label="Close">×</button>
   </div>
-  <div class="drawerbody" id="dbody"></div>
+  <div class="ibody" id="ibody"></div>
 </div>
 <div class="scrim" id="scrim"></div>
-
-<footer class="foot">
-  <span id="foottext">every value on this screen is read from the world database — nothing here is generated for display</span>
-</footer>
 
 <script src="/world.js"></script>
 </body>
