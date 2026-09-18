@@ -139,7 +139,51 @@ class TheVerdictIsTheFirstWord(unittest.TestCase):
                          "APPROVE")
 
 
-# ── 2. what the supervisor does with it ──────────────────────────────
+# ── 2. reading the handoff ───────────────────────────────────────────
+class TheHandoffIsMeasuredAgainstWhatTheAgentWasGiven(unittest.TestCase):
+    """The demo asks whether the Researcher's message carried its own result.
+
+    The evidence is vocabulary the message shares with the artifact — minus the
+    briefing, because words the agent was handed are not evidence that it
+    worked. The check claimed that subtraction in its comment and did not do it,
+    so a message that restated its instructions scored as one that had."""
+
+    ARTIFACT = ("The document asserts that no model is reachable in this "
+                "environment. That assertion is dated and is now superseded.")
+    BRIEFING = ("Establish what AGENT_COGNITION.md claims about whether a model "
+                "can drive this world, and whether that claim still holds.")
+
+    def shared(self, message):
+        return ((RWD._distinctive(message) & RWD._distinctive(self.ARTIFACT))
+                - RWD._distinctive(self.BRIEFING))
+
+    def test_an_acknowledgement_does_not_pass_for_a_result(self):
+        ack = ("I have finished establishing what the document claims about "
+               "whether a model can drive this world.")
+        self.assertLess(len(self.shared(ack)), 4)
+
+    def test_a_message_that_carries_the_result_does(self):
+        said = ("The document asserts that no model is reachable in this "
+                "environment; that assertion is superseded.")
+        self.assertGreaterEqual(len(self.shared(said)), 4)
+
+    def test_the_briefing_is_what_gets_subtracted(self):
+        """Every word of the objective is a word the agent was given."""
+        self.assertEqual(self.shared(self.BRIEFING), set())
+
+    def test_short_words_are_not_evidence(self):
+        self.assertEqual(RWD._distinctive("the that a model is in this and"), set())
+
+    def test_a_verbatim_run_is_measured_not_guessed(self):
+        body = "one two three four five six seven eight"
+        self.assertEqual(RWD._verbatim_run("one two three four five six", body), 6)
+        self.assertEqual(RWD._verbatim_run("one two three four", body), 0)
+        self.assertEqual(RWD._verbatim_run("nothing here at all whatever", body), 0)
+        self.assertEqual(RWD._verbatim_run("", body), 0)
+        self.assertEqual(RWD._verbatim_run(body, ""), 0)
+
+
+# ── 3. what the supervisor does with it ──────────────────────────────
 class TheSupervisorNeverSuppliesTheVerdict(unittest.TestCase):
 
     def test_no_verdict_escalates_and_writes_no_review(self):

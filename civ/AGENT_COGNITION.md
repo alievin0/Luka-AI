@@ -14,7 +14,7 @@ between a working agent and a working demo.
 **A model has since driven this loop — elsewhere.** On 2026-09-18 a real one
 did, on Google AI Studio's free tier: one agent's turn in
 [`REAL_INFERENCE.md`](REAL_INFERENCE.md), then a world of them in
-`real_world_demo.py` — Researcher to Builder, judged by a Reviewer that had read
+[`MULTI_AGENT.md`](MULTI_AGENT.md) — Researcher to Builder, judged by a Reviewer that had read
 the work. Those are different runs, recorded separately. Reading them into the
 results below would be exactly the confusion this document exists to prevent.
 
@@ -259,7 +259,7 @@ script that knew the answer.
 |---|---|
 | **REAL** | the loop, the briefing and every row in it, the gateway's decisions, the tool results, artifacts and their shas, agent-to-agent messages, verification, review, the correction chain, the failure record, movement, the whole causal chain |
 | **DETERMINISTIC** | **the decisions.** `ReactiveWorker` is a hand-written policy that branches on what the gateway actually returned. It is not a model and never claims to be — every artifact it produces carries `NOT MODEL OUTPUT` in its body, and a test asserts that |
-| **NOT DEMONSTRATED HERE** | inference *in these runs*. They are the double, start to finish. Real inference is demonstrated separately — [`REAL_INFERENCE.md`](REAL_INFERENCE.md) for one agent, `real_world_demo.py` for a world of them — and it produced none of the results on this page |
+| **NOT DEMONSTRATED HERE** | inference *in these runs*. They are the double, start to finish. Real inference is demonstrated separately — [`REAL_INFERENCE.md`](REAL_INFERENCE.md) for one agent, [`MULTI_AGENT.md`](MULTI_AGENT.md) for a world of them — and it produced none of the results on this page |
 | **SIMULATED** | nothing. There is no ambient behaviour, no idle wandering, no decorative motion anywhere in the runtime |
 
 ### Why a double still tests something

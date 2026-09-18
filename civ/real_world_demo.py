@@ -2,7 +2,9 @@
 """A REAL MULTI-AGENT WORLD — two agents and a reviewer, all deciding on Gemini.
 
     CIV_PROVIDER=gemini CIV_ASSUME_FREE=1 CIV_MODEL=gemini-3.1-flash-lite \
-        CIV_MAX_CALLS=14 python3 real_world_demo.py
+        CIV_MAX_CALLS=35 python3 real_world_demo.py
+
+The write-up is MULTI_AGENT.md, including what this does NOT establish.
 
 `real_inference_gate.py` established that ONE agent's turn can be driven by a
 real model. This is the different and harder claim: that a **world** of them
@@ -117,10 +119,12 @@ def head(t):
 
 # ── the objective ────────────────────────────────────────────────────
 # Real work with a real answer, on a document in this repository that makes a
-# checkable claim. AGENT_COGNITION.md states "No model is reachable in this
-# environment" — which was true when it was written and is now false, since a
-# model is what will be reading it. The agents are not told that. They are told
-# where to look and what to produce.
+# checkable claim. AGENT_COGNITION.md is about whether a model can drive this
+# world: it used to answer "no model is reachable in this environment", which
+# was true when written and false by the time a model was reading it, and it now
+# answers with a date and a pointer to where that happened. The agents are told
+# neither version. They are told where to look and what to produce, and working
+# out what the document actually claims is the first half of the task.
 FIXTURE = os.path.join(HERE, "AGENT_COGNITION.md")
 OBJECTIVE = ("Establish what AGENT_COGNITION.md claims about whether a model "
              "can drive this world, and whether that claim still holds.")
@@ -321,6 +325,32 @@ def gemini_review(w, art, task, ver, unmet):
 REVIEW_LOG = []
 
 
+# ── reading one text against another ─────────────────────────────────
+def _distinctive(text):
+    """Long words, lowercased and stripped of punctuation.
+
+    Short words are shared by any two texts in the same language and carry no
+    signal about whether they came from the same piece of work."""
+    return {w.lower().strip(".,:;()[]{}\"'`") for w in (text or "").split()
+            if len(w) > 6}
+
+
+def _verbatim_run(a, b, least=5, most=24):
+    """The longest run of consecutive words `a` repeats from `b`, or 0.
+
+    Quoted rather than paraphrased: a phrase this long appearing in both texts
+    is not a coincidence of subject matter."""
+    wa = (a or "").lower().split()
+    wb = " ".join((b or "").lower().split())
+    best = 0
+    for i in range(len(wa)):
+        for n in range(least, min(len(wa) - i, most) + 1):
+            if " ".join(wa[i:i + n]) not in wb:
+                break
+            best = max(best, n)
+    return best
+
+
 # ── the run ──────────────────────────────────────────────────────────
 def main(argv=None):
     ap = argparse.ArgumentParser()
@@ -454,17 +484,28 @@ def report(con, cap, res, rec=None):  # noqa: C901
             % msgs[0]["authority"])
         for ln in text[:400].splitlines():
             say("    | %s" % ln)
-        # Did it carry its OWN result, or just an acknowledgement? Compared
-        # against the artifact it wrote: shared vocabulary that is not in the
-        # briefing is the only evidence available that the two came from the
-        # same piece of work.
+        # Did it carry its OWN result, or just an acknowledgement? The evidence
+        # is vocabulary the message shares with the artifact it wrote — and the
+        # briefing is SUBTRACTED, which this check used to claim in its comment
+        # and not do. That omission mattered: the objective, the conditions and
+        # the source's name are all words the agent was handed, so a message
+        # that only restates its instructions scored as one that had worked. A
+        # word in both the message and the artifact and in neither's input was
+        # produced twice by the same agent doing the same work.
         body = (r_arts[0]["body"] if r_arts else "") or ""
-        wa = {x.lower().strip(".,:;()") for x in text.split() if len(x) > 6}
-        wb = {x.lower().strip(".,:;()") for x in body.split() if len(x) > 6}
-        shared = wa & wb
+        # The FIRST prompt only. Later ones carry observations of its own
+        # output, so subtracting those would subtract the evidence itself.
+        briefed = next((e["prompt"] for e in (rec.log if rec else [])
+                        if e["who"] == RES), "")
+        shared = (_distinctive(text) & _distinctive(body)) - _distinctive(briefed)
         ok["the message carries its actual result"] = len(shared) >= 4
-        say("  shares %d distinctive words with its own artifact: %s"
-            % (len(shared), ", ".join(sorted(shared)[:8])))
+        say("  shares %d distinctive words with its own artifact that it was "
+            "not given: %s" % (len(shared), ", ".join(sorted(shared)[:8])))
+        # Printed, not graded. Repeating a run of the artifact's own words is
+        # stronger evidence still, but a handoff that paraphrases its result is
+        # a real handoff, and failing it for that would be measuring style.
+        say("  longest phrase repeated verbatim from that artifact: %d words"
+            % _verbatim_run(text, body))
     else:
         say("  (none — the researcher did not message the builder)")
 
