@@ -193,9 +193,14 @@ class Runtime:
         # own id recovers precisely the items that were never stranded.
         recovered = BUS.recover_stuck(self.con)
         resumed = SUP._resume_if_an_engine_exists(self.w)
+        # A proposal the Owner has since answered. Carrying it forward is the
+        # world's own act: if the Owner had to emit the follow-up event, "no
+        # further Owner commands" would be false by construction.
+        decided = SUP.resume_if_the_owner_decided(self.w)
         BUS.beat(self.con, self.w.worker)
-        out = {"stale": stale, "recovered": recovered, "resumed": resumed}
-        if stale or recovered or resumed:
+        out = {"stale": stale, "recovered": recovered, "resumed": resumed,
+               "decided": decided}
+        if stale or recovered or resumed or decided:
             store.event(self.con, "WORLD_RUNTIME_REPAIRED", actor=OWNER,
                         subject="worker:%s" % self.w.worker, payload=out)
         return out

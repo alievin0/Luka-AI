@@ -45,7 +45,7 @@ class World:
 
     def __init__(self, con, gw, provider_for, requirements_for=None,
                  worker="worker-1", max_in_flight=3, instruction_for=None,
-                 review_for=None):
+                 review_for=None, evaluate_for=None, gate_for=None):
         self.con, self.gw = con, gw
         self.provider_for = provider_for
         self.requirements_for = requirements_for or (lambda task: [])
@@ -60,6 +60,18 @@ class World:
         # consequence, and — as `h_review_requested` enforces — get no verdict
         # at all rather than a default one when the model does not give one.
         self.review_for = review_for or deterministic_review
+        # How an opportunity is judged, and whether a person is asked before it
+        # becomes committed work. Both are injected for the same reason
+        # `review_for` is: the supervisor should not have to know whether a
+        # model, a rule set or a person is on the other end of the decision.
+        #
+        # `gate_for` defaults to None, which is the behaviour every existing
+        # caller already has: an APPROVED opportunity opens its project on the
+        # spot. A caller that passes a gate gets the other arrangement — the
+        # world proposes, records the ask, and STOPS until a decision is written
+        # into the row. Nothing here can write that decision.
+        self.evaluate_for = evaluate_for or deterministic_evaluation
+        self.gate_for = gate_for
         self.worker, self.max_in_flight = worker, max_in_flight
         self.ticks = 0
         # A worker announces itself so the world can tell a live process from
@@ -160,14 +172,87 @@ def h_owner_objective(w, item):
 
 
 def h_opportunity_proposed(w, item):
-    """Deterministic evaluation. The proposer does not get a vote."""
-    oid = item["payload"]["opportunity_id"]
-    status, failed = A.evaluate_opportunity(w.con, oid, by=OWNER,
-                                            chain_id=item["chain_id"])
+    """The opportunity is judged. The proposer does not get a vote.
+
+    Who judges is `evaluate_for` — the world's own rules by default. A verdict
+    that is neither APPROVED nor REJECTED is not defaulted either way: it
+    escalates, for the same reason an unreadable review escalates."""
+    con, oid = w.con, item["payload"]["opportunity_id"]
+    status, why, run_id = w.evaluate_for(w, oid, chain_id=item["chain_id"])
+    if status not in ("APPROVED", "REJECTED"):
+        store.signal(con, "HIGH", "The evaluator returned no usable verdict",
+                     "opportunity #%d: %s" % (oid, str(why)[:160]))
+        return {"escalated": "no verdict", "why": str(why)[:160], "run": run_id}
+    # The verdict is written here, not left to whoever produced it. An injected
+    # evaluator returns a judgement; persisting it is the world's job, and a
+    # decision that lives only in a return value is a decision with no record.
+    row = con.execute("SELECT status FROM opportunities WHERE id=?", (oid,)).fetchone()
+    if row is not None and row["status"] not in ("PROJECT", status):
+        con.execute("UPDATE opportunities SET status=?, decided_by=?, decided_at=?, "
+                    "decision_why=? WHERE id=?",
+                    (status, OWNER, store.now(),
+                     ("; ".join(why) if isinstance(why, (list, tuple))
+                      else str(why))[:300], oid))
+        store.event(con, "OPPORTUNITY_" + status, actor=OWNER,
+                    subject="opportunity:%d" % oid,
+                    payload={"why": str(why)[:300], "run": run_id})
     if status == "APPROVED":
+        if w.gate_for:
+            # The world may propose and must then stop. Nothing below this line
+            # runs until a person writes a decision into the approval row.
+            aid = w.gate_for(w, oid, item)
+            _emit(w, item, "DECISION_REQUIRED", "approval:%d" % aid,
+                  dict(item["payload"], opportunity_id=oid, approval_id=aid))
+            return {"status": status, "awaiting_owner": aid, "run": run_id}
         _emit(w, item, "OPPORTUNITY_APPROVED", "opportunity:%d" % oid,
               dict(item["payload"], opportunity_id=oid))
-    return {"status": status, "failed": failed}
+    return {"status": status, "failed": why, "run": run_id}
+
+
+def h_decision_required(w, item):
+    """The world asked a person. It does not answer for them, and it does not
+    poll: `resume_if_the_owner_decided` carries the answer forward when one
+    exists, on the world's own clock."""
+    aid = item["payload"].get("approval_id")
+    row = w.con.execute("SELECT decision FROM approvals WHERE id=?", (aid,)).fetchone()
+    return {"awaiting_owner": aid, "decision": row["decision"] if row else None}
+
+
+def resume_if_the_owner_decided(w):
+    """Carry a decided proposal forward. Repair, not work — and not the Owner.
+
+    The Owner's act is one word written into `approvals.decision`. Turning that
+    word into a project is the world's job, which is why this runs in
+    housekeeping beside the other resume: the alternative is the Owner emitting
+    the follow-up event themselves, and then "the Owner issued no further
+    commands" would be false by construction."""
+    con, carried = w.con, []
+    for row in con.execute(
+            "SELECT q.id, q.payload, q.chain_id, q.depth FROM world_queue q "
+            "WHERE q.kind='DECISION_REQUIRED' ORDER BY q.id"):
+        p = json.loads(row["payload"] or "{}")
+        aid, oid = p.get("approval_id"), p.get("opportunity_id")
+        if not aid or not oid:
+            continue
+        a = con.execute("SELECT decision FROM approvals WHERE id=?", (aid,)).fetchone()
+        if a is None or not a["decision"]:
+            continue                                  # still waiting on a person
+        o = con.execute("SELECT status FROM opportunities WHERE id=?", (oid,)).fetchone()
+        if o is None or o["status"] != "APPROVED":
+            continue                                  # already carried, or refused
+        if a["decision"] != "APPROVE":
+            con.execute("UPDATE opportunities SET status='REJECTED', decision_why=? "
+                        "WHERE id=?", ("the Owner answered %s" % a["decision"], oid))
+            store.event(con, "OPPORTUNITY_REJECTED", actor=OWNER,
+                        subject="opportunity:%d" % oid,
+                        payload={"approval": aid, "decision": a["decision"]})
+            carried.append({"opportunity": oid, "decision": a["decision"]})
+            continue
+        BUS.emit(con, "OPPORTUNITY_APPROVED", "opportunity:%d" % oid,
+                 dict(p, opportunity_id=oid), by=OWNER, chain_id=row["chain_id"],
+                 depth=(row["depth"] or 0) + 1, caused_by=row["id"])
+        carried.append({"opportunity": oid, "decision": "APPROVE"})
+    return carried
 
 
 def h_opportunity_approved(w, item):
@@ -397,6 +482,16 @@ def deterministic_review(w, art, task, ver, unmet):
     return verdict, rationale, None
 
 
+def deterministic_evaluation(w, opp_id, chain_id=None):
+    """The world's own judgement of an opportunity: `EVAL_RULES`, read back.
+
+    Returns (status, reasons, run_id) — the same shape a model-backed evaluator
+    returns, so the supervisor cannot tell which one it has. No model is
+    consulted and none is needed: every input is already a row."""
+    status, failed = A.evaluate_opportunity(w.con, opp_id, by=OWNER, chain_id=chain_id)
+    return status, failed, None
+
+
 def h_review_requested(w, item):
     """The Reviewer sees the artifact and the evidence. Never the reasoning."""
     con, p = w.con, item["payload"]
@@ -579,6 +674,7 @@ HANDLERS = {
     "TASK_ACCEPTED": h_task_accepted,
     "LEASE_EXPIRED": h_lease_expired,
     "SKILL_GAP_FOUND": h_skill_gap,
+    "DECISION_REQUIRED": h_decision_required,
     "DISCOVERY_MADE": h_noop,
     "MESSAGE_SENT": h_noop,
     "EVIDENCE_ADDED": h_noop,
