@@ -1,0 +1,520 @@
+# نواة لوكا للروبوتات — Luka Robotics Kernel
+
+قدرات روبوتية مبرمجة، مختبَرة، وجاهزة للاستخدام. كل قدرة بتشتغل على محاكي فيه
+فيزياء حقيقية (عزم، بطارية، انزلاق، ناس بتمشي) — ونفس الكود بيشتغل على روبوت
+حقيقي عبر ROS 2 بدون ما تغيّر سطر بالقدرة نفسها.
+
+```bash
+npm test                     # ٥٣ اختبار للنواة والقدرات والقياس
+npm run demo                 # ١١ عرض كامل بالطرفية
+npm run dev                  # بعدين افتح /robots للعرض المرئي
+npm run robo -- list         # كل القدرات
+npm run robo -- run navigate.to '{"x":12,"y":8}'
+```
+
+## ⚠️ حدود لازم تنقال أول — limits, stated first
+
+هالقسم فوق مو تحت، لأنه أهم من أي رقم بالملف.
+
+- **المحاكي ثنائي الأبعاد.** الحتمية هون **خاصية قابلية إعادة إنتاج، مو ادّعاء
+  دقّة فيزيائية**. أفضل محرّكات الفيزياء الموجودة بتنحرف بشكل كبير عند لحظة
+  التلامس — وهاد بالضبط المكان اللي المناورة فيه بتصير مهمة.
+- **حارس الأمان و`safety.stoppable` أدوات تصميم، مو وظائف أمان معتمدة.** الأنظمة
+  اللي عم تشتغل فعلياً بدون أسوار حوالين الناس بتستعمل متحكّم أمان مستقل على
+  عتاد منفصل. الطبقة اللي هالمكتبة فيها مو هي.
+- **حلقة تحكّم ٥٠ هرتز بـ TypeScript فوق WebSocket مو طبقة زمن حقيقي.** على عتاد
+  حقيقي لازم يكون تحتها مراقب على عتاد أو خيط بأولوية حقيقية.
+- **أمان الروبوت عم يعتمد على تعاون الإنسان — بس مو كلياً.** عرض
+  `measured-crossing`: ٢٠/٢٠ مع ناس بينتبهوا، **٠/٢٠** مع ناس ما بيرفعوا راسهم.
+  مع `hri.yield-path` بيصير **٦٥٪** [٤٣–٨٢٪] — تحسّن حقيقي ومقيس، بس **لما لسا
+  بيفشل، بيفشل بقوة**: التلامسات بالجولة نزلت من ١٢٫٧ لـ١١٫٩ بس.
+- **مستوى الليدار فوق الأرض بعشرات السنتيمترات.** ما بيشوف قدم، ولا قطة، ولا شخص
+  مستلقي، ولا حافّة درجة. ولا شي بهالمكتبة بيغيّر هالحقيقة.
+- **`reflex.looming` انعكاس فزع، مو تفادي اصطدام.** ما بيشتعل للاقتراب البطيء
+  (تحت ~٠٫٤ م/ث) بالتصميم، وعنده إنذارات كاذبة وقت المناورة: خمس مرات بسبع أمتار
+  بغرفة مزدحمة، ولا وحدة منها خطر حقيقي.
+- **قاطع الأوامر الميتة بيشتغل جوّا هالعملية.** فالحالة اللي ما بيغطّيها هي بالضبط
+  موت العملية نفسها. لهيك لازم يكون عند القاعدة مهلة أوامر خاصة فيها، والفحص
+  بيعتبر غيابها على وصلة لاسلكية سبب رفض إذا السرعة أعلى من الزحف.
+
+> The simulator is 2-D and determinism is a reproducibility property, not a
+> fidelity claim. The safety governor and the stoppability monitor are design
+> aids, not certified safety functions. A 50 Hz loop in TypeScript over a
+> WebSocket is not a real-time layer. The robot's safety record depends heavily
+> on people cooperating — 20/20 with people who look where they are going, 0/20
+> with people who never look up, and 65% once it predicts their path instead of
+> reversing away from it. The runs it still loses, it loses badly. The lidar
+> plane cannot see a foot, an animal or a person lying down. `reflex.looming` is
+> a startle, not collision avoidance, and it has false positives while
+> manoeuvring. And the deadman runs inside this process, so the one case it
+> cannot cover is this process dying — which is why a wireless robot without its
+> own command timeout is refused above crawl speed.
+
+## احكي معه — talk to it
+
+```bash
+cp .env.example .env.local     # وحط ANTHROPIC_API_KEY
+npm run dev                    # بعدين افتح /robots/talk
+```
+
+الروبوت بيضلّ عايش بين رسائلك: الناس بتمشي، البطارية بتنقص، الحرّاس شغّالين.
+بتحكيله بالعربي أو بالإنجليزي — كتابة أو بصوتك — وهو بينفّذ قدراته وبيرجّعلك
+الأرقام الحقيقية اللي طلعت معه، مو وصف.
+
+> `/robots/talk` puts Claude behind the wheel with the abilities as its tools and
+> the robot's own sensor readings as its context. The world keeps running between
+> your messages, which is the whole point — a robot that only exists while you
+> are typing at it is a demo, not a robot. Voice in and out where the browser
+> supports it; typing everywhere.
+
+The abilities and the `/robots` page need no API key. Only the conversation does.
+
+**ملاحظة نشر:** صفحة الكلام بدها سيرفر بيضل شغّال (`npm start`، حاوية، أو خادم).
+على منصة serverless كل طلب ممكن ينزل على نسخة جديدة — يعني الروبوت اللي كنت
+تحكي معه ممكن ما يكون موجود بالرسالة الجاية، والساعة بتوقف لما ينتهي الطلب. باقي
+التطبيق شغّال عادي هناك.
+
+> The conversation needs a process that stays alive. On serverless each request
+> can land on a fresh instance, so the robot you were talking to may not be
+> there next message. Everything else in the app is fine on serverless.
+
+---
+
+## القدرات — The abilities
+
+| # | القدرة | ما بتعمله | الفكرة اللي وراها |
+|---|--------|-----------|-------------------|
+| 1 | `reflex.shield` · درع الانعكاس | حلقة حماية ٥٠ هرتز بتحسب الوقت للاصطدام وبتاخد المقود قبل ما ينتبه غيرها | معظم الإصابات بتصير بالفجوة بين ما يشوف الخطر وما يخلص تفكير فيه |
+| 2 | `motion.telegraph` · إشارة النيّة | بيعلن حركته الجاية بحركة تمهيدية بتستبعد الأهداف اللي مو رايح عليها | الناس بتنصاب لأن الروبوت غير مفهوم، مو لأنه سريع |
+| 3 | `balance.recover` · استرداد التوازن | بيحسب نقطة الالتقاط وبيرجّع القاعدة تحت مركز الثقل، أو بيستعد للارتطام | «هل أنا عم بوقع؟» بتصير عملية حسابية مو تخمين |
+| 4 | `memory.spatial` · الذاكرة المكانية | بيتذكر وين شاف كل غرض، وبيتعلّم لكل غرض كم بتضل معلومته صالحة | الفنجان بينتقل، الكنباية لأ — والروبوت لازم يعرف الفرق لحاله |
+| 5 | `learn.demo` · التعلّم بالتقليد | بيشوف الحركة مرة، بيحفظ شكلها، وبينفّذها لأي هدف جديد وبأي سرعة | البرمجة بالإحداثيات ما بتتوسّع؛ التعليم بالعرض بيتوسّع |
+| 6 | `grasp.adaptive` · القبضة المتكيّفة | بيقيس صلابة الغرض بالعصر، وبيمسكه بأقل قوة بتمنع الانزلاق — أو بيرفض | الرؤية بتقولك وين الغرض، بتضل ما بتقولك قديش تعصره |
+| 7 | `power.lifeline` · حبل النجاة | بيتعلّم كلفة كل متر فعلياً وبيوقف المهمة عند نقطة اللاعودة | نسبة البطارية رقم بلا معنى؛ السؤال هو: بقدر أرجع؟ |
+| 8 | `swarm.auction` · مزاد السرب | روبوتات بتوزّع الشغل بينها بالمزاد بدون موزّع مركزي | التقدير الصح موجود عند الروبوت نفسه، مو عند مخطط بعيد |
+| 9 | `sense.anomaly` · الحارس الحسّي | بيتعلّم الوضع الطبيعي لهالروبوت بالذات وبيبلّغ عن الانحراف المستمر | العتبة الثابتة إما طرشا على روبوت هادي أو بتزعّق على روبوت شوي مزعج |
+| 10 | `plan.rehearse` · البروفة الذهنية | بيجرّب الخطة مئات المرات بنسخة من العالم قبل ما يحرّك محرك | الوقت بالمحاكاة شبه مجاني؛ الوقت الحقيقي والضرر لأ |
+| 11 | `hri.handover` · التسليم لليد | بيقدّم الغرض وبيفلته لما يحس بشدّ إيد الشخص، مو على مؤقّت | التسليم أكتر تفاعل جسدي شائع بين الروبوت والإنسان |
+| 12 | `explore.frontier` · المستكشف | بيرسم خريطة مكان مجهول بالمشي على الحدود بين المعروف والمجهول | شرط التوقف واضح: ما ضل حدود يعني خلص المكان |
+| 13 | `navigate.to` · التنقل | بيوصل لنقطة ويتفادى كل شي بيظهر بالطريق | الأساس اللي بتبني عليه الباقي |
+| 14 | `safety.stoppable` · مراقب التوقف | بيجاوب باستمرار: لو وقف هلق، بيوصل لوضع ثابت بدون ما يوقع أو يصطدم؟ | حدّ السرعة بيجاوب «قديش بسرعة»، مو «هل التوقف لسا ممكن» — والاتنين بينفصلوا بالضبط وين بيهمّوا |
+| 15 | `hardware.checkout` · فحص ما قبل التشغيل | بيفحص الحسّاسات والفرامل وزر الطوارئ قبل أول حركة، وبيرفض يعطي الإذن إذا وحدة فشلت | الحسّاس المتجمّد أخطر من المعطّل: بيرجّع نفس المشهد للأبد، وهاد بينقرأ كعالم ساكن تماماً |
+| 16 | `hri.yield-path` · إخلاء الطريق | بيتوقّع وين رح يكون أقرب تلاقي، وبيتحرّك عالجنب برّا الطريق وهو لسا في وقت | الرجوع للورا أبطأ هروب ممكن — هو الاتجاه الوحيد اللي **على نفس خط اقترابهم** |
+| 17 | `reflex.looming` · انعكاس الاقتراب | ٣٦٧ خلية عصبية من كونكتوم الذبابة بتشتعل لما شي يكبر قدّام الليدار، وبتسحب الروبوت من الطريق | الشي اللي جاي عليك بيكبر بمعدّل بيرمّز الوقت الباقي — بدون ما تعرف سرعة حدا |
+
+كل قدرة بتشتغل هيك:
+
+```ts
+import { createSimRig } from "@/lib/robotics";
+
+const rig = createSimRig({ scenario: "cluttered-office" });
+rig.runtime.startDaemon("reflex.shield", {});           // الحماية أولاً
+const result = await rig.runtime.run("navigate.to", { x: 12, y: 8 });
+
+console.log(result.summary);
+// Arrived at (12.0, 8.0) — 10.7 m travelled, 1.02× the straight line.
+```
+
+---
+
+## What is actually in here
+
+```
+lib/robotics/
+  core/       the ability contract, registry, runtime, memory, DMP maths
+  safety/     the speed-and-separation governor every command passes through
+  sim/        a seeded 2-D world: physics, sensors, six scenarios
+  hal/        ROS 2 bridge — the same RobotIO interface, real hardware behind it
+  abilities/  the thirteen abilities
+  claude/     ability manifests as Anthropic tool definitions
+  demos.ts    nine scripted demonstrations that check their own outcomes
+```
+
+### The ability contract
+
+An ability is a manifest plus a `run` function. Nothing else.
+
+```ts
+export const myAbility: Ability<MyInput, MyReport> = {
+  manifest: {
+    id: "my.ability",
+    version: "1.0.0",
+    name: { en: "…", ar: "…" },
+    summary: { en: "…", ar: "…" },
+    rationale: "Why this is worth having.",
+    tags: ["…"],
+    risk: "motion",              // passive | motion | contact | critical
+    requires: ["drive", "lidar"],
+    typicalDurationMs: 8000,
+    inputSchema: { /* JSON schema — also the Claude tool schema */ },
+  },
+
+  async run(input, ctx) {
+    ctx.emit({ kind: "status", message: "…", ar: "…" });
+    ctx.robot.drive(0.5, 0);      // routed through the safety governor
+    await ctx.sleep(100);         // the robot's clock, not the wall clock
+    return { ok: true, summary: "…", data: {}, metrics: {} };
+  },
+};
+```
+
+Register it in `abilities/index.ts` and it immediately appears in the CLI, in the
+web UI, and as a Claude tool. `core.test.ts` enforces that every manifest is
+complete — bilingual names, a real rationale, a coherent schema.
+
+### The rules the runtime enforces for you
+
+- **Hardware gating** — an ability needing an `arm` is refused on a robot without one.
+- **Input validation** — bad input is rejected before anything moves.
+- **Risk gating** — `contact` abilities are refused while anyone is inside the
+  separation envelope or an emergency stop is latched.
+- **The governor** — every `drive()` is clamped to the speed that keeps the
+  protective separation distance inside the real distance to the nearest person.
+  Only `critical` abilities bypass it.
+- **Abort** — `ctx.signal` is honoured everywhere, and `ctx.sleep` wakes
+  immediately on abort so nothing can hang.
+- **Escalation** — a daemon that finds something disqualifying calls
+  `ctx.escalate(reason)`, which aborts the foreground mission.
+
+### The safety governor
+
+Modelled on ISO/TS 15066 speed-and-separation monitoring:
+
+```
+S(v) = v_human·(T_react + v/a_brake) + v·T_react + v²/(2·a_brake) + uncertainty
+```
+
+The governor inverts it in closed form: given the distance to the nearest
+person, what is the fastest this robot may travel? Full speed at 4 m, 0.9 m/s at
+2 m, 0.27 m/s at 1 m, stopped inside 0.6 m. A test asserts the model is
+self-consistent — whatever speed it permits at a distance, the protective
+distance that speed demands fits inside it.
+
+This is a working model for simulation and prototyping. Certifying a real
+machine is a different job involving rated safety hardware.
+
+### The simulator
+
+Seeded end to end, so a failing run replays exactly. It models what the
+abilities actually depend on:
+
+- differential drive with acceleration limits, and a linear inverted pendulum
+  with a saturating ankle — so a robot really can be pushed over, and really can
+  catch itself by driving back under its centre of mass;
+- gripper contact: fingers stop at the object, deform it under force, and creep
+  at constant force once past its yield point — which is what
+  `grasp.adaptive` listens for;
+- battery drawn against real motion, recharging at the dock;
+- lidar by raycast, IMU, noisy perception, health channels with injectable faults;
+- people who walk routes and step around robots.
+
+`world.snapshot()` / `SimWorld.restore()` are what make `plan.rehearse` possible:
+a fork of the live world, with its own seed, that shares nothing with the
+original — including memory, so a rehearsal cannot teach the robot something
+that never happened.
+
+### Going to real hardware
+
+`hal/ros2-bridge.ts` implements the same `RobotIO` interface over
+`rosbridge_suite` — JSON over a WebSocket, no native dependencies.
+
+```bash
+ros2 launch rosbridge_server rosbridge_websocket_launch.xml
+```
+
+```ts
+const robot = new Ros2Bridge({ url: "ws://robot.local:9090", robotId: "luka-1" });
+await robot.connect();
+const runtime = new RobotRuntime({ registry, robot, governor });   // no `world`
+await runtime.run("navigate.to", { x: 4, y: 2 });
+```
+
+Without a `world` the runtime uses the wall clock and `ctx.twin` is undefined, so
+`plan.rehearse` reports honestly that it has nothing to rehearse in. Everything
+else behaves identically. Check `robot.healthy()` before trusting a reading:
+sensor topics are served from the last message received, and a stale reading is
+more dangerous than no reading.
+
+### Driving it from Claude
+
+```ts
+import { abilityTools, executeAbilityTool, describeRobot } from "@/lib/robotics/claude/tools.ts";
+
+const tools = abilityTools(rig.registry);        // 13 tool definitions
+const system = describeRobot(rig.registry, "luka-1");
+// …then on a tool_use block:
+const { resultText } = await executeAbilityTool(rig.runtime, toolName, input);
+```
+
+Tool definitions are generated from the manifests, so they cannot drift.
+
+---
+
+## Measuring things honestly
+
+`lib/robotics/eval/` exists because the field's own complaint about itself in
+2026 is not that models are bad — it is that nobody can prove they got better.
+A bare percentage over ten episodes is not evidence, and this module makes it
+awkward to publish one.
+
+```ts
+import { runSuite, compare, report, type Protocol } from "@/lib/robotics/eval";
+
+const protocol: Protocol = {
+  name: "corridor crossing",
+  scenario: "busy-corridor",
+  seeds: [1000, 1007, 1014, /* … */],
+  timeLimitMs: 120_000,
+  criterion: { id: "arrived-without-contact", version: "1.0.0", description: "…" },
+  conditions: { shield: "on" },
+};
+
+const result = await runSuite(protocol, runOneEpisode);
+console.log(report(result));
+```
+
+```
+corridor crossing · busy-corridor  [919f8ef350b08551]
+  world busy-corridor · 20 episodes · 120s limit each
+  success: 20/20 = 100.0%
+  95% CI:  83.9% – 100.0%   (Wilson)
+  this many episodes can only resolve differences above 40 points
+  criterion: arrived-without-contact@1.0.0 — reached the goal and never touched a person
+  humanContacts: mean 0.000 ± 0.000 · median 0.000 · range 0.000–0.000
+```
+
+What it enforces:
+
+- **Every rate carries a Wilson interval.** Nine out of ten is 60–98%, not 90%.
+- **Every protocol has a fingerprint** over its seeds, limits, success criterion
+  and conditions. `compare()` throws on mismatched fingerprints rather than
+  subtracting two numbers that were never measuring the same thing.
+- **Comparisons are paired** (exact McNemar on the episodes where the two
+  variants disagreed), which needs far fewer episodes than comparing two
+  independent rates.
+- **Sample size before the experiment.** At a 50% baseline and 80% power:
+  93 episodes to detect 20 points, 388 for 10, about 9,800 for 2. `runSuite`
+  reports what its own episode count could actually have resolved.
+- **`sweep()` reports a curve**, not a number — one success rate on nominal
+  conditions is the statistic that made everyone stop trusting robot benchmarks.
+
+## Testing
+
+```bash
+npm test                        # 53 tests: kernel, safety model, statistics, every ability
+npm run demo                    # 11 demonstrations, each checking its own result
+npm run demo -- push-sweep      # just one
+```
+
+The tests are behavioural, not smoke tests. They assert things like:
+
+- a 1.6 rad/s shove topples the robot **unless** `balance.recover` catches it —
+  the control case is run first, so the test proves something;
+- a 12–4 win is reported as *unresolved* (p = 0.077), because it is;
+- `grasp.adaptive` recovers an unknown object's stiffness to within 20% by
+  squeezing it, and refuses the one object that cannot be held without damage —
+  leaving it undamaged;
+- crossing a corridor with two people never brings the robot inside the
+  separation envelope, measured against ground truth rather than the robot's own
+  noisy estimate;
+- a rehearsal of a hundred imagined missions leaves the real robot where it was,
+  to within a micrometre.
+
+## نقله لروبوت حقيقي — moving it to a real robot
+
+> **الدليل المرتّب خطوة بخطوة: [BRINGUP.md](./BRINGUP.md).** من `npm install`
+> لروبوت بيتحرّك، مع شو بيفشل بكل خطوة وكيف بتتأكد إنها اشتغلت.
+> A step-by-step bring-up guide, including what fails at each step.
+
+ثلاث حاجات لازم تكون موجودة قبل ما يتحرّك عتاد فعلي، وكلها هون:
+
+**١. ملف تعريف الروبوت (`hal/profile.ts`).** وصف للآلة دقيق كفاية لتقدر تكون غلط
+فيه: القياسات، الحدود، الحسّاسات الموجودة، **والحسّاسات المفقودة**، ونوع الوصلة،
+ومن وين إجت أرقام الحركة. `verified` بيقول إذا الأرقام انقاست ولّا انفترضت،
+و`absent` بيخلّي القدرة ترفض بالاسم بدل ما تفشل بنص الحركة.
+
+مافي افتراضي متساهل. المنصّة المجهولة بتاخد `CRAWL_PROFILE`: ٠٫٠٥ م/ث، قيادة بس،
+وحركيات مُعلَّمة «مفترضة» فبكل شغل بدّه دقّة مترية بينرفض.
+
+**٢. قاطع الأوامر الميتة (`hal/deadman.ts`).** أمر السرعة أمر دائم، مو حدث —
+بيضل شغّال لحد ما شي يستبدله. فإذا انقطعت الوصلة أو وقعت العملية، الروبوت
+بيكمّل على آخر أمر. المهلة عند المُرسِل ما بتنفع: المُرسِل هو اللي مات.
+
+فكل أمر إله تاريخ انتهاء. لما ينتهي: صفر، ومكرّر، وبعدين **بيتقفّل**. وبيضل
+مقفّل. إعادة التشغيل قرار منفصل، وبينرفض والعجلات لسا بتدور. ما في «بيرجع لحاله»
+— لأن معناها إنو الروبوت بيبلّش يتحرّك ومحدا واقف يتفرّج.
+
+**٣. الفحص قبل التشغيل (`hardware.checkout`).** إحدى عشرة بوابة بترتيب مقصود —
+ما بيتحرّك شي قبل ما يثبت اللي رح يوقفه:
+
+الملف · وضعية التشغيل · ادعاءات العتاد · حياة الليدار · الـIMU · البطارية ·
+**تطابق الساعات** · التأخير · الوصلة · زر الطوارئ · القيادة · الفرامل ·
+**قاطع الأوامر الميتة**
+
+آخر وحدة **بتنقاس مو بتنقال**: بتحرّك الروبوت، بتتخلّى عن الأمر، وبتسجّل شو صار.
+وبوابة الساعة موجودة لأن أكتر عطل بينحكى عنه كـ«التنقل ما بيشتغل» بيطلع ساعات
+مو متزامنة — والفحص بيفرّق بين إزاحة ثابتة (غلط) وزحف (غلط بمعدّل، بيشتغل الصبح
+وبيوقف بعد الضهر).
+
+> A profile describes the machine including what it does not have, a deadman
+> makes velocity commands expire and never resume on their own, and the checkout
+> refuses to clear the robot when any of it fails. The unknown platform gets a
+> crawl profile, not a permissive default.
+
+## الغياب لازم يبان — the failure mode that runs through all of this
+
+أكتر شي تكرّر لما نقلت هالنواة باتجاه عتاد حقيقي مو غلطة بالحساب. الحساب صحيح.
+المشكلة إنه **القناة الناقصة أو المجهولة كانت بتنقرا كقيمة منيحة**، وهاد أسوأ من
+الخطأ لأنه ما بيصرّخ.
+
+أربع حالات، كلها كانت موجودة وكلها انصلحت:
+
+ستّة منهم طلعوا **بالجسر لحاله** — وهو الكود الوحيد اللي رح يلمس آلة حقيقية،
+وكان أقل شي متغطّى باختبارات قبل هالمسح.
+
+| القناة | الغياب كان بينقرا كـ | ليش خطر |
+|---|---|---|
+| تتبّع الأشخاص | «ما في حدا قريب» | غرفة فاضية وروبوت أعمى بيعطوا نفس الرقم |
+| وحدة البطارية | «٠٫٨ = ٨٠٪» بالتخمين | بطارية شبه فاضية على سوّاقة ٠–١٠٠ بتقرا ممتلئة |
+| أمر السرعة | «لسا مطلوب» للأبد | ماتت العملية، والروبوت بيكمّل على آخر أمر |
+| ساعات الروبوت | «متزامنة» | أكتر عطل بينحكى عنه كـ«التنقّل خربان» |
+| **ليدار ميت** | **«الطريق فاضي»** | حسّاس الأمان وقع → الروبوت بيسرّع |
+| **IMU ميت** | **«واقف مظبوط»** | روبوت ممدّد عالأرض بيجيه «مسكت السقطة» |
+| قوة الماسك | «صفر نيوتن» | متحكّم عم يعصر بيضة بيستنتج إنه لسا ما بلّش |
+| **الجسر: CBOR/JSON** | **«ما في بيانات»** | بيطلب CBOR وبيفك JSON → ما بيستقبل ولا رسالة |
+| الجسر: موقع قديم | «عند نقطة الأصل» | مكان معقول تماماً — الملاحة بتنطلق من مكان غلط |
+| الجسر: سرعة قديمة | «واقف» | هامش أمان تبع روبوت واقف لروبوت ماشي |
+| الجسر: IMU قديم | طابع زمني **جديد** | بيعطّل فحص الأمان بملف تاني |
+| **الجسر: أمر بدون اتصال** | **«وصل»** | طلبت إيقاف، انحكالك وقف، وما راح لحدا |
+
+الحل بكل حالة نفس الشكل: **خلّي الغياب قيمة صريحة، وفسّر الغامض بالاتجاه اللي
+بيأذي أقل.** `peopleSensed: false` مو نفس الشي يلي «ما في حدا». البطارية المجهولة
+بتنقرا بأسوأ احتمال وبتنحطّ عليها `confident: false`. الأمر بينتهي وبيتقفّل.
+والساعة بتنقاس وبتنرفض إذا بتزحف.
+
+> Sixteen instances, six of them in the bridge alone. The same bug kept
+> appearing in different clothes: a channel that was missing or ambiguous read
+> as a good value. An undetected person reads as no person. An
+> unknown battery unit reads as the flattering interpretation. An unrenewed
+> command reads as still wanted. Unsynchronised clocks read as synchronised. In
+> every case the fix is the same shape — make the absence an explicit value, and
+> resolve the ambiguity in the direction that costs least when wrong.
+
+### ونفس الغلط وصل للشاشة — and the same bug reached the display
+
+لما انبنى العرض ثلاثي الأبعاد، طلع إنه نفس العائلة موجودة بآخر مكان بينتبهله حدا:
+الرسم. المحوّل (`adapter`) بيرجّع `NaN` للشعاع اللي ما رجع — لا صفر ولا أقصى مدى —
+وهاد مقصود ومكتوب بالكود. بس الراسمين، التنين، كانوا بياخدوا هالـ`NaN` وبيرسموه
+شعاع كامل لحدّ ١٢ متر. يعني الحرص كله بينهدم بآخر خطوة قبل العين.
+
+| القناة | الغياب كان بينقرا كـ | ليش خطر |
+|---|---|---|
+| **شعاع ما رجع (رسم)** | **«فاضي لحدّ ١٢ متر»** | العين بتصدّق الصورة؛ منطقة عمياء بتبيّن مفحوصة |
+
+الحل نفس الشكل: تلت حالات منفصلة بدل تنتين — سطح انقاس، وشعاع وصل لسقف مداه بدون
+ما يلاقي شي (معلومة سلبية حقيقية، بتنرسم باهتة وبتختفي)، وشعاع ما رجع أصلاً (ما
+بينرسم ولا شي). الحساب هاد صار بملف واحد مشترك بين الراسمين، و`beams.test.ts`
+بيمسكه.
+
+> Worth saying plainly because it is the newest place this bug turned up: the
+> kernel was careful, and the renderer threw that care away one step before the
+> eye. A sensor channel is not safe merely because the code that produces it is
+> honest — every layer between it and the person looking has to preserve the
+> distinction, including the one that only draws pictures.
+
+## عقل الذبابة — the fly's circuit, and the honest answer about cats
+
+`reflex.looming` مو تشبيه. جوّاته مسار الهروب الحقيقي عند ذبابة الفاكهة، موصول من
+بيانات كونكتوم مقيسة: **٣٦٧ خلية** من العين لعضلة القفز، مع **٥٧٬٤٥٠ نقطة اشتباك**
+بأعداد متأكّد منها.
+
+المقيس: مين بيوصل لمين، كم خلية بكل نوع، وكم مشبك بكل وصلة.
+المنمذَج: كل الأوزان، كل الثوابت الزمنية، كثافة كل إسقاط، ومنحنيات الاستجابة.
+المتوقَّع مو المقيس: إشارات التنشيط/التثبيط — و**الليف العملاق نفسه ثقته ٠٫٥٠**،
+يعني رمية عملة على أهم خلية بالدائرة.
+
+ليش تستاهل النقل؟ لأن مدخلَي الدائرة هما الحجم الزاوي ومعدّل توسّعه. الذبابة لازم
+تقدّرهم من تدفّق بصري؛ الليدار بيعطي المسافة مباشرة، فالحجم الزاوي بيطلع من قوس
+ظل واحد. الروبوت بيحسب الكميّات اللي هالخلايا تطوّرت لترميزها **أوضح من العين
+اللي تطوّرت إلها**.
+
+نتيجة ما انبرمجت: وقت التلامس عند الاشتعال بيضل شبه ثابت عبر مدى واسع من السرعات،
+والمدى بيكبر لما الاقتراب يصير أسرع.
+
+### وعن عقل القطة — about the cat brain
+
+سألتني عن عقول الذباب **والقطط**. الجواب المستقيم: **ما في كونكتوم لقطة، ولا مرة
+كان في.** ولا على مستوى الخلية ولا المشبك.
+
+اللي موجود وبينسمّى غلط «كونكتوم القطة» شغلتين:
+- **مصفوفة ٦٥ منطقة قشرية** من تحليل تجميعي لدراسات تتبّع (١٩٩٥). ٦٥ عقدة مقابل
+  ١٣٩٬٢٥٥ بدماغ الذبابة، وبتقول «V1 بتوصل لـV2 بقوة» — مو مخطّط أسلاك. ما فيك
+  تبني منها متحكّم.
+- **محاكاة IBM سنة ٢٠٠٩** اللي انحكى عنها «بحجم دماغ قطة». ما استعملت أي بيانات
+  اتصال من قطة إطلاقاً — كانت شبكة موصولة عشوائياً مقيسة على أعداد خلايا القشرة.
+
+أكبر كائن عنده خريطة عصبية **كاملة بدقّة المشبك** لليوم هو ذبابة الفاكهة. لهيك
+جبت الذبابة وما جبت القطة: الذبابة موجودة، والقطة لأ.
+
+### والدائرة التانية — البوصلة، وشو صار فيها
+
+جرّبت الدائرة التانية اللي رشّحها البحث: حلقة الاتجاه بالمجمّع المركزي (٢٨٣ خلية).
+النتيجة: **موصولة صح، وما بتشتغل.** ما في قدرة مسجّلة فوقها لأنه ما في شي يستاهل
+التسجيل.
+
+بتمسك النتوء لما شي خارجي يشغّله، وبتقرا مكانه صح (قوة ٠٫٩٥، وضمن ٣ درجات).
+والمحرّكات موصولة صح كمان — تشغيل نصف كرة بيخلّيها ٤٧ هرتز والتانية ٨.
+
+بس ما بتمسك النتوء لحالها. شلت التشغيل، الحلقة إما بتسكت أو بتشتعل كلها بالتساوي.
+جرّبت مدى واسع من الأوزان والعتبات — ولا تركيبة مسكت نتوء موضعي.
+
+**والأهم: نسخة أقدم كانت «بتشتغل» — قوة ٠٫٨٦ ونتوء نظيف. وطلعت وهم.** الخلايا
+كانت موزّعة على الأسافين من الصفر، فالباقي بيتكدّس على الأسافين الأولى، والنشاط
+بيتجمّع وين الخلايا أكتر. لما وزّعتهم بالتساوي، النتوء اختفى — وهيك بتعرف إنه ما
+كان ديناميكا أصلاً.
+
+السبب الحقيقي: **الكونكتوم بيثبّت الرسم البياني، وما بيثبّت ولا رقم من اللي
+بيقرّروا إذا الحلقة رح تصير جاذب.** دائرة الهروب اشتغلت لأنها أمامية — عتبة وحدة
+لازم تنضبط. الحلقة الراجعة بدها **توازن**، والتوازن بينلاقى بالتحسين مو بالتخمين.
+كل نتيجة منشورة طلّعت وظيفة من كونكتوم ثبّتت الرسم من البيانات و**حسّنت** الباقي
+بالتدرّج.
+
+خلّيت الكود والنتيجة السلبية مكتوبة، مع اختبار بيفشل إذا حدا لقى إعدادات بتشتغل —
+عشان التوثيق ما يصير غلط بالسكوت.
+
+> The second circuit the research recommended — the central complex heading
+> ring, 283 cells — is wired from measured data and **does not work**. No
+> ability is registered on it. It holds and reads a bump that something else
+> drives, and its shifters are correctly asymmetric, but it will not hold a bump
+> on its own at any parameters found. An earlier version appeared to work and
+> was an artifact of uneven cell layout; spreading the cells evenly made the
+> bump vanish, which is how you can tell it was never attractor dynamics. The
+> connectome fixes the graph and fixes none of the numbers that decide whether a
+> recurrent circuit is an attractor. Kept, with a test that fails if someone
+> finds parameters that work.
+
+> There is no cat connectome and there never has been. What gets called one is
+> either a 65-area matrix from a 1995 meta-analysis of tract-tracing papers — 65
+> nodes against the fly's 139,255, and areal rather than cellular — or the 2009
+> IBM "cat-scale" simulation, which used no cat connectivity data at all. The
+> largest animal with a complete synapse-resolution map is still the fruit fly,
+> which is why the fly is what is in here.
+
+## Known limits
+
+- The simulator is 2-D. Arm motions are planar plus height; there is no
+  manipulation in full 6-DOF, and no dynamics for the arm itself.
+- `explore.frontier` is reactive: it has no global planner, so it can take a
+  long way round. It reports cells mapped per metre driven so you can see when
+  that is happening.
+- Coverage is measured against the region the robot has reason to believe
+  exists. Early in a mission that number is low and honest, not wrong.
+- The safety governor models separation monitoring. It is not a certified
+  safety controller, and nothing here should be the only thing between a machine
+  and a person.
+- The 3D view on `/robots` is a renderer, not a second simulator. The world and
+  its physics stay two-dimensional: there is no height field, no slope, no
+  ground normal and no foot contact. Every height in that scene — walls,
+  obstacles, the robot's own body — is a choice the renderer made so the picture
+  reads, and the simulator knows none of them. The view says so in a badge, and
+  a test in `physics.test.ts` holds the boundary.

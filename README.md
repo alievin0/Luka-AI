@@ -86,6 +86,51 @@ Open [http://localhost:3000](http://localhost:3000) and start chatting.
 - `Find me the best-rated air fryer under $120`
 - `شو صار بسلتي؟`
 
+## 🤖 Robotics: Luka's abilities
+
+The repo also carries a **robotics kernel** — thirteen programmed, tested robot
+abilities that run against a seeded physics simulator, and against real hardware
+through the same interface.
+
+```bash
+npm test                 # 53 tests across the kernel, the statistics and every ability
+npm run demo             # 11 demonstrations that check their own outcomes
+npm run dev              # then open /robots to watch, or /robots/talk to instruct it
+npm run robo -- list     # the catalogue
+```
+
+`/robots/talk` hands Claude the abilities as tools and lets you instruct a
+persistent robot in Arabic or English, by typing or by voice, while you watch it
+move. The world keeps running between messages — people walk, the battery
+drains, the guardians watch. Only that page needs an API key.
+
+| Ability | What it does |
+| --- | --- |
+| `reflex.shield` | 50 Hz guardian that measures time-to-collision and brakes before anything else notices |
+| `motion.telegraph` | Announces the next move with a pre-cue that rules out the goals it is *not* going to |
+| `balance.recover` | Catches a fall using the capture point, or braces when the fall is already lost |
+| `memory.spatial` | Remembers where things were, and learns per object how fast that knowledge goes stale |
+| `learn.demo` | Watches a movement once, then performs it toward any new target, at any speed |
+| `grasp.adaptive` | Measures an unknown object's stiffness by squeezing, holds at the least force that works — or refuses |
+| `power.lifeline` | Learns the real cost per metre and calls the mission at the point of no return |
+| `swarm.auction` | Robots divide work by bidding their true costs — no dispatcher, no single point of failure |
+| `sense.anomaly` | Learns this robot's own normal and reports sustained departures before they become failures |
+| `plan.rehearse` | Runs a plan hundreds of times in a forked copy of the world before touching a motor |
+| `hri.handover` | Presents an object and releases on the feel of a person's pull, never into empty air |
+| `explore.frontier` | Maps an unknown space by driving to the boundary between the known and the unseen |
+| `navigate.to` | Gets to a point, steering around whatever appears |
+| `safety.stoppable` | Answers continuously whether the robot could still come to rest without falling or hitting anything |
+
+It also ships `lib/robotics/eval/` — protocol fingerprints, Wilson intervals,
+paired McNemar comparisons and power calculations — because a success rate
+without an interval is not evidence. The `measured-crossing` demo uses it to
+report something uncomfortable and true: 20/20 clean crossings when people watch
+where they are going, 0/20 when they do not.
+
+Full documentation, the ability contract, the researched backlog, and how to put
+these on a real robot over ROS 2: [`lib/robotics/README.md`](lib/robotics/README.md)
+and [`lib/robotics/RESEARCH.md`](lib/robotics/RESEARCH.md).
+
 ## 📝 Notes & limits
 
 - The agent **researches and links — it never pays or places orders**. Checkout
