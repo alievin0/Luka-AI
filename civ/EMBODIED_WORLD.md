@@ -143,6 +143,22 @@ The renderer walks those legs at a steady pace, so a long journey takes longer
 than a short one. It never picks a destination; `move_to` still demands a reason
 and a cause, and refuses to send anyone towards finished work.
 
+`waypoints` is the route that **remains**. Both thresholds are included — the
+doors out of the building an agent is leaving and the doors into the one it is
+entering, because the route is planned district to district and the legs that
+actually cross a wall are the first and the last. A door the agent's recorded
+position has already passed is dropped, and two rooms of one building are
+reached along its corridor rather than by going outdoors and back in.
+
+Between two polls a body walks only the part it actually covered: the renderer
+keeps the previous route and takes the prefix that has since disappeared from
+it. That difference is exact, so no body is ever sent on a round trip to the end
+of its route and back.
+
+An agent's floating identifier is the mark its own body carries — `RE-49 ·
+Researcher · Rework` — and it stays small. A body you can recognise does not
+need a banner, and a world of banners is a world you cannot see.
+
 Separation between agents is a property of the **data** — stations, room
 capacity and `slot` — so the renderer never has to push two bodies apart. A test
 asserts no two agents at rest are within 0.9 units of each other.
@@ -212,6 +228,7 @@ python3 world_server.py --db embodied-world.db --port 8790
 #   /bodies   the agent registry
 ```
 
-`civ/world_ui/three/shots/E1…E9` are the acceptance screenshots: campus,
+`civ/world_ui/three/shots/E1…E10` are the acceptance screenshots: campus,
 district cutaway, a furnished floor, a body at arm's length, the build cell,
-the dispatch floor, inspection, the registry, and 405 bodies under stress.
+the dispatch floor, inspection, the registry, 405 bodies under stress, and an
+agent actually in transit with its route drawn.

@@ -459,10 +459,21 @@ function bounds(builtOnly) {
    but a wall is in the way. (3) A straight line, when nothing is in the way.
    Nowhere does this file decide WHERE anyone goes — only how to get the body
    there without walking it through a wall. */
-function legsFor(from, to, a) {
+function legsFor(from, to, a, before) {
   const pts = [];
-  if (a.movement === "MOVING" && (a.waypoints || []).length) {
-    for (const w of a.waypoints) pts.push(P3(w.x, w.y));
+  // `a.waypoints` is the route that REMAINS from where the agent is now. What
+  // this tween needs is the part it has just WALKED — the points that were in
+  // the previous poll's route and are no longer in this one. That difference is
+  // a prefix, so it is exact rather than a guess about which points are behind.
+  const now = a.waypoints || [];
+  const passed = (before || []).slice(0, Math.max(0, (before || []).length - now.length));
+  if (passed.length) {
+    for (const w of passed) pts.push(P3(w.x, w.y));
+    pts.push(to.clone());
+  } else if (a.movement === "MOVING" && now.length && !before) {
+    // First sight of an agent already under way: no previous route to diff
+    // against, so walk it to where it is and pick the route up next poll.
+    pts.push(to.clone());
   } else {
     // Leaving a room, entering a room: use the door. `navmesh.doors` is the
     // same list the world walks; there is no second opinion about where a
@@ -545,9 +556,10 @@ function syncAgents() {
     if (!e.to.equals(target)) {
       e.from = e.root.position.clone();
       e.to = target;
-      e.legs = legsFor(e.from, target, a);
+      e.legs = legsFor(e.from, target, a, e.route);
       e.t = 0;
     }
+    e.route = a.waypoints || null;
     e.state = a.state;
     e.data = a;
     // The animation is whatever the server derived from real rows. This client
@@ -735,11 +747,19 @@ function drawLabels() {
     }
     if (l.draws.includes("agents")) {
       for (const [id, e] of AGENTS) {
-        const s = project(e.root.position.clone().add(new THREE.Vector3(0, 2.1, 0)));
+        const h = (e.data.appearance?.height || 1.78) + .42;
+        const s = project(e.root.position.clone().add(new THREE.Vector3(0, h, 0)));
         if (!s.vis) continue;
         const a = e.data;
-        out.push(`<div class="lbl agent" style="left:${s.x}px;top:${clear(s.x, s.y)}px">
-          <b>${esc(a.name.toUpperCase())}</b><span>${esc(a.state)}</span></div>`);
+        // The identifier is the mark the body itself carries, so what is
+        // written above an agent is the same string stamped on its chest. It
+        // stays SMALL: a body you can recognise does not need a banner, and a
+        // world of banners is a world you cannot see.
+        const mark = a.appearance?.marking;
+        out.push(`<div class="lbl agent${e.anim === "idle" ? " faded" : ""}"
+          style="left:${s.x}px;top:${clear(s.x, s.y)}px">
+          <b>${esc(mark || a.name.toUpperCase())}</b><span>${esc(a.name)}${
+            e.anim && e.anim !== "idle" ? " · " + esc(e.anim) : ""}</span></div>`);
       }
     }
   }

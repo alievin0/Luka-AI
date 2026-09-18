@@ -536,6 +536,12 @@ def waypoints(con, agent_id):
     if loc is None or loc["movement"] != SPACE.MOVING:
         return []
     out = []
+    # Leaving: a body standing inside a building goes out through its own door
+    # before crossing open ground. The route already plans the crossing; this
+    # only says where the crossing starts.
+    for d in _threshold(con, loc["workspace"], loc["destination"], leaving=True,
+                        at=(loc["x"], loc["y"])):
+        out.append(d)
     for wp in json.loads(loc["path"] or "[]"):
         p = con.execute("SELECT * FROM world_places WHERE id=?", (wp,)).fetchone()
         if p is None:
@@ -545,9 +551,42 @@ def waypoints(con, agent_id):
             out.append({"x": d["x"], "y": d["y"], "door": wp})
         out.append({"x": round(p["x"] + p["w"] / 2.0, 3),
                     "y": round(p["y"] + p["h"] / 2.0, 3), "place": wp})
+    # Arriving: the route plans district to district, so the last leg — the one
+    # that actually goes INSIDE — is the one most likely to cross a wall. Enter
+    # through the destination's own doorways.
+    for d in _threshold(con, loc["destination"], loc["workspace"], leaving=False):
+        out.append(d)
     if loc["dest_x"] is not None:
         out.append({"x": loc["dest_x"], "y": loc["dest_y"], "arrive": loc["destination"]})
     return out
+
+
+def _threshold(con, workspace, other, leaving, at=None):
+    """The doors between a workspace and the open ground outside its building.
+
+    Returns nothing when both ends are inside the same facility: two rooms of
+    one building are reached along its own corridor, not by going outdoors. And
+    nothing on the way OUT once the agent's recorded position is already past
+    the building — this list is the route that REMAINS, and a door behind you is
+    not part of it."""
+    p = con.execute("SELECT * FROM world_places WHERE id=?", (workspace,)).fetchone()
+    if p is None or p["kind"] != "workspace" or not p["parent_id"]:
+        return []
+    q = con.execute("SELECT * FROM world_places WHERE id=?", (other,)).fetchone()
+    if q is not None and q["parent_id"] == p["parent_id"]:
+        return []
+    fac = con.execute("SELECT * FROM world_places WHERE id=?",
+                      (p["parent_id"],)).fetchone()
+    if leaving and at is not None and fac is not None:
+        x, y = at
+        inside = (fac["x"] - 0.5 <= x <= fac["x"] + fac["w"] + 0.5
+                  and fac["y"] - 0.5 <= y <= fac["y"] + fac["h"] + 0.5)
+        if not inside:
+            return []
+    doors = [doorway(con, workspace), doorway(con, p["parent_id"])]
+    if not leaving:
+        doors = list(reversed(doors))
+    return [{"x": d["x"], "y": d["y"], "door": d["place"]} for d in doors if d]
 
 
 def encounters(con, limit=12):

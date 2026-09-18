@@ -381,6 +381,74 @@ class MovementIsCausedByWork(unittest.TestCase):
         con = world()
         self.assertEqual(EMB.waypoints(con, RES), [])
 
+    def test_the_last_leg_enters_the_destination_through_its_doors(self):
+        """The route is planned district to district, so the leg that actually
+        goes INSIDE is the one most likely to cross a wall."""
+        con = world()
+        SPACE.move_to(con, OPER, "ws_pad", why="an operations task waits there",
+                      worker="w")
+        wps = EMB.waypoints(con, OPER)
+        names = [w.get("door") for w in wps]
+        self.assertIn("pad", names, "the route does not enter the building")
+        self.assertIn("ws_pad", names, "the route does not enter the room")
+        self.assertLess(names.index("pad"), names.index("ws_pad"),
+                        "the room door comes before the building door")
+        self.assertEqual(wps[-1].get("arrive"), "ws_pad")
+
+    def test_the_first_leg_leaves_through_the_door_it_came_in_by(self):
+        con = world()
+        SPACE.move_to(con, OPER, "ws_pad", why="an operations task waits there",
+                      worker="w")
+        names = [w.get("door") for w in EMB.waypoints(con, OPER)]
+        self.assertEqual(names[0], "ws_dispatch")
+        self.assertEqual(names[1], "dispatch")
+
+    def test_a_door_already_behind_the_agent_is_not_still_ahead_of_it(self):
+        """`waypoints` is the route that REMAINS. Once the recorded position is
+        outside the building, its exit is not part of what is left."""
+        con = world()
+        SPACE.move_to(con, OPER, "ws_pad", why="an operations task waits there",
+                      worker="w")
+        SPACE.advance(con, OPER, worker="w", steps=8)
+        loc = SPACE.locate(con, OPER)
+        if loc["movement"] != SPACE.MOVING:
+            self.skipTest("the journey finished inside one advance")
+        fac = SPACE.place(con, "dispatch")
+        outside = not (fac["x"] <= loc["x"] <= fac["x"] + fac["w"]
+                       and fac["y"] <= loc["y"] <= fac["y"] + fac["h"])
+        if not outside:
+            self.skipTest("still inside the building it started in")
+        names = [w.get("door") for w in EMB.waypoints(con, OPER)]
+        self.assertNotIn("dispatch", names)
+        self.assertNotIn("ws_dispatch", names)
+
+    def test_two_rooms_of_one_building_are_not_reached_by_going_outdoors(self):
+        """The build cells share the factory. Walking between them still goes in
+        through cell 2's own door — but NOT out through the factory's and back
+        in again, which is what a route that treated every room as its own
+        building would do for a journey of six metres."""
+        con = world()
+        self.assertEqual(SPACE.place(con, "ws_cell_0")["parent_id"],
+                         SPACE.place(con, "ws_cell_2")["parent_id"])
+        SPACE.move_to(con, BUILD, "ws_cell_0", why="assigned a build task",
+                      worker="w")
+        SPACE.advance(con, BUILD, worker="w", steps=60)
+        self.assertEqual(SPACE.locate(con, BUILD)["workspace"], "ws_cell_0")
+        SPACE.move_to(con, BUILD, "ws_cell_2", why="the next build task",
+                      worker="w", redirect=True)
+        names = [w.get("door") for w in EMB.waypoints(con, BUILD) if w.get("door")]
+        self.assertEqual(names, ["ws_cell_2"])
+
+    def test_the_renderer_walks_only_the_part_that_was_covered(self):
+        """The payload's waypoints are what REMAINS. A renderer that walked the
+        whole remainder and then jumped back to the current position would send
+        every body on a round trip once per poll."""
+        js = open(os.path.join(JS, "world3d.js"), encoding="utf-8").read()
+        block = js[js.index("function legsFor"):]
+        block = block[:block.index("\n}")]
+        self.assertIn("passed", block)
+        self.assertIn("e.route", js, "the previous route is never remembered")
+
 
 # ── 5. nothing is invented ──────────────────────────────────────────
 class TheWorldPrefersTruth(unittest.TestCase):
