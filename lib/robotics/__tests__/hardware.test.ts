@@ -11,6 +11,8 @@ import {
   linkSupportsControl,
   CRAWL_PROFILE,
   CRAWL_LINEAR,
+  ARC2_TEMPLATE,
+  modeLimits,
   type RobotProfile,
 } from "../hal/profile.ts";
 import { Deadman } from "../hal/deadman.ts";
@@ -684,4 +686,81 @@ test("no sensing channel invents a reading for hardware the robot lacks", () => 
     verdict.speedScale <= 1 && Number.isFinite(verdict.speedScale),
     "the governor produced no usable verdict for a minimal robot",
   );
+});
+
+// --- a machine that can change shape ----------------------------------------
+
+test("a profile with two shapes has to give limits for both", () => {
+  // Declaring "camera" and not saying how far it sees cost this repository a
+  // headline result. Declaring a shape-changer and giving it one set of limits
+  // is the same claim: that the two shapes behave identically. If they did, the
+  // machine would not need two.
+  const twoShapes: RobotProfile = {
+    ...ARC2_TEMPLATE,
+    morphology: {
+      ...ARC2_TEMPLATE.morphology!,
+      modes: [ARC2_TEMPLATE.morphology!.modes[0]],
+    },
+  };
+  assert.match(
+    validateProfile(twoShapes).join(" "),
+    /fewer than two modes/,
+    "a one-mode morphology block passed validation",
+  );
+
+  const unnamedDefault: RobotProfile = {
+    ...ARC2_TEMPLATE,
+    morphology: { ...ARC2_TEMPLATE.morphology!, defaultMode: "hover" },
+  };
+  assert.match(validateProfile(unnamedDefault).join(" "), /defaultMode/);
+
+  const instant: RobotProfile = {
+    ...ARC2_TEMPLATE,
+    morphology: {
+      ...ARC2_TEMPLATE.morphology!,
+      transitions: [{ from: "wheel", to: "leg", seconds: 0, source: "assumed" }],
+    },
+  };
+  assert.match(
+    validateProfile(instant).join(" "),
+    /instantaneous/,
+    "a free shape change passed validation, and nothing mechanical is free",
+  );
+
+  assert.deepEqual(validateProfile(ARC2_TEMPLATE), [], validateProfile(ARC2_TEMPLATE).join(" "));
+});
+
+test("not saying which shape the robot is in gets the slow answer", () => {
+  // The safe direction. A caller that has not named a mode does not know which
+  // one the machine is in, so it gets the worst of each number across all of
+  // them rather than the envelope at the top of the profile.
+  const blind = limitsFrom(ARC2_TEMPLATE);
+  const wheel = limitsFrom(ARC2_TEMPLATE, "wheel");
+  const leg = limitsFrom(ARC2_TEMPLATE, "leg");
+
+  assert.equal(blind.maxLinear, leg.maxLinear, "the unnamed case should be the slowest mode");
+  assert.ok((wheel.maxLinear ?? 0) > (leg.maxLinear ?? 0), "the two modes are not distinguishable");
+  assert.ok(
+    (blind.maxLinear ?? 0) < ARC2_TEMPLATE.maxLinear,
+    "the unnamed case returned the envelope, which is what the robot can do in its best shape",
+  );
+  assert.equal(blind.maxDecel, Math.min(wheel.maxDecel ?? 0, leg.maxDecel ?? 0));
+
+  // A fixed-shape profile is untouched, which is every other platform here.
+  assert.equal(limitsFrom(SIMULATED_ROVER).maxLinear, SIMULATED_ROVER.maxLinear);
+  assert.throws(() => modeLimits(SIMULATED_ROVER, "leg") && limitsFrom(ARC2_TEMPLATE, "hover"));
+});
+
+test("ARC-2 claims nothing, including the number its first hypothesis turned on", () => {
+  // A profile for a machine that does not exist, which says so in the only way
+  // that matters. `normalForceAuthority` is absent on purpose: it is what the
+  // legs buy over a passive suspension, and assuming it is exactly how the
+  // first ARC-2 hypothesis went wrong.
+  assert.equal(ARC2_TEMPLATE.verified, "unverified");
+  for (const mode of ARC2_TEMPLATE.morphology!.modes) {
+    assert.equal(mode.source, "assumed", `mode "${mode.name}" claims a measured number`);
+  }
+  assert.equal(ARC2_TEMPLATE.morphology!.normalForceAuthority, undefined);
+  assert.ok((ARC2_TEMPLATE.absent ?? []).length >= 3, "it should say what it does not know");
+  assert.equal(ARC2_TEMPLATE.kinematics, undefined, "unmeasured kinematics are absent, not guessed");
 });

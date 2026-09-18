@@ -74,6 +74,62 @@ export type Kinematics = {
   minMovingSpeed?: number;
 };
 
+/**
+ * One shape the machine can be in, and what it can do while it is in it.
+ *
+ * A wheel-leg robot is two robots that share a body, and the numbers that
+ * matter are different for each: wheels are fast, cheap and statically stable;
+ * legs are slow, expensive and often not. A profile with one set of limits for
+ * a machine with two shapes is claiming they behave the same, which is the same
+ * mistake as declaring "camera" and not saying how far it sees.
+ */
+export type MorphologyMode = {
+  /** The machine's own name for it — "wheel", "leg", "hybrid", "crawl". */
+  name: string;
+  maxLinear: number;
+  maxAngular: number;
+  maxAccel: number;
+  maxDecel: number;
+  /** Whether the body holds itself up in this mode or has to balance. */
+  stance: "static" | "dynamic";
+  /** Floor clearance in this mode, metres. Legs usually raise the belly. */
+  groundClearance?: number;
+  /** Draw at the nominal speed, watts. Wheels are cheap and legs are not. */
+  nominalWatts?: number;
+  source: "measured" | "datasheet" | "assumed";
+};
+
+export type MorphologyProfile = {
+  modes: MorphologyMode[];
+  /** The shape the machine powers up in. */
+  defaultMode: string;
+  /**
+   * What it costs to change shape. Absent means nobody has measured it, which
+   * matters because every decision to switch is a decision about this number.
+   */
+  transitions?: Array<{
+    from: string;
+    to: string;
+    seconds: number;
+    joules?: number;
+    source: "measured" | "assumed";
+  }>;
+  /**
+   * The fraction of body weight the actuators can take off any one contact,
+   * 0..1. This is the thing legs physically buy that a passive suspension
+   * cannot: a rocker-bogie equalises load by design and cannot choose to do
+   * otherwise.
+   *
+   * Undefined when nobody has measured it — which is not zero and not one. The
+   * first ARC-2 hypothesis turned on this quantity and was refuted in
+   * `arc2/terramechanics.ts`, which does not make the number less worth
+   * measuring; it makes it less worth assuming.
+   */
+  normalForceAuthority?: number;
+  /** How many ground contacts there are, and how many can be unloaded. */
+  contacts?: { count: number; liftable: number };
+};
+
 export type RobotProfile = {
   id: string;
   name: Bilingual;
@@ -153,6 +209,16 @@ export type RobotProfile = {
   /** Gripper force ceiling in newtons, when there is a gripper. */
   maxContactForce?: number;
   /**
+   * The shapes this machine can take, when it can take more than one.
+   *
+   * Absent means fixed morphology, which is every platform in this file except
+   * the ARC-2 template. When it is present the top-level motion numbers are the
+   * machine's envelope, and `limitsFrom` without a named mode returns the
+   * *most restrictive* mode instead — because a caller that has not said which
+   * shape the robot is in does not know, and not knowing has a safe direction.
+   */
+  morphology?: MorphologyProfile;
+  /**
    * What this platform cannot do, in plain words. Stated so an ability can
    * refuse with a reason instead of failing in an interesting way.
    */
@@ -166,12 +232,45 @@ export type RobotProfile = {
   verified: "simulator" | "measured" | "from-documentation" | "unverified";
 };
 
-/** Turn a profile into the safety limits the governor should run with. */
-export function limitsFrom(profile: RobotProfile): Partial<SafetyLimits> {
+/** The mode by that name, or the most restrictive one when none is named. */
+export function modeLimits(
+  profile: RobotProfile,
+  mode?: string,
+): Pick<MorphologyMode, "maxLinear" | "maxAngular" | "maxDecel"> {
+  const morphology = profile.morphology;
+  if (!morphology || morphology.modes.length === 0) {
+    return {
+      maxLinear: profile.maxLinear,
+      maxAngular: profile.maxAngular,
+      maxDecel: profile.maxDecel,
+    };
+  }
+  if (mode !== undefined) {
+    const found = morphology.modes.find((m) => m.name === mode);
+    if (!found) {
+      throw new Error(
+        `${profile.id} has no "${mode}" mode. It has: ${morphology.modes.map((m) => m.name).join(", ")}.`,
+      );
+    }
+    return found;
+  }
+  // Nobody said which shape the robot is in. Take the worst of each number
+  // separately rather than the worst mode, because a caller that does not know
+  // the mode cannot rely on any single one of them.
   return {
-    maxLinear: profile.maxLinear,
-    maxAngular: profile.maxAngular,
-    maxDecel: profile.maxDecel,
+    maxLinear: Math.min(...morphology.modes.map((m) => m.maxLinear)),
+    maxAngular: Math.min(...morphology.modes.map((m) => m.maxAngular)),
+    maxDecel: Math.min(...morphology.modes.map((m) => m.maxDecel)),
+  };
+}
+
+/** Turn a profile into the safety limits the governor should run with. */
+export function limitsFrom(profile: RobotProfile, mode?: string): Partial<SafetyLimits> {
+  const motion = modeLimits(profile, mode);
+  return {
+    maxLinear: motion.maxLinear,
+    maxAngular: motion.maxAngular,
+    maxDecel: motion.maxDecel,
     reactionTime: profile.reactionTimeMs / 1000,
     // Both bodies have to fit: the robot's own radius plus a person's.
     minSeparation: profile.footprintRadius + 0.25 + 0.02,
@@ -350,10 +449,92 @@ export const GENERIC_ROVER_TEMPLATE: RobotProfile = {
   verified: "unverified",
 };
 
+/**
+ * ARC-2, which does not exist.
+ *
+ * Every number here is a guess, and the file says so in the only way that
+ * matters: `verified: "unverified"`, every mode `source: "assumed"`, and the
+ * quantities nobody has measured left out rather than filled in. It is here so
+ * that a capability written for a shape-changing machine has something to be
+ * refused by, and so that the shape of what has to be measured is visible
+ * before there is a machine to measure it on.
+ *
+ * `normalForceAuthority` is deliberately absent. It is the one number that says
+ * what the legs physically buy over a passive suspension, the first ARC-2
+ * hypothesis turned on it, and assuming it is exactly how that hypothesis went
+ * wrong. Undefined is the honest value until somebody puts a load cell under a
+ * wheel and lifts.
+ */
+export const ARC2_TEMPLATE: RobotProfile = {
+  id: "arc-2",
+  name: { en: "ARC-2 (no machine yet)", ar: "ARC-2 (ما في آلة بعد)" },
+  base: "differential",
+  footprintRadius: 0.35,
+  comHeight: 0.4,
+  footHalf: 0.22,
+  // The envelope: the best any mode manages. `limitsFrom` without a named mode
+  // does not use these — it takes the worst of each number across the modes.
+  maxLinear: 1.2,
+  maxAngular: 1.6,
+  maxAccel: 1.2,
+  maxDecel: 1.2,
+  capabilities: ["drive", "lidar", "imu", "camera", "battery"],
+  reactionTimeMs: 150,
+  groundClearance: 0.08,
+  morphology: {
+    defaultMode: "wheel",
+    modes: [
+      {
+        name: "wheel",
+        maxLinear: 1.2,
+        maxAngular: 1.6,
+        maxAccel: 1.2,
+        maxDecel: 1.2,
+        stance: "static",
+        groundClearance: 0.08,
+        source: "assumed",
+      },
+      {
+        name: "leg",
+        // Slower, weaker and higher off the ground. The numbers are guesses;
+        // the *ordering* is the part that is not — a machine whose legs are as
+        // fast as its wheels does not need wheels.
+        maxLinear: 0.35,
+        maxAngular: 0.8,
+        maxAccel: 0.4,
+        maxDecel: 0.4,
+        stance: "dynamic",
+        groundClearance: 0.22,
+        source: "assumed",
+      },
+    ],
+    transitions: [
+      { from: "wheel", to: "leg", seconds: 4, source: "assumed" },
+      { from: "leg", to: "wheel", seconds: 3, source: "assumed" },
+    ],
+    contacts: { count: 4, liftable: 4 },
+    // normalForceAuthority: deliberately absent — see above.
+  },
+  absent: [
+    "Every number in this profile. No ARC-2 has been built.",
+    "normalForceAuthority — what the legs can actually take off a wheel.",
+    "The energy cost of a mode change, as opposed to its duration.",
+    "Whether the leg mode can be entered from a standstill only, or while moving.",
+  ],
+  notes: [
+    "This is a shape for measurements to be poured into, not a description of a machine.",
+    "The first thing to measure is the one the retreat hypothesis turns on: drive into a " +
+      "prepared patch of loose material at a controlled slip, count the passes, then measure " +
+      "what it takes to reverse out — and repeat the exit in leg mode.",
+  ],
+  verified: "unverified",
+};
+
 export const PROFILES: Record<string, RobotProfile> = {
   [SIMULATED_ROVER.id]: SIMULATED_ROVER,
   [GENERIC_ROVER_TEMPLATE.id]: GENERIC_ROVER_TEMPLATE,
   [CRAWL_PROFILE.id]: CRAWL_PROFILE,
+  [ARC2_TEMPLATE.id]: ARC2_TEMPLATE,
 };
 
 /**
@@ -454,6 +635,67 @@ export function validateProfile(profile: RobotProfile): string[] {
       `At ${profile.maxLinear} m/s this robot needs ${stoppingDistance.toFixed(1)} m to stop. ` +
         "That is a long way to be wrong about. Lower maxLinear until you have measured it.",
     );
+  }
+
+  const morphology = profile.morphology;
+  if (morphology) {
+    if (morphology.modes.length < 2) {
+      problems.push(
+        "A morphology block with fewer than two modes describes a fixed-shape robot. " +
+          "Leave it out rather than declaring a shape-changer that cannot change shape.",
+      );
+    }
+    const names = morphology.modes.map((m) => m.name);
+    if (new Set(names).size !== names.length) {
+      problems.push(`Two morphology modes share a name: ${names.join(", ")}.`);
+    }
+    if (!names.includes(morphology.defaultMode)) {
+      problems.push(
+        `defaultMode "${morphology.defaultMode}" is not one of the declared modes (${names.join(", ")}).`,
+      );
+    }
+    for (const mode of morphology.modes) {
+      if (mode.maxLinear <= 0 || mode.maxDecel <= 0) {
+        problems.push(`Mode "${mode.name}" has a non-positive speed or braking limit.`);
+      }
+      if (mode.maxDecel > mode.maxAccel * 3) {
+        problems.push(
+          `Mode "${mode.name}" brakes at ${mode.maxDecel} m/s² and accelerates at ${mode.maxAccel}. ` +
+            "Braking harder than the drive can accelerate needs evidence.",
+        );
+      }
+    }
+    // The top-level numbers are the envelope. A machine whose envelope is
+    // narrower than a mode it declares is describing two different robots.
+    const fastest = Math.max(...morphology.modes.map((m) => m.maxLinear));
+    if (profile.maxLinear < fastest - 1e-9) {
+      problems.push(
+        `maxLinear (${profile.maxLinear}) is below the fastest declared mode (${fastest}). ` +
+          "The top-level figures are the machine's envelope; a mode cannot exceed it.",
+      );
+    }
+    if (
+      morphology.normalForceAuthority !== undefined &&
+      (morphology.normalForceAuthority < 0 || morphology.normalForceAuthority > 1)
+    ) {
+      problems.push("normalForceAuthority is a fraction of body weight and must be within 0..1.");
+    }
+    if (morphology.contacts && morphology.contacts.liftable > morphology.contacts.count) {
+      problems.push("More contacts are declared liftable than exist.");
+    }
+    for (const transition of morphology.transitions ?? []) {
+      if (!names.includes(transition.from) || !names.includes(transition.to)) {
+        problems.push(
+          `A transition names a mode that does not exist: ${transition.from} → ${transition.to}.`,
+        );
+      }
+      if (transition.seconds <= 0) {
+        problems.push(
+          `Changing shape from ${transition.from} to ${transition.to} is declared instantaneous. ` +
+            "Nothing mechanical is, and any decision to switch is a decision about this number.",
+        );
+      }
+    }
   }
 
   if (profile.lidarHeight !== undefined && profile.lidarHeight <= 0) {
