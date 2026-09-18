@@ -2499,10 +2499,21 @@ class LevelOfDetail(unittest.TestCase):
         for wid, cap in caps.items():
             self.assertLessEqual(agg["workspace"].get(wid, 0), cap, wid)
 
+        # ORBIT declares that it AGGREGATES agents, so it must draw none of
+        # them and still count all of them. The previous expectation here was 5
+        # — the founding crew, drawn at every zoom level — which is neither
+        # aggregation nor a complete list, and which silently excluded every
+        # agent the Agent Factory ever made.
         w = OW.open_world(con, 0.2)
-        self.assertEqual(len(w["agents"]), 5, "a full world drew every occupant")
+        self.assertIn("agents", w["lod"]["aggregates"])
+        self.assertEqual(len(w["agents"]), 0, "an aggregating level drew individuals")
         self.assertEqual(sum(d["occupants"] for d in w["districts"]), total,
                          "the counts stopped matching once the world was full")
+        # and where individuals ARE drawn, every occupant is drawn, not five
+        close = OW.open_world(con, 1.0)
+        self.assertIn("agents", close["lod"]["draws"])
+        self.assertEqual(len(close["agents"]), total,
+                         "a drawing level showed only some of the occupants")
         # and a full world still refuses one more, at both levels: `travel`
         # declines it, and the LAW aborts anything that bypasses the check
         r = SPACE.travel(con, "AGT-SYN-00000", "ws_vault", why="one past capacity")

@@ -184,6 +184,20 @@ def found_owner_plane(con):
     return OWNER
 
 
+def inhabitants(con, include_retired=False):
+    """Every agent the world actually has, founding crew and commissioned alike.
+
+    `CREW` is the list the world is FOUNDED with. It stopped being the list of
+    who lives here the moment the factory could add to it, and anything that
+    enumerates agents by reading CREW renders a world that quietly excludes
+    every agent the organisation made for itself."""
+    q = ("SELECT id, name, role, lifecycle_state FROM principals "
+         "WHERE tier<>'owner_plane'")
+    if not include_retired:
+        q += " AND lifecycle_state='ACTIVE'"
+    return [dict(r) for r in con.execute(q + " ORDER BY id")]
+
+
 def found_agents(con):
     """Register the five, idempotently. Returns their ids.
 
@@ -742,11 +756,11 @@ def world_state(con):
         "FROM tasks t JOIN leases l ON l.task_id=t.id "
         "WHERE t.status='RUNNING' AND l.status='ACTIVE'")]
     return {
-        "agents": [agent_view(con, a["id"]) for a in CREW
-                   if con.execute("SELECT 1 FROM principals WHERE id=?",
-                                  (a["id"],)).fetchone()],
+        # Every inhabitant, not the founding list. A UI fed from CREW draws a
+        # world the Agent Factory is unable to add anybody to.
+        "agents": [agent_view(con, a["id"]) for a in inhabitants(con)],
         "running": running,
-        "idle": [a["id"] for a in CREW
+        "idle": [a["id"] for a in inhabitants(con)
                  if a["id"] not in {r["agent"] for r in running}],
         "tasks_by_state": {r["status"]: r["n"] for r in con.execute(
             "SELECT status, COUNT(*) n FROM tasks GROUP BY status")},

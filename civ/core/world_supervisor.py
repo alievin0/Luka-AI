@@ -93,6 +93,15 @@ def h_owner_objective(w, item):
     con, p = w.con, item["payload"]
     objective = p.get("objective", "")
     fixture = p.get("fixture")
+    # An objective with nothing to read cannot produce evidence, and this
+    # handler's whole job is to turn an objective into an EVIDENCE-BACKED
+    # opportunity. Refuse it as a decision rather than discovering halfway
+    # through that `path=None` is not a path.
+    if not fixture:
+        raise RT.Denied(
+            "an objective needs a source to scan: no `fixture` was given, so "
+            "there is nothing for the gateway to attest to. The world will not "
+            "open an opportunity on no evidence.")
 
     scan = W.discover_task(
         con, "Scan for opportunities relating to: " + objective, by=ORCH,

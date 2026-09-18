@@ -333,14 +333,24 @@ def open_world(con, scale=1.0):
     level = lod(scale)
     occ = occupancy(con)
     agents = {}
-    for a in W.CREW:
-        if not con.execute("SELECT 1 FROM principals WHERE id=?", (a["id"],)).fetchone():
-            continue
+    # Two rules, and they used to fight each other. (1) Every inhabitant, not
+    # the founding list — an agent the factory made lives here too. (2) Only
+    # when this zoom level is entitled to draw individuals; ORBIT and DISTRICT
+    # say they AGGREGATE agents, and a view that draws five of them anyway is
+    # not aggregating, it is showing an arbitrary five. The old code drew
+    # exactly `CREW` at every level, which hid both problems behind each other:
+    # it looked like aggregation because the crew is small.
+    drawing = "agents" in level["draws"]
+    for a in (W.inhabitants(con) if drawing else []):
         p = place_agent(con, a["id"])
-        ws = WORKSPACES[p["workspace"]]
+        ws = WORKSPACES.get(p["workspace"])
+        if ws is None:
+            continue
         agents[a["id"]] = dict(
             p, id=a["id"], name=a["name"], role=a["role"],
-            tools=len(a["permissions"]),
+            tools=len(json.loads(con.execute(
+                "SELECT permissions FROM principals WHERE id=?",
+                (a["id"],)).fetchone()["permissions"] or "[]")),
             # The persisted coordinate. An agent partway across a district is
             # drawn partway across a district, because that is where it is.
             x=p["x"] if p["x"] is not None else ws["x"] + ws["w"] / 2.0,

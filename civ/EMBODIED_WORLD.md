@@ -220,7 +220,11 @@ and nothing about what it is like to be one.
 
 ## Running it
 
+The world is a server; this page describes what its inhabitants look like. To
+start the world itself see [`AGENT_WORLD_SERVER.md`](AGENT_WORLD_SERVER.md).
+
 ```
+python3 worldd.py start --db world.db   # the world, as a process
 python3 embodiment_demo.py --fresh      # the whole chain, printed from its rows
 python3 test_embodiment.py              # 52 tests
 python3 world_server.py --db embodied-world.db --port 8790

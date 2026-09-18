@@ -132,14 +132,30 @@ def _pick(seed, salt, options):
     return options[h % len(options)]
 
 
-def design(agent_id, role_caps=()):
+def palette_order(agent_id):
+    """This agent's palettes, most preferred first. Deterministic and pure.
+
+    A single derived choice collides: sixteen palettes and a handful of agents
+    make a shared colour likely rather than exceptional, and colour is the axis
+    a person reads first. So the identity derives an ORDER rather than a
+    winner, and `embody` takes the first one still free. Which palette that
+    turns out to be depends on who was embodied before — exactly as a registry
+    assigning a unique mark works — and it is written down and frozen."""
+    s = _seed(agent_id)
+    return sorted(PALETTES,
+                  key=lambda p: hashlib.sha256(
+                      ("%d/palette/%s" % (s, p[0])).encode()).hexdigest())
+
+
+def design(agent_id, role_caps=(), palette=None):
     """What this agent WOULD look like. Deterministic, and pure.
 
     Kept separate from `embody` so the derivation can be tested without writing,
     and so the stored row — not this function — remains the authority once an
-    agent exists."""
+    agent exists. `palette` overrides the first preference when the registry has
+    already given that colour to somebody else."""
     s = _seed(agent_id)
-    pal = _pick(s, "palette", PALETTES)
+    pal = palette or palette_order(agent_id)[0]
     body = _pick(s, "body", sorted(BODY_VARIANTS))
     caps = [c for c in role_caps if c in ROLE_EQUIPMENT]
     equipment = ROLE_EQUIPMENT.get(caps[0], "") if caps else ""
@@ -179,7 +195,16 @@ def embody(con, agent_id, role_caps=None):
     if role_caps is None:
         from . import agent_world as W
         role_caps = sorted(W.ROLE_CAPABILITY.get(agent_id, set()))
-    d = design(agent_id, role_caps)
+    # Two agents sharing a palette are two agents a person cannot tell apart at
+    # a glance, whatever else differs. Take this identity's most-preferred
+    # palette that nobody already holds; fall back to its first preference only
+    # when every palette is spoken for, which is honest — at that point the
+    # world has more agents than the grammar has colours and the other axes
+    # (frame, head, chest, sensor, build, height, marking) carry the identity.
+    taken = {r["palette"] for r in con.execute("SELECT palette FROM agent_bodies")}
+    order = palette_order(agent_id)
+    pal = next((p for p in order if p[0] not in taken), order[0])
+    d = design(agent_id, role_caps, palette=pal)
     n = con.execute("SELECT COUNT(*) c FROM agent_bodies").fetchone()["c"] + 1
     con.execute(
         "INSERT INTO agent_bodies(principal_id,body_id,seed,body_variant,head_variant,"

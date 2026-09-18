@@ -29,6 +29,29 @@ from core import model_gate as GATE     # noqa: E402
 from core import world_bus as BUS        # noqa: E402
 from core import agent_world as W        # noqa: E402
 from core import store                   # noqa: E402
+from core import world_runtime as RUN     # noqa: E402
+from core import world_factory as FACT    # noqa: E402
+
+
+class CommandError(ValueError):
+    """An owner command the world refuses. Never a crash — a decision."""
+
+
+def owner_token():
+    """The shared secret for anything that CHANGES the world.
+
+    Read from the environment, or from a file beside the database so a detached
+    world and a client on the same machine can find it without one being passed
+    on a command line. Empty means unauthenticated, which is only appropriate on
+    a loopback development world and which /api/health reports honestly."""
+    tok = (os.environ.get("WORLD_OWNER_TOKEN") or "").strip()
+    if tok:
+        return tok
+    path = os.environ.get("WORLD_OWNER_TOKEN_FILE") or ""
+    if path and os.path.exists(path):
+        with open(path, encoding="utf-8") as fh:
+            return fh.read().strip()
+    return ""
 
 UI = os.path.join(HERE, "world_ui")
 DB = os.path.join(HERE, "agent-world.db")
@@ -162,10 +185,8 @@ def world_stage(con):
         })
 
     placement = {}
-    for a in W.CREW:
+    for a in W.inhabitants(con):
         aid = a["id"]
-        if not con.execute("SELECT 1 FROM principals WHERE id=?", (aid,)).fetchone():
-            continue
         held = [t for t in tasks if live.get(t["id"], {}).get("principal_id") == aid
                 and t["status"] == "RUNNING"]
         if held:
@@ -184,7 +205,13 @@ def world_stage(con):
                 "task_id": t["id"],
                 "reason": "assigned task #%d (%s)" % (t["id"], t["status"])}
             continue
-        placement[aid] = {"station": HOME.get(aid, "discovery"), "state": "IDLE",
+        # A commissioned agent has no entry in the founding HOME map, and
+        # "discovery" is where the world's INTAKE is — not a sensible home for
+        # an agent that was deployed to the dispatch floor. Ask the spatial
+        # record where it actually stands.
+        here = SPACE.locate(con, aid)
+        home = HOME.get(aid) or (here["workspace"] if here else "discovery")
+        placement[aid] = {"station": home, "state": "IDLE",
                           "task_id": None, "reason": "holds no lease"}
     return {"stations": STATIONS, "occupancy": occupancy, "placement": placement,
             "artifacts": _rows(con, "SELECT a.id, a.name, a.task_id, a.principal_id, "
@@ -369,9 +396,9 @@ def world3d(con):
             "district": "ground", "facility": "block", "workspace": "room"}[p["kind"]]
         p["equipment"] = t["equipment"] if t else []
     agents = {}
-    for a in W.CREW:
-        if not con.execute("SELECT 1 FROM principals WHERE id=?", (a["id"],)).fetchone():
-            continue
+    # Every agent the world HAS, not the list it was founded with. A renderer
+    # fed from CREW shows a world the Agent Factory cannot add to.
+    for a in W.inhabitants(con):
         sp = SPACE.spatial_report(con, a["id"])
         if sp is None:
             continue
@@ -455,6 +482,11 @@ def record(con, kind, rid):
 
 class Handler(BaseHTTPRequestHandler):
     db_path = DB
+    # Set by worldd when this server shares a process with a world runtime. When
+    # it is None the server is a READER of a world it does not turn — which is a
+    # real and honest state, and /api/health says so rather than implying the
+    # world is running because a page loaded.
+    runtime = None
 
     def log_message(self, *a):            # quiet; the world has its own log
         pass
@@ -467,6 +499,91 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(data)
+
+    def do_POST(self):                    # noqa: N802
+        """The control plane. Reads are open; anything that CHANGES the world
+        needs the owner token, because a browser tab is not the Owner."""
+        u = urlparse(self.path)
+        parts = [p for p in u.path.split("/") if p]
+        if not parts or parts[0] != "api":
+            return self._send(json.dumps({"error": "not found"}), code=404)
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+            body = json.loads(self.rfile.read(n).decode("utf-8") or "{}") if n else {}
+        except Exception as e:            # noqa: BLE001
+            return self._send(json.dumps({"error": "bad json: %r" % e}), code=400)
+        tok = owner_token()
+        given = (self.headers.get("X-Owner-Token") or "").strip()
+        if tok and given != tok:
+            return self._send(json.dumps(
+                {"error": "owner token required",
+                 "hint": "send X-Owner-Token; the world prints it at startup"}),
+                code=401)
+        con = connect(self.db_path)
+        try:
+            return self._command(con, parts[1:], body)
+        except CommandError as e:
+            return self._send(json.dumps({"error": str(e)}), code=400)
+        except Exception as e:            # noqa: BLE001
+            return self._send(json.dumps({"error": repr(e)}), code=500)
+        finally:
+            con.close()
+
+    def _command(self, con, parts, body):
+        """Owner commands. Each one goes through the SAME function a script
+        would call, so the API is a second door onto one world and never a
+        second implementation of it."""
+        route = "/".join(parts)
+        if route == "owner/objective":
+            objective = (body.get("objective") or "").strip()
+            if not objective:
+                raise CommandError("objective is required")
+            # The scan that starts every objective reads a real source through
+            # the real gateway, because a discovery with no evidence under it is
+            # the thing this whole system exists not to produce. So the source
+            # is required here, and checked here, rather than failing three
+            # times inside a queue handler.
+            src = (body.get("source") or "").strip()
+            if not src:
+                raise CommandError(
+                    "source is required: name a file for the world to scan. An "
+                    "objective with nothing to read cannot produce evidence.")
+            if not os.path.isfile(src):
+                raise CommandError("no such source file: %s" % src)
+            qid, made = BUS.emit(
+                con, "OWNER_OBJECTIVE",
+                "objective:%s" % store.sha(objective + "|" + src)[:16],
+                {"objective": objective, "fixture": os.path.abspath(src),
+                 "required_caps": body.get("required_caps") or ["research"]},
+                by="OWNER")
+            return self._send(json.dumps({"queued": qid, "new": made,
+                                          "objective": objective, "source": src}))
+        if route == "factory/agent":
+            out = FACT.commission(
+                con, requested_by=body.get("by") or "OWNER",
+                gap=body.get("gap") or "",
+                role=body.get("role") or "Specialist",
+                name=body.get("name"),
+                required_caps=body.get("capabilities") or (),
+                required_skills=body.get("skills") or (),
+                required_tools=body.get("tools") or (),
+                mission=body.get("mission") or "",
+                force=bool(body.get("force")))
+            return self._send(json.dumps(out, ensure_ascii=False))
+        if route == "owner/approve-agent":
+            aid = body.get("agent_id")
+            if not aid:
+                raise CommandError("agent_id is required")
+            return self._send(json.dumps(
+                FACT.deploy(con, aid, by=body.get("by") or "OWNER"),
+                ensure_ascii=False))
+        if route == "owner/stop":
+            if self.runtime is None:
+                raise CommandError("this server does not turn a world; "
+                                   "nothing here to stop")
+            self.runtime.stop("stopped over the api")
+            return self._send(json.dumps({"stopping": True}))
+        raise CommandError("no such command: %s" % route)
 
     def do_GET(self):                     # noqa: N802
         u = urlparse(self.path)
@@ -481,6 +598,22 @@ class Handler(BaseHTTPRequestHandler):
     def _api(self, parts, q):
         con = connect(self.db_path)
         try:
+            if parts and parts[0] == "health":
+                h = RUN.health(con)
+                # A server that is only READING a world must not let a client
+                # conclude the world is running just because a page loaded.
+                h["this_server_turns_the_world"] = self.runtime is not None
+                if self.runtime is not None:
+                    h["runtime"] = self.runtime.report()
+                return self._send(json.dumps(h, ensure_ascii=False))
+            if parts and parts[0] == "runtime":
+                return self._send(json.dumps(
+                    {"runtimes": RUN.runtimes(con),
+                     "live": [r["id"] for r in RUN.live(con)],
+                     "this_server_turns_the_world": self.runtime is not None},
+                    ensure_ascii=False))
+            if parts and parts[0] == "factory":
+                return self._send(json.dumps(FACT.report(con), ensure_ascii=False))
             if not parts or parts[0] == "world":
                 return self._send(json.dumps(world_payload(con), ensure_ascii=False))
             if parts[0] == "agent" and len(parts) > 1:

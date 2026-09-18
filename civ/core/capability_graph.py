@@ -256,10 +256,17 @@ def gaps(con, required_caps):
         edges[r["name"]] = json.loads(r["needs_tools"] or "[]")
     out = []
     for cap in required_caps:
-        who = [a["id"] for a in W.CREW
-               if cap in W.ROLE_CAPABILITY.get(a["id"], set())
-               and con.execute("SELECT 1 FROM principals WHERE id=?",
-                               (a["id"],)).fetchone()]
+        # Who can actually do this, from the `agent_capabilities` table — the
+        # one the Agent Factory writes into. Reading the founding ROLE map alone
+        # would report a gap the organisation had already filled, and then
+        # commission a second agent to fill it again.
+        who = sorted({r["principal_id"] for r in con.execute(
+            "SELECT ac.principal_id FROM agent_capabilities ac "
+            "JOIN principals p ON p.id=ac.principal_id "
+            "WHERE p.lifecycle_state='ACTIVE' AND (ac.capability_id=? "
+            "OR ac.capability_id=?)", (cap, "CAP-" + cap))}
+            | {a["id"] for a in W.inhabitants(con)
+               if cap in W.ROLE_CAPABILITY.get(a["id"], set())})
         need = edges.get(cap, CAPABILITY_TOOLS.get(cap, []))
         missing = [t for t in need if t not in reg]
         off = [t for t in need if t in reg and not reg[t]["enabled"]]

@@ -86,6 +86,11 @@ def connect(path=None):
     _widen_check(con, SCHEMA, "tasks", "'ARCHIVED'")
     _widen_check(con, ORG_SCHEMA, "opportunities", "'APPROVED'")
     _widen_check(con, ALWAYS_ON_SCHEMA, "world_queue", "'WAITING_FOR_MODEL'")
+    # Where a runtime can be reached. A world that is running somewhere a client
+    # cannot find is, from the client's side, a world that is not running.
+    wcols = {r[1] for r in con.execute("PRAGMA table_info(workers)")}
+    if "api" not in wcols:
+        con.execute("ALTER TABLE workers ADD COLUMN api TEXT NOT NULL DEFAULT ''")
     pcols = {r[1] for r in con.execute("PRAGMA table_info(world_places)")}
     if "type_id" not in pcols:
         # Which archetype a place is an instance of. Guessing it from the id at

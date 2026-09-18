@@ -31,6 +31,12 @@ movement record, all written when work sent them somewhere. That is
 [`SPATIAL_WORLD.md`](SPATIAL_WORLD.md), and `python3 spatial_demo.py --fresh` is
 the proof.
 
+**The world is a server now.** It has its own clock, its own address and its
+own process, and it keeps running when every client is closed — that is
+[`AGENT_WORLD_SERVER.md`](AGENT_WORLD_SERVER.md), with
+`python3 world_acceptance.py --fresh` as the proof and `python3 worldd.py start`
+as the way in. This page describes one of its clients.
+
 **The agents have bodies now.** Each persistent identity owns a persistent
 physical body and a seat it holds, and its stance comes from the row that says
 what it is doing — [`EMBODIED_WORLD.md`](EMBODIED_WORLD.md), with
