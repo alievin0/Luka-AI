@@ -17,10 +17,12 @@ ceilings, every budget is checked before it is spent, and the loop stops when
 the queue is empty and says so.
 """
 import json
+import sqlite3
 import time
 
 from . import agent_runtime as RT, agent_world as W, always_on as A
 from . import store, world_bus as BUS, world_policy as POL
+from . import world_space as SPACE
 from .store import now
 
 OWNER = POL.OWNER
@@ -222,9 +224,17 @@ def h_task_ready(w, item):
     if not prov.available():
         return {"waiting_for_model": prov.why_unavailable() or "no inference engine"}
 
+    # The agent goes to where the work is. This is the ONLY reason anything in
+    # this world moves: a task was assigned to an identity that was somewhere
+    # else. The journey is persisted leg by leg before the lease is taken,
+    # because an agent cannot hold a lease on work it has not reached.
+    moved = _go_to_work(w, item, agent, task)
+
     lease = W.claim_task(con, agent, task_id=tid, lease_seconds=LEASE_SECONDS)
     if lease is None:
         return {"deferred": "task %d could not be leased" % tid}
+    SPACE.begin_work(con, agent, tid, lease_id=lease["lease_id"],
+                     activity="working on task #%d" % tid)
 
     # What this identity already knows, retrieved because it is waking, not
     # because someone passed it along in a prompt from the last run.
@@ -241,11 +251,46 @@ def h_task_ready(w, item):
         art = RT.persist_artifact(con, turn, task["project_id"])
     finally:
         W.release_lease(con, lease["lease_id"])
+        # It stops working when the lease ends, wherever it happens to be. It
+        # does NOT walk home: an agent standing where it last worked is the
+        # truth, and sending it somewhere for tidiness is invented movement.
+        SPACE.finish_work(con, agent, why="lease on task #%d released" % tid)
 
     _emit(w, item, "ARTIFACT_CREATED", "artifact:%d" % art,
           dict(item["payload"], task_id=tid, artifact_id=art, agent=agent))
     return {"agent": agent, "artifact": art, "memory_recalled": len(mem),
-            "tool_calls": turn.tool_calls, "denials": turn.denials}
+            "tool_calls": turn.tool_calls, "denials": turn.denials,
+            "travelled": moved}
+
+
+def _go_to_work(w, item, agent, task):
+    """Send an agent to the workspace its task belongs in, and say why.
+
+    Returns what the journey cost, or None when the agent was already there —
+    which is the common case and must not be dressed up as travel."""
+    from . import open_world as OW
+    dest = OW.workspace_of(task)
+    why = "assigned task #%d (%s)" % (task["id"], task["status"])
+    try:
+        r = SPACE.travel(w.con, agent, dest, why=why, task_id=task["id"],
+                         worker=w.worker, queue_id=item["id"])
+    except (SPACE.SpaceError, sqlite3.IntegrityError) as e:
+        # A refused move is a fact about the world, not a crash, and the work is
+        # still valid work: whether the destination room is full is a question
+        # about occupancy, not about whether this task should be done. So it is
+        # recorded and signalled, the agent stays where it is, and the task
+        # proceeds — rather than a full workspace failing real work.
+        store.signal(w.con, "MEDIUM", "An agent could not reach its work", str(e))
+        return {"refused": str(e)}
+    if r.get("abandoned"):
+        # `travel` now declines a journey it cannot finish instead of raising —
+        # which is better behaviour and was quietly worse reporting, because the
+        # exception was the only thing telling the Owner anything.
+        store.signal(w.con, "MEDIUM", "An agent could not reach its work",
+                     "%s: %s" % (agent, r.get("why", "the destination refused it")))
+        return {"refused": r.get("why"), "stopped_at": r.get("workspace")}
+    return None if not r.get("moved") else {
+        "to": dest, "distance": r.get("distance"), "arrived": r.get("arrived")}
 
 
 def h_artifact_created(w, item):
@@ -287,6 +332,9 @@ def h_review_requested(w, item):
                      "artifact #%d" % art)
         return {"escalated": "self-review"}
     task = con.execute("SELECT * FROM tasks WHERE id=?", (p["task_id"],)).fetchone()
+    # Independent judgement happens in the Review district, so the Reviewer goes
+    # there. Caused by this artifact needing a verdict, and by nothing else.
+    _go_to_review(w, item, art, task)
     ver = con.execute("SELECT * FROM evidence WHERE external_provenance LIKE ? "
                       "ORDER BY id DESC LIMIT 1", ("artifact:%d@%%" % art,)).fetchone()
     unmet = [c["requirement"] for c in
@@ -301,6 +349,17 @@ def h_review_requested(w, item):
     _emit(w, item, "REVIEW_DONE", "review:%d" % rid,
           dict(p, review_id=rid, verdict=verdict))
     return {"verdict": verdict, "review": rid}
+
+
+def _go_to_review(w, item, art, task):
+    """The Reviewer to the Inspection Bench, because an artifact needs a verdict."""
+    try:
+        SPACE.travel(w.con, REV, "ws_inspection",
+                     why="artifact #%d needs an independent verdict" % art,
+                     task_id=task["id"] if task else None,
+                     worker=w.worker, queue_id=item["id"])
+    except (SPACE.SpaceError, sqlite3.IntegrityError) as e:
+        store.signal(w.con, "MEDIUM", "The Reviewer could not reach the bench", str(e))
 
 
 def h_review_done(w, item):

@@ -8,7 +8,9 @@
 One file carries everything: identities, contracts, capabilities, permissions,
 memories, projects, tasks, dependencies, opportunities, discoveries, artifacts
 (with their bodies), evidence, reviews, failures, lessons, budgets, policies,
-decisions, events, leases, queue state, workers, presence and world meta.
+decisions, events, leases, queue state, workers, presence, world meta — and the
+world's own geography: every district, facility and workspace, where each agent
+is standing, where it was going, and every movement it has ever made.
 
 Restore it on another computer and the same agents are there, with the same
 memories, the same projects, the same history and a hash chain that still
@@ -39,6 +41,10 @@ ORDER = [
     "projects", "teams", "team_members",
     "runs", "tasks", "task_deps", "task_transitions", "task_conditions",
     "leases", "tool_calls",
+    # The world itself: the places before anything that stands in them, and the
+    # movement record after the tasks and leases it points at. A world that
+    # arrives on another machine with its agents nowhere is not the same world.
+    "world_places", "agent_locations", "movements",
     "evidence", "artifacts", "claims", "reviews",
     "discoveries", "ideas", "opportunities", "failures", "lessons",
     "memories", "agent_messages",

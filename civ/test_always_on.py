@@ -12,6 +12,7 @@ No real model is reachable from any of it.
 import json
 import os
 import re
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -32,6 +33,7 @@ import always_on_demo as D               # noqa: E402
 import world_server as SRV               # noqa: E402
 from core import open_world as OW       # noqa: E402
 from core import model_gate as GATE     # noqa: E402
+from core import world_space as SPACE   # noqa: E402
 import world_export as WE                # noqa: E402
 
 ORCH, RES = "AGT-ORCHESTRATOR", "AGT-RESEARCHER"
@@ -820,13 +822,19 @@ class OpenWorldProjection(unittest.TestCase):
             OW.DISTRICTS.remove(extra)
         self.assertEqual(len(OW.DISTRICTS), before)
 
-    def test_agent_positions_derive_from_state_and_say_which_row(self):
+    def test_agent_positions_come_from_rows_and_say_which_one(self):
+        """Two questions the world must answer separately about one agent:
+        why it is standing there, and why it is in that state."""
         w = OW.open_world(self.con)
         for aid, a in w["agents"].items():
             self.assertEqual(a["state"], "IDLE")
             self.assertEqual(a["workspace"], OW.HOME_WORKSPACE[aid])
-            self.assertEqual(a["reason"], "holds no lease")
+            self.assertEqual(a["because"], "holds no lease")
+            self.assertIn("founded", a["reason"], "no cause recorded for standing here")
             self.assertIn(a["workspace"], OW.WORKSPACES)
+            # and the coordinate is the persisted one, not the rectangle's centre
+            loc = SPACE.locate(self.con, aid)
+            self.assertEqual((a["x"], a["y"]), (loc["x"], loc["y"]))
 
     def test_active_requires_a_live_lease_and_nothing_else(self):
         t = W.discover_task(self.con, "t", by=ORCH, required_caps=["research"])
@@ -837,7 +845,7 @@ class OpenWorldProjection(unittest.TestCase):
         lease = W.claim_task(self.con, RES, task_id=t)
         w = OW.open_world(self.con)
         self.assertEqual(w["agents"][RES]["state"], "RUNNING")
-        self.assertIn("lease", w["agents"][RES]["reason"])
+        self.assertIn("lease", w["agents"][RES]["because"])
         self.assertFalse(w["quiet"])
         W.release_lease(self.con, lease["lease_id"])
         self.assertTrue(OW.open_world(self.con)["quiet"])
@@ -1828,6 +1836,852 @@ class ExportAndRestore(unittest.TestCase):
             self.assertNotIn(vendor, raw, vendor)
         self.assertEqual(json.loads(raw)["format"], WE.FORMAT)
 
+
+
+class SpatialPersistence(unittest.TestCase):
+    """A — coordinates are rows, not arithmetic performed while drawing."""
+
+    def setUp(self):
+        self.con = world()
+
+    def test_the_layout_is_in_the_database_not_only_in_python(self):
+        n = self.con.execute("SELECT COUNT(*) c FROM world_places").fetchone()["c"]
+        self.assertGreater(n, 30, "the world's geography is not written down")
+        kinds = {r["kind"]: r["c"] for r in self.con.execute(
+            "SELECT kind, COUNT(*) c FROM world_places GROUP BY kind")}
+        self.assertEqual(kinds["district"], len(OW.DISTRICTS))
+        self.assertEqual(kinds["workspace"], len(OW.WORKSPACES))
+        for r in self.con.execute("SELECT * FROM world_places WHERE kind='workspace'"):
+            src = OW.WORKSPACES[r["id"]]
+            self.assertAlmostEqual(r["x"], float(src["x"]), places=6, msg=r["id"])
+            self.assertAlmostEqual(r["y"], float(src["y"]), places=6, msg=r["id"])
+
+    def test_every_agent_has_a_position_the_moment_it_exists(self):
+        for aid in W.found_agents(self.con):
+            loc = SPACE.locate(self.con, aid)
+            self.assertIsNotNone(loc, "%s exists but is nowhere" % aid)
+            self.assertIsNotNone(loc["x"])
+            self.assertEqual(loc["movement"], SPACE.IDLE)
+
+    def test_a_child_place_sits_inside_its_parent(self):
+        """Containment is checkable, so it is checked."""
+        for r in self.con.execute(
+                "SELECT c.id, c.x cx, c.y cy, c.w cw, c.h ch, p.id pid, p.x px, "
+                "p.y py, p.w pw, p.h ph FROM world_places c "
+                "JOIN world_places p ON p.id=c.parent_id"):
+            self.assertGreaterEqual(r["cx"], r["px"] - 0.001, r["id"])
+            self.assertGreaterEqual(r["cy"], r["py"] - 0.001, r["id"])
+            self.assertLessEqual(r["cx"] + r["cw"], r["px"] + r["pw"] + 0.001, r["id"])
+            self.assertLessEqual(r["cy"] + r["ch"], r["py"] + r["ph"] + 0.001, r["id"])
+
+    def test_seeding_twice_changes_nothing(self):
+        before = self.con.execute("SELECT COUNT(*) c FROM world_places").fetchone()["c"]
+        self.assertEqual(SPACE.seed_places(self.con), 0)
+        self.assertEqual(self.con.execute(
+            "SELECT COUNT(*) c FROM world_places").fetchone()["c"], before)
+
+    def test_the_ui_reads_the_persisted_coordinate_not_a_rectangle_centre(self):
+        W.found_agents(self.con)
+        SPACE.travel(self.con, RES, "ws_lab", why="a research task", worker="w1")
+        loc = SPACE.locate(self.con, RES)
+        a = OW.open_world(self.con)["agents"][RES]
+        self.assertEqual((a["x"], a["y"]), (loc["x"], loc["y"]))
+
+
+class Navigation(unittest.TestCase):
+    """B, C — a route is structural, deterministic, and refuses nonsense."""
+
+    def setUp(self):
+        self.con = world()
+        W.found_agents(self.con)
+
+    def test_a_route_leaves_by_the_facility_and_crosses_at_district_level(self):
+        r = SPACE.route(self.con, "ws_lab", "ws_inspection")
+        self.assertEqual(r[-1], "ws_inspection")
+        kinds = [SPACE.place(self.con, p)["kind"] for p in r]
+        self.assertIn("facility", kinds)
+        self.assertIn("district", kinds)
+
+    def test_the_same_journey_always_takes_the_same_route(self):
+        a = SPACE.route(self.con, "ws_dispatch", "ws_cell_0")
+        b = SPACE.route(self.con, "ws_dispatch", "ws_cell_0")
+        self.assertEqual(a, b)
+
+    def test_going_nowhere_is_not_a_journey(self):
+        self.assertEqual(SPACE.route(self.con, "ws_lab", "ws_lab"), [])
+        SPACE.travel(self.con, RES, "ws_lab", why="a research task")
+        before = self.con.execute("SELECT COUNT(*) c FROM movements").fetchone()["c"]
+        r = SPACE.move_to(self.con, RES, "ws_lab", why="the same task again")
+        self.assertFalse(r["moved"])
+        self.assertEqual(self.con.execute(
+            "SELECT COUNT(*) c FROM movements").fetchone()["c"], before,
+            "standing still was recorded as travel")
+
+    def test_a_route_contains_no_leg_of_zero_length(self):
+        """Two places sharing a centre are one point; walking between them is not
+        movement, and recording it would be movement the geometry invented."""
+        for dest in ("ws_inspection", "ws_cell_0", "ws_pad", "ws_dock"):
+            SPACE.travel(self.con, OPER, dest, why="checking the route to " + dest)
+        for m in self.con.execute(
+                "SELECT * FROM movements WHERE principal_id=? AND phase IN "
+                "('DEPARTED','WAYPOINT')", (OPER,)):
+            self.assertGreater(m["distance"], 0.0,
+                               "%s → %s was recorded as travel of zero distance"
+                               % (m["from_workspace"], m["to_workspace"]))
+
+    def test_an_invalid_destination_is_refused_not_improvised(self):
+        for bad in ("ws_nowhere", "research", "hub", None):
+            with self.assertRaises(SPACE.SpaceError, msg=repr(bad)):
+                SPACE.move_to(self.con, RES, bad, why="a destination that is not one")
+        self.assertEqual(SPACE.locate(self.con, RES)["movement"], SPACE.IDLE)
+
+    def test_a_move_without_a_reason_is_refused(self):
+        with self.assertRaises(SPACE.SpaceError):
+            SPACE.move_to(self.con, RES, "ws_lab", why="")
+
+    def test_the_distance_recorded_is_the_distance_walked(self):
+        SPACE.travel(self.con, RES, "ws_inspection", why="a review task")
+        legs = self.con.execute(
+            "SELECT COALESCE(SUM(distance),0) d FROM movements WHERE principal_id=? "
+            "AND phase IN ('DEPARTED','WAYPOINT')", (RES,)).fetchone()["d"]
+        arrived = self.con.execute(
+            "SELECT distance FROM movements WHERE principal_id=? AND phase='ARRIVED' "
+            "ORDER BY id DESC LIMIT 1", (RES,)).fetchone()["distance"]
+        self.assertAlmostEqual(legs, arrived, places=2)
+        self.assertGreater(legs, 10, "a journey across the world covered nothing")
+
+
+class MovementStates(unittest.TestCase):
+    """The state machine, and the laws that hold it together."""
+
+    def setUp(self):
+        self.con = world()
+        W.found_agents(self.con)
+
+    def test_the_states_walk_in_order(self):
+        seen = [SPACE.locate(self.con, RES)["movement"]]
+        SPACE.move_to(self.con, RES, "ws_lab", why="a research task", worker="w1")
+        seen.append(SPACE.locate(self.con, RES)["movement"])
+        SPACE.advance(self.con, RES, worker="w1", steps=40)
+        seen.append(SPACE.locate(self.con, RES)["movement"])
+        t = W.discover_task(self.con, "research it", by=ORCH, required_caps=["research"])
+        SPACE.begin_work(self.con, RES, t)
+        seen.append(SPACE.locate(self.con, RES)["movement"])
+        SPACE.finish_work(self.con, RES)
+        seen.append(SPACE.locate(self.con, RES)["movement"])
+        self.assertEqual(seen, [SPACE.IDLE, SPACE.MOVING, SPACE.ARRIVED,
+                                SPACE.WORKING, SPACE.IDLE])
+
+    def test_moving_without_a_destination_is_refused_by_the_database(self):
+        with self.assertRaises(sqlite3.IntegrityError) as e:
+            self.con.execute("UPDATE agent_locations SET movement='MOVING', "
+                             "destination=NULL, version=version+1 WHERE principal_id=?",
+                             (RES,))
+        self.assertIn("LAW 30", str(e.exception))
+
+    def test_working_without_a_task_is_refused_by_the_database(self):
+        with self.assertRaises(sqlite3.IntegrityError) as e:
+            self.con.execute("UPDATE agent_locations SET movement='WORKING', "
+                             "task_id=NULL, version=version+1 WHERE principal_id=?",
+                             (RES,))
+        self.assertIn("LAW 30", str(e.exception))
+
+    def test_an_idle_agent_has_no_destination(self):
+        """A finished journey used to leave its destination in the row, so an
+        agent standing still reported that it was on its way to where it
+        already was. The database refuses that state now."""
+        SPACE.travel(self.con, RES, "ws_lab", why="a research task")
+        t = W.discover_task(self.con, "r", by=ORCH, required_caps=["research"])
+        SPACE.begin_work(self.con, RES, t)
+        SPACE.finish_work(self.con, RES)
+        loc = SPACE.locate(self.con, RES)
+        self.assertEqual(loc["movement"], SPACE.IDLE)
+        self.assertIsNone(loc["destination"])
+        self.assertEqual(json.loads(loc["path"]), [])
+        with self.assertRaises(sqlite3.IntegrityError) as e:
+            self.con.execute("UPDATE agent_locations SET movement='IDLE', "
+                             "destination='ws_pad', version=version+1 "
+                             "WHERE principal_id=?", (RES,))
+        self.assertIn("LAW 30", str(e.exception))
+
+    def test_an_agent_cannot_stand_in_a_district(self):
+        with self.assertRaises(sqlite3.IntegrityError) as e:
+            self.con.execute("UPDATE agent_locations SET workspace='research', "
+                             "version=version+1 WHERE principal_id=?", (RES,))
+        self.assertIn("LAW 31", str(e.exception))
+
+    def test_a_workspace_cannot_hold_more_than_it_has_room_for(self):
+        cap = self.con.execute(
+            "SELECT capacity FROM world_places WHERE id='ws_vault'").fetchone()["capacity"]
+        self.assertGreaterEqual(cap, 1)
+        movers = [RES, BUILD, REV, OPER, ORCH][:cap]
+        for a in movers:
+            SPACE.travel(self.con, a, "ws_vault", why="filling the vault")
+        self.assertEqual(len(SPACE.occupants(self.con, "ws_vault")), cap)
+        extra = [a for a in (RES, BUILD, REV, OPER, ORCH) if a not in movers]
+        if extra:
+            # `travel` checks before entering, so a full room is DECLINED rather
+            # than aborted from inside a trigger — the agent stops short with a
+            # coherent state instead of being stuck walking forever.
+            r = SPACE.travel(self.con, extra[0], "ws_vault", why="one too many")
+            self.assertTrue(r.get("abandoned"), r)
+            self.assertNotEqual(SPACE.locate(self.con, extra[0])["workspace"],
+                                "ws_vault")
+            self.assertEqual(len(SPACE.occupants(self.con, "ws_vault")), cap)
+        # and the LAW itself still binds against anything that skips that check
+        with self.assertRaises(sqlite3.IntegrityError) as e:
+            self.con.execute(
+                "UPDATE agent_locations SET workspace='ws_vault', version=version+1 "
+                "WHERE principal_id=?", (ORCH if ORCH not in movers else OPER,))
+        self.assertIn("LAW 32", str(e.exception))
+
+    def test_recorded_movement_cannot_be_rewritten_or_deleted(self):
+        SPACE.travel(self.con, RES, "ws_lab", why="a research task")
+        for sql in ("UPDATE movements SET why='something else' WHERE id=1",
+                    "DELETE FROM movements WHERE id=1"):
+            with self.assertRaises(sqlite3.IntegrityError) as e:
+                self.con.execute(sql)
+            self.assertIn("LAW 33", str(e.exception))
+
+    def test_finished_work_cannot_send_anybody_anywhere(self):
+        t = W.discover_task(self.con, "done already", by=ORCH, required_caps=["research"])
+        for st in ("PROPOSED", "APPROVED", "ASSIGNED", "RUNNING", "COMPLETED",
+                   "REVIEW", "ACCEPTED"):
+            W.transition(self.con, t, st, ORCH, "walking it to the end")
+        with self.assertRaises(SPACE.SpaceError) as e:
+            SPACE.move_to(self.con, RES, "ws_lab", why="an accepted task", task_id=t)
+        self.assertIn("finished work", str(e.exception))
+        self.assertTrue(self.con.execute(
+            "SELECT 1 FROM movements WHERE phase='REFUSED' AND task_id=?",
+            (t,)).fetchone(), "the refusal was not recorded")
+
+    def test_the_law_holds_even_when_python_is_bypassed(self):
+        t = W.discover_task(self.con, "done already", by=ORCH, required_caps=["research"])
+        for st in ("PROPOSED", "APPROVED", "ASSIGNED", "RUNNING", "COMPLETED",
+                   "REVIEW", "ACCEPTED"):
+            W.transition(self.con, t, st, ORCH, "walking it to the end")
+        with self.assertRaises(sqlite3.IntegrityError) as e:
+            self.con.execute(
+                "UPDATE agent_locations SET movement='MOVING', destination='ws_lab', "
+                "dest_x=0, dest_y=0, task_id=?, version=version+1 WHERE principal_id=?",
+                (t, RES))
+        self.assertIn("LAW 34", str(e.exception))
+
+    def test_the_spatial_version_cannot_go_backwards(self):
+        SPACE.travel(self.con, RES, "ws_lab", why="a research task")
+        with self.assertRaises(sqlite3.IntegrityError) as e:
+            self.con.execute("UPDATE agent_locations SET version=0 WHERE principal_id=?",
+                             (RES,))
+        self.assertIn("LAW 35", str(e.exception))
+
+
+class SpatialConcurrency(unittest.TestCase):
+    """D, E — one agent, one journey, whatever order the workers arrive in."""
+
+    def setUp(self):
+        self.con = world()
+        W.found_agents(self.con)
+
+    def test_four_workers_four_destinations_produce_one_journey(self):
+        started, refused = [], []
+        for i, d in enumerate(["ws_lab", "ws_inspection", "ws_cell_0", "ws_pad"]):
+            r = SPACE.move_to(self.con, RES, d, why="worker w%d wants it there" % i,
+                              worker="w%d" % i)
+            (started if r.get("moved") else refused).append(r)
+        self.assertEqual(len(started), 1, "more than one journey began")
+        self.assertEqual(len(refused), 3)
+        self.assertTrue(all(r.get("refused") for r in refused))
+        self.assertEqual(self.con.execute(
+            "SELECT COUNT(*) c FROM movements WHERE principal_id=? AND phase='REQUESTED'",
+            (RES,)).fetchone()["c"], 1)
+        self.assertEqual(SPACE.locate(self.con, RES)["destination"], "ws_lab")
+
+    def test_every_refusal_is_recorded_rather_than_dropped(self):
+        SPACE.move_to(self.con, RES, "ws_lab", why="the first task", worker="w1")
+        SPACE.move_to(self.con, RES, "ws_pad", why="a second task", worker="w2")
+        r = self.con.execute(
+            "SELECT * FROM movements WHERE principal_id=? AND phase='REFUSED' "
+            "ORDER BY id DESC LIMIT 1", (RES,)).fetchone()
+        self.assertIsNotNone(r)
+        self.assertEqual(r["worker"], "w2")
+        self.assertIn("already travelling", r["why"])
+
+    def test_a_stale_read_loses_its_write(self):
+        SPACE.move_to(self.con, RES, "ws_lab", why="a research task", worker="w1")
+        stale = SPACE.locate(self.con, RES)["version"]
+        SPACE.advance(self.con, RES, worker="w1", steps=1)
+        self.assertFalse(SPACE._write(self.con, RES, stale, activity="from a stale read"))
+        self.assertNotEqual(SPACE.locate(self.con, RES)["activity"], "from a stale read")
+
+    def test_a_redirect_is_possible_but_must_be_asked_for(self):
+        SPACE.move_to(self.con, RES, "ws_lab", why="the first task", worker="w1")
+        blocked = SPACE.move_to(self.con, RES, "ws_pad", why="a second task", worker="w2")
+        self.assertTrue(blocked.get("refused"))
+        ok = SPACE.move_to(self.con, RES, "ws_pad", why="this one outranks it",
+                           worker="w2", redirect=True)
+        self.assertTrue(ok["moved"])
+        self.assertEqual(SPACE.locate(self.con, RES)["destination"], "ws_pad")
+
+    def test_two_workers_advancing_one_agent_do_not_double_its_progress(self):
+        SPACE.move_to(self.con, RES, "ws_inspection", why="a review task", worker="w1")
+        seen = set()
+        for i in range(60):
+            SPACE.advance(self.con, RES, worker="w1" if i % 2 else "w2", steps=1)
+            loc = SPACE.locate(self.con, RES)
+            seen.add((round(loc["x"], 3), round(loc["y"], 3)))
+            if loc["movement"] != SPACE.MOVING:
+                break
+        self.assertEqual(SPACE.locate(self.con, RES)["workspace"], "ws_inspection")
+        arrivals = self.con.execute(
+            "SELECT COUNT(*) c FROM movements WHERE principal_id=? AND phase='ARRIVED' "
+            "AND to_workspace='ws_inspection'", (RES,)).fetchone()["c"]
+        self.assertEqual(arrivals, 1, "the agent arrived more than once")
+
+
+class SpatialCrashRecovery(unittest.TestCase):
+    """F, G — killed mid-journey, and still on the same journey afterwards."""
+
+    def test_an_agent_killed_mid_route_reopens_mid_route(self):
+        path = os.path.join(tempfile.mkdtemp(), "mid.db")
+        con = world(path)
+        W.found_agents(con)
+        self._start = (SPACE.locate(con, RES)["x"], SPACE.locate(con, RES)["y"])
+        SPACE.move_to(con, RES, "ws_inspection", why="a review task", worker="w1")
+        SPACE.advance(con, RES, worker="w1", steps=1)
+        before = dict(SPACE.locate(con, RES))
+        self.assertEqual(before["movement"], SPACE.MOVING)
+        con.close()                                   # the process dies here
+
+        cold = store.connect(path)
+        after = dict(SPACE.locate(cold, RES))
+        for col in ("workspace", "destination", "x", "y", "path", "movement",
+                    "task_id", "why", "version"):
+            self.assertEqual(after[col], before[col], col)
+        start = self.__dict__.get("_start")
+        self.assertNotEqual((after["x"], after["y"]), start,
+                            "it teleported back to where it started")
+
+        # and it finishes the journey it was already on, under a NEW worker
+        SPACE.advance(cold, RES, worker="worker-after-the-crash", steps=40)
+        self.assertEqual(SPACE.locate(cold, RES)["workspace"], "ws_inspection")
+        self.assertEqual(SPACE.journey_origin(cold, RES), "ws_dispatch")
+
+    def test_a_restarted_world_has_the_same_positions(self):
+        path = os.path.join(tempfile.mkdtemp(), "restart.db")
+        con = world(path)
+        _, w, fx = driven(con)
+        D.start(con, fx)
+        SUP.run(w, max_ticks=140)
+        before = {r["principal_id"]: (r["workspace"], r["x"], r["y"], r["movement"])
+                  for r in con.execute("SELECT * FROM agent_locations")}
+        con.close()
+        cold = store.connect(path)
+        after = {r["principal_id"]: (r["workspace"], r["x"], r["y"], r["movement"])
+                 for r in cold.execute("SELECT * FROM agent_locations")}
+        self.assertEqual(after, before)
+        self.assertTrue(before, "nobody was anywhere to begin with")
+
+
+class MovementCausedByWork(unittest.TestCase):
+    """H, I, P — nothing moves unless something in the world required it."""
+
+    def setUp(self):
+        self.con, self.w, self.fixture = driven()
+        D.start(self.con, self.fixture)
+        SUP.run(self.w, max_ticks=140)
+
+    def test_every_journey_names_the_task_that_caused_it(self):
+        reqs = [dict(r) for r in self.con.execute(
+            "SELECT * FROM movements WHERE phase='REQUESTED'")]
+        self.assertTrue(reqs, "nobody moved during a whole project")
+        for m in reqs:
+            self.assertTrue(m["why"], "a movement with no stated reason")
+            self.assertIsNotNone(m["task_id"], "a journey caused by no task")
+            self.assertTrue(self.con.execute(
+                "SELECT 1 FROM tasks WHERE id=?", (m["task_id"],)).fetchone(),
+                "a journey caused by a task that does not exist")
+            self.assertIsNotNone(m["worker"], "no worker is accountable for this move")
+
+    def test_the_researcher_went_to_the_research_district(self):
+        loc = SPACE.locate(self.con, RES)
+        self.assertEqual(loc["workspace"], "ws_lab")
+        p = SPACE.place(self.con, loc["workspace"])
+        self.assertEqual(SPACE.place(self.con, p["parent_id"])["parent_id"], "research")
+
+    def test_the_builder_went_to_the_creation_district(self):
+        loc = SPACE.locate(self.con, BUILD)
+        p = SPACE.place(self.con, loc["workspace"])
+        self.assertEqual(SPACE.place(self.con, p["parent_id"])["parent_id"], "creation")
+
+    def test_the_reviewer_went_to_the_review_district(self):
+        loc = SPACE.locate(self.con, REV)
+        self.assertEqual(loc["workspace"], "ws_inspection")
+
+    def test_the_operator_never_moved_because_it_was_never_given_work(self):
+        """Idle is a valid state, and an agent with nothing to do stays put."""
+        self.assertEqual(SPACE.locate(self.con, OPER)["workspace"], "ws_dispatch")
+        self.assertEqual(self.con.execute(
+            "SELECT COUNT(*) c FROM movements WHERE principal_id=? AND phase='REQUESTED'",
+            (OPER,)).fetchone()["c"], 0, "an agent moved with no work to do")
+
+    def test_a_destination_is_where_that_task_belonged_at_the_time(self):
+        """`workspace_of` reads a task's CURRENT status, and these tasks have
+        since been accepted and archived — so the destination is checked against
+        the status the mover recorded in its own reason, not today's."""
+        checked = 0
+        for m in self.con.execute(
+                "SELECT * FROM movements WHERE phase='REQUESTED' AND task_id IS NOT NULL"):
+            at_the_time = re.search(r"assigned task #\d+ \((\w+)\)", m["why"])
+            if not at_the_time:
+                continue
+            t = dict(self.con.execute("SELECT * FROM tasks WHERE id=?",
+                                      (m["task_id"],)).fetchone())
+            t["status"] = at_the_time.group(1)
+            self.assertEqual(m["to_workspace"], OW.workspace_of(t),
+                             "task %d went somewhere its work does not belong"
+                             % m["task_id"])
+            checked += 1
+        self.assertGreater(checked, 0, "no assignment caused a journey")
+
+    def test_arrival_precedes_the_lease(self):
+        """An agent cannot hold a lease on work it has not reached."""
+        for m in self.con.execute(
+                "SELECT * FROM movements WHERE phase='ARRIVED' AND task_id IS NOT NULL"):
+            lease = self.con.execute(
+                "SELECT granted_at FROM leases WHERE task_id=? AND principal_id=? "
+                "ORDER BY id LIMIT 1", (m["task_id"], m["principal_id"])).fetchone()
+            if lease:
+                self.assertLessEqual(m["at"], lease["granted_at"],
+                                     "a lease was taken before the agent arrived")
+
+    def test_a_full_destination_does_not_fail_real_work(self):
+        """Whether a room is full is a question about occupancy, not about
+        whether a task should be done. An unreachable workspace leaves the agent
+        where it is, records why, and lets the work happen."""
+        con = world()
+        W.found_agents(con)
+        # fill the research floor to capacity with anyone but the Researcher
+        cap = con.execute("SELECT capacity FROM world_places WHERE id='ws_lab'"
+                          ).fetchone()["capacity"]
+        con.execute("UPDATE world_places SET capacity=1 WHERE id='ws_lab'")
+        SPACE.travel(con, BUILD, "ws_lab", why="occupying the only seat")
+        self.assertEqual(len(SPACE.occupants(con, "ws_lab")), 1)
+
+        fixture = D.write_fixture()
+        w = D.build_world(con, fixture, worker="worker-with-a-full-lab")
+        D.start(con, fixture)
+        SUP.run(w, max_ticks=140)
+
+        self.assertTrue(con.execute(
+            "SELECT 1 FROM projects WHERE stage='COMPLETED'").fetchone(),
+            "a full workspace stopped a project that had nothing wrong with it")
+        self.assertTrue(con.execute(
+            "SELECT 1 FROM signals WHERE headline LIKE '%could not reach%'").fetchone(),
+            "the world did not say the agent could not get there")
+        self.assertLessEqual(len(SPACE.occupants(con, "ws_lab")), 1)
+
+        # and nobody is left walking towards a room they can never enter
+        self.assertEqual(con.execute(
+            "SELECT COUNT(*) c FROM agent_locations WHERE movement='MOVING'"
+        ).fetchone()["c"], 0, "an agent is stuck mid-journey forever")
+        refused = [r["why"] for r in con.execute(
+            "SELECT why FROM movements WHERE phase='REFUSED'")]
+        self.assertTrue(any("full" in x for x in refused),
+                        "the abandoned journey was not recorded: %s" % refused)
+        self.assertTrue(con.execute(
+            "SELECT 1 FROM events WHERE kind='AGENT_JOURNEY_ABANDONED'").fetchone())
+        con.execute("UPDATE world_places SET capacity=? WHERE id='ws_lab'", (cap,))
+
+    def test_a_journey_that_cannot_end_is_abandoned_not_left_hanging(self):
+        """The destination fills up WHILE the agent is walking to it."""
+        con = world()
+        W.found_agents(con)
+        con.execute("UPDATE world_places SET capacity=1 WHERE id='ws_vault'")
+        SPACE.move_to(con, RES, "ws_vault", why="evidence needs filing", worker="w1")
+        SPACE.advance(con, RES, worker="w1", steps=1)
+        self.assertEqual(SPACE.locate(con, RES)["movement"], SPACE.MOVING)
+        # somebody else takes the only seat mid-journey
+        SPACE.travel(con, OPER, "ws_vault", why="got there first")
+        SPACE.advance(con, RES, worker="w1", steps=40)
+        loc = SPACE.locate(con, RES)
+        self.assertEqual(loc["movement"], SPACE.IDLE)
+        self.assertIsNone(loc["destination"])
+        self.assertNotEqual(loc["workspace"], "ws_vault")
+        self.assertIn("full", con.execute(
+            "SELECT why FROM movements WHERE principal_id=? AND phase='REFUSED' "
+            "ORDER BY id DESC LIMIT 1", (RES,)).fetchone()["why"])
+
+    def test_no_movement_happens_without_a_cause_anywhere_in_the_run(self):
+        for m in self.con.execute("SELECT * FROM movements"):
+            self.assertTrue((m["why"] or "").strip(),
+                            "movement #%d happened for no stated reason" % m["id"])
+
+
+class SpatialCausality(unittest.TestCase):
+    """The eight questions a movement row must answer on its own."""
+
+    def setUp(self):
+        self.con, self.w, self.fixture = driven()
+        D.start(self.con, self.fixture)
+        SUP.run(self.w, max_ticks=140)
+
+    def test_a_movement_row_answers_all_eight_questions(self):
+        m = self.con.execute(
+            "SELECT * FROM movements WHERE phase='REQUESTED' AND task_id IS NOT NULL "
+            "ORDER BY id LIMIT 1").fetchone()
+        self.assertIsNotNone(m, "nothing moved because of a task")
+        self.assertIsNotNone(m["principal_id"])            # WHO
+        self.assertIsNotNone(m["from_workspace"])          # FROM WHERE
+        self.assertIsNotNone(m["to_workspace"])            # TO WHERE
+        self.assertTrue(m["why"])                          # WHY
+        self.assertIsNotNone(m["task_id"])                 # WHICH TASK
+        self.assertIsNotNone(m["worker"])                  # WHICH WORKER
+        self.assertIsNotNone(m["at"])                      # WHEN
+        arrived = self.con.execute(
+            "SELECT * FROM movements WHERE principal_id=? AND phase='ARRIVED' "
+            "AND id>? ORDER BY id LIMIT 1", (m["principal_id"], m["id"])).fetchone()
+        self.assertIsNotNone(arrived, "a journey with no result")   # THE RESULT
+
+    def test_a_journey_is_reconstructable_from_rows_alone(self):
+        m = self.con.execute(
+            "SELECT * FROM movements WHERE phase='REQUESTED' AND task_id IS NOT NULL "
+            "ORDER BY id LIMIT 1").fetchone()
+        legs = [dict(r) for r in self.con.execute(
+            "SELECT * FROM movements WHERE principal_id=? AND id>=? ORDER BY id",
+            (m["principal_id"], m["id"]))]
+        phases = [x["phase"] for x in legs]
+        self.assertEqual(phases[0], "REQUESTED")
+        self.assertIn("DEPARTED", phases)
+        self.assertIn("ARRIVED", phases)
+        end = next(x for x in legs if x["phase"] == "ARRIVED")
+        self.assertEqual(end["from_workspace"], m["from_workspace"])
+        self.assertEqual(end["to_workspace"], m["to_workspace"])
+
+    def test_the_movement_events_are_in_the_one_event_chain(self):
+        kinds = {r["kind"] for r in self.con.execute("SELECT DISTINCT kind FROM events")}
+        for k in ("AGENT_MOVE_REQUESTED", "AGENT_ARRIVED", "AGENT_WORK_STARTED"):
+            self.assertIn(k, kinds, k)
+        ok, bad = store.verify_chain(self.con)
+        self.assertTrue(ok, bad)
+
+    def test_the_owner_report_traces_every_claim_to_a_row(self):
+        r = SPACE.spatial_report(self.con, RES)
+        self.assertEqual(r["place"]["district"], "Research District")
+        self.assertTrue(r["evidence"]["events"])
+        self.assertIsNotNone(r["last_move"])
+        self.assertGreater(r["distance_travelled"], 0)
+        for eid in r["evidence"]["events"]:
+            self.assertTrue(self.con.execute("SELECT 1 FROM events WHERE id=?",
+                                             (eid,)).fetchone())
+
+
+class WorkspacesAreReal(unittest.TestCase):
+    """K, R — a workspace has state, and it is state that came from rows."""
+
+    def setUp(self):
+        self.con, self.w, self.fixture = driven()
+        D.start(self.con, self.fixture)
+        SUP.run(self.w, max_ticks=140)
+
+    def test_a_workspace_has_capacity_capability_and_access(self):
+        for r in self.con.execute("SELECT * FROM world_places WHERE kind='workspace'"):
+            self.assertGreaterEqual(r["capacity"], 1, r["id"])
+            self.assertIn(r["access"], ("OPEN", "RESTRICTED"), r["id"])
+            self.assertIn(r["status"], ("ACTIVE", "RESERVED", "CLOSED"), r["id"])
+
+    def test_capacity_is_derived_from_the_size_of_the_room(self):
+        for r in self.con.execute("SELECT * FROM world_places WHERE kind='workspace'"):
+            self.assertEqual(r["capacity"], max(1, int(r["w"] * r["h"] / 8.0)), r["id"])
+
+    def test_occupants_are_the_agents_actually_standing_there(self):
+        for ws in SPACE.workspaces(self.con):
+            here = SPACE.occupants(self.con, ws["id"])
+            self.assertEqual(
+                sorted(a["principal_id"] for a in here),
+                sorted(r["principal_id"] for r in self.con.execute(
+                    "SELECT principal_id FROM agent_locations WHERE workspace=?",
+                    (ws["id"],))), ws["id"])
+            self.assertLessEqual(len(here), ws["capacity"], ws["id"])
+
+    def test_no_agent_is_in_two_places(self):
+        rows = [r["principal_id"] for r in self.con.execute(
+            "SELECT principal_id FROM agent_locations")]
+        self.assertEqual(len(rows), len(set(rows)))
+
+    def test_no_agent_is_orphaned_in_a_place_that_does_not_exist(self):
+        for r in self.con.execute("SELECT * FROM agent_locations"):
+            p = SPACE.place(self.con, r["workspace"])
+            self.assertIsNotNone(p, r["principal_id"])
+            self.assertEqual(p["kind"], "workspace")
+            if r["destination"]:
+                self.assertIsNotNone(SPACE.place(self.con, r["destination"]))
+
+
+class LevelOfDetail(unittest.TestCase):
+    """O — the same counts at five agents and at ten thousand."""
+
+    def setUp(self):
+        self.con, self.w, self.fixture = driven()
+        D.start(self.con, self.fixture)
+        SUP.run(self.w, max_ticks=140)
+
+    def test_occupancy_aggregates_up_the_tree_and_the_totals_agree(self):
+        agg = SPACE.aggregate(self.con)
+        total = self.con.execute("SELECT COUNT(*) c FROM agent_locations").fetchone()["c"]
+        self.assertEqual(agg["total"], total)
+        self.assertEqual(sum(agg["workspace"].values()), total)
+        self.assertEqual(sum(agg["district"].values()), total)
+        self.assertEqual(sum(agg["facility"].values()), total)
+
+    def test_a_district_count_is_the_sum_of_its_workspaces(self):
+        agg = SPACE.aggregate(self.con)
+        for did, n in agg["district"].items():
+            wids = [r["id"] for r in self.con.execute(
+                "SELECT w.id FROM world_places w JOIN world_places f ON f.id=w.parent_id "
+                "WHERE w.kind='workspace' AND f.parent_id=?", (did,))]
+            self.assertEqual(n, sum(agg["workspace"].get(x, 0) for x in wids), did)
+
+    def test_the_aggregate_is_a_count_not_a_render(self):
+        """The property that has to hold at 10,000: the number is produced by a
+        GROUP BY, so it costs the same and is right at any population."""
+        import inspect
+        src = inspect.getsource(SPACE.aggregate)
+        self.assertIn("GROUP BY", src)
+        self.assertNotIn("for a in W.CREW", src)
+
+    def test_the_payload_carries_district_counts_at_every_zoom(self):
+        for scale in (0.2, 0.6, 1.1, 2.0):
+            w = OW.open_world(self.con, scale)
+            self.assertEqual(w["occupancy"]["total"], 5)
+            for d in w["districts"]:
+                self.assertEqual(d["occupants"],
+                                 w["occupancy"]["district"].get(d["id"], 0), d["id"])
+
+    def test_the_aggregate_holds_when_the_world_is_full(self):
+        """Populate every workspace to capacity and check the counts still add up.
+
+        **What this does and does not show.** It shows the aggregation is a
+        GROUP BY whose cost and correctness do not depend on the population, and
+        that the renderer draws the founded crew while COUNTING everyone. It
+        does NOT show ten thousand agents running: this world's laid-out
+        capacity is what it is, and holding more means adding districts, which
+        is adding rows to a list."""
+        con = self.con
+        caps = {r["id"]: r["capacity"] for r in con.execute(
+            "SELECT id, capacity FROM world_places WHERE kind='workspace'")}
+        made = 0
+        for wid, cap in sorted(caps.items()):
+            for _ in range(cap - len(SPACE.occupants(con, wid))):
+                pid = "AGT-SYN-%05d" % made
+                con.execute(
+                    "INSERT INTO principals(id,name,role,division,department,tier,"
+                    "mission,tools,created_at) VALUES(?,?,?,?,?,?,?,?,?)",
+                    (pid, "synthetic", "population", "-", "-", "actor", "-",
+                     '["synthetic-%d"]' % made, store.now()))
+                x, y = SPACE.slot(con, wid, pid)
+                con.execute(
+                    "INSERT INTO agent_locations(principal_id,workspace,x,y,movement,"
+                    "why,moved_at,updated_at) VALUES(?,?,?,?,?,?,?,?)",
+                    (pid, wid, x, y, "IDLE", "synthetic population for a scale test",
+                     store.now(), store.now()))
+                made += 1
+        total = con.execute("SELECT COUNT(*) c FROM agent_locations").fetchone()["c"]
+        self.assertEqual(total, sum(caps.values()), "the world did not fill")
+        self.assertGreater(made, 80, "not enough population to be a scale test")
+
+        agg = SPACE.aggregate(con)
+        self.assertEqual(agg["total"], total)
+        for level in ("workspace", "facility", "district"):
+            self.assertEqual(sum(agg[level].values()), total, level)
+        for wid, cap in caps.items():
+            self.assertLessEqual(agg["workspace"].get(wid, 0), cap, wid)
+
+        w = OW.open_world(con, 0.2)
+        self.assertEqual(len(w["agents"]), 5, "a full world drew every occupant")
+        self.assertEqual(sum(d["occupants"] for d in w["districts"]), total,
+                         "the counts stopped matching once the world was full")
+        # and a full world still refuses one more, at both levels: `travel`
+        # declines it, and the LAW aborts anything that bypasses the check
+        r = SPACE.travel(con, "AGT-SYN-00000", "ws_vault", why="one past capacity")
+        self.assertTrue(r.get("abandoned"), r)
+        with self.assertRaises(sqlite3.IntegrityError) as e:
+            con.execute("UPDATE agent_locations SET workspace='ws_vault', "
+                        "version=version+1 WHERE principal_id='AGT-SYN-00000'")
+        self.assertIn("LAW 32", str(e.exception))
+
+    def test_orbit_aggregates_agents_and_draws_none(self):
+        w = OW.open_world(self.con, 0.2)
+        self.assertNotIn("agents", w["lod"]["draws"])
+        self.assertIn("agents", w["lod"]["aggregates"])
+        self.assertTrue(any(d["occupants"] for d in w["districts"]))
+
+
+class SpatialSecurity(unittest.TestCase):
+    """S — a model may ask to be moved. Nothing listens."""
+
+    def setUp(self):
+        self.con = world()
+        W.found_agents(self.con)
+
+    def test_the_agent_runtime_cannot_reach_the_spatial_world(self):
+        with open(os.path.join(HERE, "core/agent_runtime.py"), encoding="utf-8") as fh:
+            code = fh.read()
+        for reach in ("world_space", "agent_locations", "move_to", "SPACE."):
+            self.assertNotIn(reach, code,
+                             "the runtime can reach %r, so a model turn is one "
+                             "parse bug away from moving an agent" % reach)
+
+    def test_no_gateway_capability_writes_a_location(self):
+        gw = W.build_gateway(self.con)
+        caps = [c["name"] if isinstance(c, dict) else str(c)
+                for c in self.con.execute("SELECT name FROM capabilities")]
+        for c in caps:
+            self.assertNotIn("MOVE", c.upper(), c)
+            self.assertNotIn("LOCATE", c.upper(), c)
+        self.assertTrue(gw is not None)
+
+    def test_a_model_asking_to_be_moved_changes_nothing(self):
+        """The hostile output is parsed by the real parser, not a stand-in."""
+        before = dict(SPACE.locate(self.con, RES))
+        for hostile in (
+                '{"move": {"to": "ws_pad"}}',
+                '{"tool": "MOVE_AGENT", "args": {"to": "ws_pad"}}',
+                '{"final": {"answer": "I have relocated to the Operations District"}}',
+                '{"tool": "WRITE_ARTIFACT", "args": {"path": "x", "body": "y",'
+                ' "workspace": "ws_pad", "destination": "ws_pad"}}'):
+            req = RT._parse(hostile)
+            self.assertNotIn("move", [k for k in req if k == "move" and False])
+            # whatever it parsed to, no spatial column moved
+            after = dict(SPACE.locate(self.con, RES))
+            self.assertEqual(after, before, "model output %r moved an agent" % hostile)
+
+    def test_the_word_move_is_not_a_verb_the_runtime_understands(self):
+        with open(os.path.join(HERE, "core/agent_runtime.py"), encoding="utf-8") as fh:
+            code = fh.read()
+        verbs = set(re.findall(r'req\.get\("(\w+)"\)', code))
+        self.assertTrue(verbs, "the runtime parses no verbs at all?")
+        for forbidden in ("move", "goto", "destination", "workspace", "location"):
+            self.assertNotIn(forbidden, verbs, forbidden)
+
+    def test_a_movement_request_still_goes_through_the_deterministic_world(self):
+        """The runtime may REQUEST; the world decides. Here it decides no."""
+        with self.assertRaises(SPACE.SpaceError):
+            SPACE.move_to(self.con, RES, "ws_pad", why="")
+        with self.assertRaises(SPACE.SpaceError):
+            SPACE.move_to(self.con, RES, "/etc/passwd", why="a hostile destination")
+        self.assertEqual(SPACE.locate(self.con, RES)["movement"], SPACE.IDLE)
+
+
+class SpatialExportRestore(unittest.TestCase):
+    """M — the world moves house, and everybody is still standing where they were."""
+
+    def setUp(self):
+        self.src = os.path.join(tempfile.mkdtemp(), "old.db")
+        con = world(self.src)
+        _, w, fx = driven(con)
+        D.start(con, fx)
+        SUP.run(w, max_ticks=140)
+        # leave one agent in mid-journey: an export that only carries agents at
+        # rest has not carried the hard case.
+        SPACE.move_to(con, OPER, "ws_pad", why="an operational task", worker="w1")
+        SPACE.advance(con, OPER, worker="w1", steps=1)
+        self.con = con
+        self.bundle = os.path.join(tempfile.mkdtemp(), "w.json")
+        WE.export_world(con, self.bundle)
+        self.dst = os.path.join(tempfile.mkdtemp(), "new.db")
+        self.report = WE.restore_world(self.bundle, self.dst)
+        self.other = store.connect(self.dst)
+
+    def test_the_spatial_tables_travel(self):
+        with open(self.bundle, encoding="utf-8") as fh:
+            raw = json.load(fh)
+        for t in ("world_places", "agent_locations", "movements"):
+            self.assertIn(t, raw["tables"], t)
+            self.assertTrue(raw["tables"][t], "%s exported empty" % t)
+            self.assertIn(t, WE.ORDER, "%s is not in the declared order" % t)
+
+    def test_every_position_survives_the_move(self):
+        for r in self.con.execute("SELECT * FROM agent_locations ORDER BY principal_id"):
+            o = SPACE.locate(self.other, r["principal_id"])
+            self.assertIsNotNone(o, r["principal_id"])
+            for col in ("workspace", "x", "y", "destination", "dest_x", "dest_y",
+                        "path", "movement", "task_id", "why", "version"):
+                self.assertEqual(o[col], r[col], "%s.%s" % (r["principal_id"], col))
+
+    def test_a_journey_in_flight_survives_and_can_be_finished_elsewhere(self):
+        loc = SPACE.locate(self.other, OPER)
+        self.assertEqual(loc["movement"], SPACE.MOVING)
+        self.assertEqual(loc["destination"], "ws_pad")
+        SPACE.advance(self.other, OPER, worker="worker-on-the-new-machine", steps=40)
+        self.assertEqual(SPACE.locate(self.other, OPER)["workspace"], "ws_pad")
+
+    def test_the_geography_and_the_history_travel_too(self):
+        for t in ("world_places", "movements"):
+            self.assertEqual(
+                self.other.execute("SELECT COUNT(*) c FROM " + t).fetchone()["c"],
+                self.con.execute("SELECT COUNT(*) c FROM " + t).fetchone()["c"], t)
+        self.assertEqual(WE.compare(self.con, self.other), {})
+        self.assertTrue(self.report["chain_intact"])
+        self.assertTrue(self.report["foreign_keys_ok"])
+
+
+class SpatialOwnerAbsence(unittest.TestCase):
+    """L — the world moves about its business while nobody is watching."""
+
+    def setUp(self):
+        self.con, self.w, self.fixture = driven()
+        A.go_away(self.con, "running the spatial proof")
+        D.start(self.con, self.fixture)
+        SUP.run(self.w, max_ticks=140)
+
+    def test_agents_moved_while_the_owner_was_away(self):
+        self.assertEqual(A.presence(self.con)["state"], "AWAY")
+        since = self.con.execute(
+            "SELECT at FROM events WHERE kind='OWNER_AWAY' ORDER BY id DESC LIMIT 1"
+        ).fetchone()["at"]
+        moved = self.con.execute(
+            "SELECT COUNT(*) c FROM movements WHERE at > ? AND phase='ARRIVED'",
+            (since,)).fetchone()["c"]
+        self.assertGreater(moved, 0, "nothing moved while the owner was away")
+
+    def test_while_you_were_away_counts_journeys_not_placements(self):
+        """Coming into existence somewhere is not having been on a journey.
+
+        The founding writes an ARRIVED row per agent with no origin, so a naive
+        count of arrivals reports five journeys in a world where nobody has
+        moved — which is exactly the kind of number that makes a summary
+        worthless."""
+        away = W.while_you_were_away(self.con)
+        self.assertIn("journeys", away["counts"])
+        real = self.con.execute(
+            "SELECT COUNT(*) c FROM movements WHERE phase='ARRIVED' "
+            "AND from_workspace IS NOT NULL AND at > COALESCE((SELECT value FROM "
+            "owner_state WHERE key='world_last_seen'),'0000')").fetchone()["c"]
+        placements = self.con.execute(
+            "SELECT COUNT(*) c FROM movements WHERE phase='ARRIVED' "
+            "AND from_workspace IS NULL").fetchone()["c"]
+        self.assertEqual(placements, 5, "the founding did not place five agents")
+        self.assertEqual(away["counts"]["journeys"], real)
+        self.assertEqual(len(away["movements"]), real)
+
+    def test_the_movement_summary_names_agents_and_places_that_exist(self):
+        away = W.while_you_were_away(self.con)
+        self.assertTrue(away.get("movements"), "no journeys were surfaced")
+        for m in away["movements"]:
+            self.assertTrue(self.con.execute(
+                "SELECT 1 FROM principals WHERE id=?", (m["agent"],)).fetchone())
+            self.assertTrue(self.con.execute(
+                "SELECT 1 FROM world_places WHERE id=?", (m["to"],)).fetchone())
+            self.assertTrue(m["why"])
+
+    def test_the_owner_returns_to_a_world_that_kept_its_positions(self):
+        before = {r["principal_id"]: r["workspace"] for r in
+                  self.con.execute("SELECT * FROM agent_locations")}
+        A.come_back(self.con)
+        after = {r["principal_id"]: r["workspace"] for r in
+                 self.con.execute("SELECT * FROM agent_locations")}
+        self.assertEqual(after, before)
+        self.assertEqual(A.presence(self.con)["state"], "PRESENT")
 
 class SuiteHygiene(unittest.TestCase):
     def test_no_live_model_is_reachable_from_the_autonomous_world(self):

@@ -20,6 +20,12 @@ and what survives each of those dependencies disappearing is
 [`OWNERSHIP_AND_INDEPENDENCE.md`](OWNERSHIP_AND_INDEPENDENCE.md) —
 `python3 offline_demo.py --fresh` is that document as a runnable drill.
 
+**Positions are rows now, not arithmetic.** This page describes the projection;
+the agents standing in it have persisted coordinates, destinations, routes and a
+movement record, all written when work sent them somewhere. That is
+[`SPATIAL_WORLD.md`](SPATIAL_WORLD.md), and `python3 spatial_demo.py --fresh` is
+the proof.
+
 ---
 
 ## 1. Why the floor plan had to go

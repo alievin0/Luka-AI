@@ -209,7 +209,25 @@ def found_agents(con):
             K.transition(con, a["id"], state, why="V0 founding")
         store.event(con, "AGENT_ACTIVATED", actor=OWNER, subject=a["id"],
                     payload={"role": a["role"], "tier": a["tier"]})
+    _stand_the_crew(con, ids)
     return ids
+
+
+def _stand_the_crew(con, ids):
+    """An agent that exists is somewhere. Idempotent, like the founding itself.
+
+    Before the world had coordinates, position was arithmetic done at draw time
+    and an agent was nowhere between draws. Now it is a row, so it has to be
+    written the moment the identity is — otherwise the first thing that asks
+    where the Researcher is gets no answer, and a world with agents that are
+    nowhere is back to being a picture."""
+    from . import open_world as OW
+    from . import world_space as SPACE
+    SPACE.seed_places(con)
+    for aid in ids:
+        if SPACE.locate(con, aid) is None:
+            SPACE.stand(con, aid, OW.HOME_WORKSPACE.get(aid, "ws_dispatch"),
+                        why="founded; stands in its own district holding nothing")
 
 
 def build_gateway(con):
@@ -612,15 +630,34 @@ def while_you_were_away(con, mark_seen=False):
         "facts_established": _count(con, "claims", "created_at", since,
                                     "status='FACT'"),
         "memories_written": _count(con, "memories", "created_at", since),
+        # A journey is a completed ARRIVED row. Counting REQUESTED instead would
+        # report intentions, and an agent that set off and is still walking has
+        # not been anywhere yet.
+        # `from_workspace IS NOT NULL` excludes the founding placement: an agent
+        # that came into existence somewhere has not been on a journey.
+        "journeys": _count(con, "movements", "at", since,
+                           "phase='ARRIVED' AND from_workspace IS NOT NULL"),
     }
     pending = con.execute(
         "SELECT COUNT(*) c FROM tasks WHERE status IN ('PROPOSED','REVIEW')"
     ).fetchone()["c"]
     blockers = [dict(r) for r in con.execute(
         "SELECT id, objective, status FROM tasks WHERE status IN ('BLOCKED','FAILED')")]
+    # What actually moved, in the world's own words. Each entry is one movement
+    # row: the agent that went, where it went, and the reason recorded at the
+    # time. Nothing here is composed — there is no sentence in this function
+    # that could describe a journey that did not happen.
+    journeys = [{"agent": r["principal_id"], "from": r["from_workspace"],
+                 "to": r["to_workspace"], "why": r["why"], "task_id": r["task_id"],
+                 "at": r["at"], "movement_id": r["id"]}
+                for r in con.execute(
+                    "SELECT * FROM movements WHERE at > ? AND phase='ARRIVED' "
+                    "AND from_workspace IS NOT NULL ORDER BY id DESC LIMIT 12",
+                    (since,))]
     out = {
         "since": since if since != "0000" else None,
         "counts": {k: v for k, v in counts.items() if v},
+        "movements": journeys,
         "decisions_waiting": pending,
         "blockers": blockers,
         "quiet": not any(counts.values()) and not pending and not blockers,

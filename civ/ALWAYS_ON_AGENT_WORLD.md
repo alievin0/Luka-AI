@@ -8,7 +8,8 @@ work or permission.
 python3 always_on_demo.py --fresh              # the whole thing, unattended
 python3 always_on_demo.py --fresh --crash-at 6 # killed mid-flight, then resumed
 python3 offline_demo.py --fresh                # no key, no network, no engine
-python3 -m unittest test_always_on             # 156 tests
+python3 spatial_demo.py --fresh                # five agents that actually travel
+python3 -m unittest test_always_on             # 220 tests
 python3 world_server.py --db always-on.db      # watch it at :8790
 ```
 

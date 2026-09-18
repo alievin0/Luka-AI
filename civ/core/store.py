@@ -14,6 +14,8 @@ WORLD_SCHEMA = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                             "agent_world_schema.sql")
 ALWAYS_ON_SCHEMA = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                 "always_on_schema.sql")
+SPACE_SCHEMA = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            "space_schema.sql")
 DEFAULT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "civ.db")
 
 MODES = ("simulation", "live", "hybrid")
@@ -47,7 +49,7 @@ def connect(path=None):
     if DIALECT.name != "sqlite":                  # pragma: no cover - not deployed
         return con
     for path in (SCHEMA, ORG_SCHEMA, BENCH_SCHEMA, WORLD_SCHEMA,
-                 ALWAYS_ON_SCHEMA):
+                 ALWAYS_ON_SCHEMA, SPACE_SCHEMA):
         with open(path, encoding="utf-8") as fh:
             con.executescript(fh.read())
     # Organisational lifecycle is a DIFFERENT axis from runtime status:
@@ -114,7 +116,7 @@ def _table_ddl(schema_path, table):
         # Running always_on_schema.sql alone fails on `REFERENCES tasks(id)`,
         # which is the schema being correct, not the migration being wrong.
         for earlier in (SCHEMA, ORG_SCHEMA, BENCH_SCHEMA, WORLD_SCHEMA,
-                        ALWAYS_ON_SCHEMA):
+                        ALWAYS_ON_SCHEMA, SPACE_SCHEMA):
             with open(earlier, encoding="utf-8") as fh:
                 tmp.executescript(fh.read())
             if os.path.samefile(earlier, schema_path):

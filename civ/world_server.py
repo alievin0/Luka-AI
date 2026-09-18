@@ -21,6 +21,7 @@ sys.path.insert(0, HERE)
 from core import agent_runtime as RT     # noqa: E402
 from core import always_on as AO        # noqa: E402
 from core import open_world as OW       # noqa: E402
+from core import world_space as SPACE   # noqa: E402
 from core import model_gate as GATE     # noqa: E402
 from core import world_bus as BUS        # noqa: E402
 from core import agent_world as W        # noqa: E402
@@ -255,6 +256,10 @@ def agent_detail(con, agent_id):
     v["evidence"] = _rows(con, "SELECT id, kind, external_provenance, collected_at "
                                "FROM evidence WHERE collected_by=? ORDER BY id DESC",
                           (agent_id,))
+    # Where it is, where it is going, and why — every field a column or a row
+    # id, so each claim on the Owner's screen points at the record behind it.
+    v["spatial"] = SPACE.spatial_report(con, agent_id)
+    v["movements"] = SPACE.history(con, agent_id, limit=20)
     v["timeline"] = agent_activity(con, agent_id)
     v["team_of"] = _rows(con, "SELECT t.project_id, t.name, tm.seat FROM team_members tm "
                               "JOIN teams t ON t.id=tm.team_id WHERE tm.principal_id=?",
@@ -339,6 +344,12 @@ def activity(con, limit=60):
     return out
 
 
+def movements(con, limit=80):
+    """The movement record, newest first. What actually happened, in order."""
+    return [dict(r) for r in con.execute(
+        "SELECT * FROM movements ORDER BY id DESC LIMIT ?", (limit,))]
+
+
 def record(con, kind, rid):
     """The actual underlying row behind anything the UI shows."""
     table = {"task": "tasks", "artifact": "artifacts", "review": "reviews",
@@ -346,7 +357,8 @@ def record(con, kind, rid):
              "memory": "memories", "message": "agent_messages",
              "event": "events", "opportunity": "opportunities",
              "discovery": "discoveries", "lesson": "lessons",
-             "chain": "chains", "queue": "world_queue"}.get(kind)
+             "chain": "chains", "queue": "world_queue",
+             "movement": "movements", "place": "world_places"}.get(kind)
     if not table:
         return {"error": "unknown record kind %r" % kind}
     row = con.execute("SELECT * FROM %s WHERE id=?" % table, (rid,)).fetchone()
@@ -408,6 +420,12 @@ class Handler(BaseHTTPRequestHandler):
                 payload["autonomy"] = autonomy(con)
                 payload["away"] = W.while_you_were_away(con)
                 return self._send(json.dumps(payload, ensure_ascii=False))
+            if parts[0] == "space" and len(parts) > 1:
+                return self._send(json.dumps(
+                    SPACE.spatial_report(con, parts[1]), ensure_ascii=False))
+            if parts[0] == "movements":
+                n = int(q.get("limit", ["80"])[0])
+                return self._send(json.dumps(movements(con, n), ensure_ascii=False))
             if parts[0] == "activity":
                 n = int(q.get("limit", ["60"])[0])
                 return self._send(json.dumps(activity(con, n), ensure_ascii=False))

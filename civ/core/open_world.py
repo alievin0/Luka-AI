@@ -24,6 +24,7 @@ import json
 
 from . import agent_world as W
 from . import always_on as A
+from . import world_space as SPACE
 
 OWNER = "OWNER_PLANE"
 
@@ -113,13 +114,23 @@ DISTRICTS = [
          facilities=[], expandable=True),
 ]
 
-# Where an entity stands when it holds nothing. Its district, not its task.
+# Where an entity stands when it holds nothing.
+#
+# The Dispatch Floor, for everyone but nobody's benefit: work is noticed and
+# handed out at the Central Hub, and an agent holding no lease has no reason to
+# be standing at a specialist bench in another district. This is also what makes
+# the spatial world load-bearing rather than decorative — an assignment now
+# genuinely requires the Researcher to cross to the Research District, and that
+# journey is persisted, recoverable and caused by the task that demanded it.
+#
+# Nobody walks home afterwards. An agent standing where it last worked is the
+# truth; sending it back for tidiness would be movement the world invented.
 HOME_WORKSPACE = {
     "AGT-ORCHESTRATOR": "ws_dispatch",
-    "AGT-RESEARCHER": "ws_lab",
-    "AGT-BUILDER": "ws_cell_0",
-    "AGT-REVIEWER": "ws_inspection",
-    "AGT-OPERATOR": "ws_pad",
+    "AGT-RESEARCHER": "ws_dispatch",
+    "AGT-BUILDER": "ws_dispatch",
+    "AGT-REVIEWER": "ws_dispatch",
+    "AGT-OPERATOR": "ws_dispatch",
 }
 
 # Zoom levels. The contract is what is DRAWN and what is AGGREGATED, because a
@@ -192,24 +203,63 @@ def workspace_of(task):
 
 
 def place_agent(con, agent_id):
-    """Where an entity stands, and the row that put it there."""
+    """Where an entity IS, read from the row that says so.
+
+    This used to compute a position: it read the agent's task, decided which
+    workspace that implied, and returned the centre of that rectangle. The
+    result looked identical on screen and was a different kind of thing — an
+    agent was nowhere between draws, could not be partway anywhere, and had
+    nothing to recover after a crash.
+
+    Now the answer comes from `agent_locations`, which the supervisor wrote when
+    the work sent the agent there. `workspace_of` still exists and is still the
+    authority on where a task's work BELONGS — that is what the mover consults
+    to pick a destination. Where the agent actually stands is this row."""
+    loc = SPACE.locate(con, agent_id)
+    if loc is None:
+        # A world founded before it had coordinates. Say so rather than
+        # inventing a position that nothing wrote.
+        return {"workspace": HOME_WORKSPACE.get(agent_id, "ws_dispatch"),
+                "state": "UNPLACED", "task_id": None, "x": None, "y": None,
+                "movement": "UNPLACED", "destination": None,
+                "reason": "this world has no spatial record for %s" % agent_id}
+    state, because = _runtime_state(con, agent_id, loc)
+    # Two different questions, two different fields. `reason` is why the agent
+    # is STANDING here — the cause recorded when something moved it. `because`
+    # is why it is in this STATE — the lease or task row behind the label.
+    # Collapsing them into one string loses whichever of the two you ask for.
+    return {"workspace": loc["workspace"], "state": state,
+            "task_id": loc["task_id"], "x": loc["x"], "y": loc["y"],
+            "movement": loc["movement"], "destination": loc["destination"],
+            "activity": loc["activity"], "lease_id": loc["lease_id"],
+            "moved_at": loc["moved_at"], "version": loc["version"],
+            "reason": loc["why"] or "holds no lease", "because": because}
+
+
+def _runtime_state(con, agent_id, loc):
+    """(state, because) — the label, and the row that justifies it.
+
+    Movement first, because a travelling agent is doing something visible. Then
+    the lease: RUNNING still requires a live lease row and nothing else, exactly
+    as before. A spatial row claiming WORKING does not make an agent RUNNING —
+    the lease does, or nothing does."""
+    if loc["movement"] == SPACE.MOVING:
+        return "MOVING", "travelling to %s" % (loc["destination"] or "nowhere")
     live = con.execute(
-        "SELECT t.* FROM tasks t JOIN leases l ON l.task_id=t.id "
+        "SELECT t.id, l.id lease FROM tasks t JOIN leases l ON l.task_id=t.id "
         "WHERE l.principal_id=? AND l.status='ACTIVE' AND t.status='RUNNING' "
         "ORDER BY t.id LIMIT 1", (agent_id,)).fetchone()
     if live:
-        return {"workspace": workspace_of(live), "state": "RUNNING",
-                "task_id": live["id"],
-                "reason": "holds an active lease on task #%d" % live["id"]}
+        return "RUNNING", ("holds an active lease on task #%d" % live["id"])
+    if loc["movement"] in (SPACE.WAITING, SPACE.BLOCKED):
+        return loc["movement"], loc["activity"] or loc["why"] or "holds no lease"
     for t in con.execute("SELECT * FROM tasks WHERE status IN "
                          "('ASSIGNED','BLOCKED','REVIEW','COMPLETED') ORDER BY id"):
         if W.assignee(con, t["id"]) == agent_id:
             state = ("BLOCKED" if t["status"] == "BLOCKED" else
                      "REVIEW" if t["status"] == "REVIEW" else "ASSIGNED")
-            return {"workspace": workspace_of(t), "state": state, "task_id": t["id"],
-                    "reason": "assigned task #%d (%s)" % (t["id"], t["status"])}
-    return {"workspace": HOME_WORKSPACE.get(agent_id, "ws_dispatch"), "state": "IDLE",
-            "task_id": None, "reason": "holds no lease"}
+            return state, "assigned task #%d (%s)" % (t["id"], t["status"])
+    return "IDLE", "holds no lease"
 
 
 def project_plots(con):
@@ -279,9 +329,13 @@ def open_world(con, scale=1.0):
         agents[a["id"]] = dict(
             p, id=a["id"], name=a["name"], role=a["role"],
             tools=len(a["permissions"]),
-            x=ws["x"] + ws["w"] / 2.0, y=ws["y"] + ws["h"] / 2.0,
+            # The persisted coordinate. An agent partway across a district is
+            # drawn partway across a district, because that is where it is.
+            x=p["x"] if p["x"] is not None else ws["x"] + ws["w"] / 2.0,
+            y=p["y"] if p["y"] is not None else ws["y"] + ws["h"] / 2.0,
             district=ws["district"], facility=ws["facility"])
 
+    agg = SPACE.aggregate(con)
     districts = []
     for d in DISTRICTS:
         fids = [f["id"] for f in d["facilities"]]
@@ -294,6 +348,8 @@ def open_world(con, scale=1.0):
                         for f in d["facilities"]],
             agents=[a["id"] for a in here],
             active=sum(1 for a in here if a["state"] == "RUNNING"),
+            moving=sum(1 for a in here if a["state"] == "MOVING"),
+            occupants=agg["district"].get(d["id"], 0),
             tasks=sum(len(occ.get(w, {}).get("tasks", [])) for w in wids),
             artifacts=sum(len(occ.get(w, {}).get("artifacts", [])) for w in wids),
         ))
@@ -302,6 +358,16 @@ def open_world(con, scale=1.0):
         "lod": level,
         "zooms": ZOOM,
         "districts": districts,
+        # LOD counts, straight from a GROUP BY over `agent_locations`. This is
+        # what a district shows at ORBIT when it holds ten thousand agents: a
+        # number that is a COUNT, computed identically at five and at 10,000,
+        # with no sprite drawn to produce it.
+        "occupancy": agg,
+        # The bounds of every place, so the renderer can draw a route to a
+        # destination without holding an opinion about where anything is.
+        "places": {r["id"]: {"x": r["x"], "y": r["y"], "w": r["w"], "h": r["h"],
+                             "kind": r["kind"], "label": r["label"]}
+                   for r in con.execute("SELECT * FROM world_places")},
         "agents": agents,
         "projects": project_plots(con),
         "bounds": {"x0": min(d["x"] for d in DISTRICTS),

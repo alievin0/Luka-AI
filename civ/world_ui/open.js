@@ -59,7 +59,8 @@ const FORM = {
         opacity=".7"/>`;}).join("")}`,
 };
 const STATE_COL = { IDLE: "#5a6673", ASSIGNED: "#7fa8d4", RUNNING: "#5fd4c4",
-                    REVIEW: "#a98ce8", BLOCKED: "#e0a44c", FAILED: "#d9736f" };
+                    REVIEW: "#a98ce8", BLOCKED: "#e0a44c", FAILED: "#d9736f",
+                    MOVING: "#8fb9d9", WAITING: "#8a94a2", UNPLACED: "#4a5460" };
 
 let W = null, CAM = { x: 0, y: 0, k: 1 }, SEL = null, LAST = {};
 
@@ -117,11 +118,12 @@ function render() {
           ${d.tasks} tasks · ${d.agents.length} agents</text>`));
 
     if (!draws.includes("facilities")) {
-      if (d.agents.length) {          // ORBIT: a cluster, never N sprites
+      const n = d.occupants != null ? d.occupants : d.agents.length;
+      if (n) {                        // ORBIT: a cluster, never N sprites
         const [cx, cy] = P(d.x + d.w / 2, d.y + d.h / 2);
         push(d.x + d.y + d.w / 2 + d.h / 2 + 2,
           `<circle class="cluster" cx="${cx}" cy="${cy - 14}" r="15"/>
-           <text class="cnum" x="${cx}" y="${cy - 10}">${d.agents.length}</text>`);
+           <text class="cnum" x="${cx}" y="${cy - 10}">${n}</text>`);
         if (hot) push(d.x + d.y, pool(d.x + d.w / 2, d.y + d.h / 2, 4, "#5fd4c4", .18));
       }
       continue;
@@ -180,6 +182,21 @@ function render() {
     for (const a of Object.values(W.agents)) {
       const col = STATE_COL[a.state] || STATE_COL.IDLE;
       const work = a.state === "RUNNING";
+      /* A travelling agent gets its route drawn: destination from the agent's
+         own row, not inferred here. The line exists because `destination` is a
+         column with something in it. */
+      if (a.state === "MOVING" && a.destination && W.places
+          && W.places[a.destination]) {
+        const d = W.places[a.destination];
+        const [gx, gy] = P(d.x + d.w / 2, d.y + d.h / 2);
+        const [ax, ay] = P(a.x, a.y);
+        push(a.x + a.y - 0.05,
+          `<line class="route" x1="${ax}" y1="${ay}" x2="${gx}" y2="${gy}"
+             stroke="${col}" stroke-width="1.1" stroke-dasharray="5 6"
+             opacity=".55"/>
+           <circle class="routegoal" cx="${gx}" cy="${gy}" r="4" fill="none"
+             stroke="${col}" stroke-width="1.2" opacity=".7"/>`);
+      }
       const [sx, sy] = P(a.x, a.y);
       const [ex, ey] = P(a.x, a.y, work ? 2.3 : 1.7);
       if (work) push(a.x + a.y - 0.02, pool(a.x, a.y, 2.6, col, .24));
@@ -337,12 +354,43 @@ async function openAgent(id) {
   const a = await get("/api/agent/" + encodeURIComponent(id));
   history.replaceState(null, "", "#agent/" + encodeURIComponent(id));
   const here = W.agents[id] || {};
-  let h = blk("STANDING", kv([
-    ["district", esc(here.district || "—")],
-    ["workspace", `<b>${esc(here.workspace || "—")}</b>`],
+  const sp = a.spatial || {};
+  const pl = sp.place || {};
+  const lm = sp.last_move;
+  /* Every line below is a column or a row id. There is no field here that
+     could say something other than what the world recorded. */
+  let h = blk("WHERE IT IS", kv([
+    ["district", esc(pl.district || here.district || "—")],
+    ["facility", esc(pl.facility || "—")],
+    [sp.movement === "MOVING" ? "last workspace" : "workspace",
+      `<b>${esc(pl.workspace || here.workspace || "—")}</b>`],
+    ["position", sp.x != null ? `${sp.x.toFixed(1)}, ${sp.y.toFixed(1)}` : "—"],
     ["state", `<span class="tag on">${esc(here.state || "—")}</span>`],
-    ["because", esc(here.reason || "")],
+    ["movement", `<span class="tag${sp.movement === "MOVING" ? " on" : ""}">${
+      esc(sp.movement || "—")}</span>`],
   ]));
+  h += blk("WHY IT IS THERE", kv([
+    ["because", esc(sp.why || here.reason || "—")],
+    ["state because", esc(here.because || "—")],
+    ["activity", esc(sp.activity || "—")],
+    ["task", sp.task_id ? `<span data-ref="task:${sp.task_id}">#${sp.task_id}</span>` : "—"],
+    ["lease", sp.lease_id ? `#${sp.lease_id}` : "—"],
+    ["since", esc(sp.moved_at || "—")],
+  ]));
+  if (sp.destination) h += blk("WHERE IT IS GOING", kv([
+    ["destination", `<b>${esc(sp.destination_label || sp.destination)}</b>`],
+    ["remaining", (sp.path || []).join(" → ") || "—"],
+  ]));
+  h += blk("MOVEMENT", kv([
+    ["journeys", String(sp.moves == null ? "—" : sp.moves)],
+    ["distance", sp.distance_travelled == null ? "—"
+      : sp.distance_travelled + " units"],
+    ["last move", lm ? `${esc(lm.from_workspace || "—")} → ${esc(lm.to_workspace)}` : "—"],
+  ]) + (a.movements || []).slice(0, 8).map((m) =>
+    `<div class="row" data-ref="movement:${m.id}"><span class="rt">${esc(m.phase)}</span>
+     <b>${esc(m.from_workspace || "—")} → ${esc(m.to_workspace)}</b><br>
+     <span style="color:#44505e">${esc(short(m.why, 90))}</span></div>`).join("")
+    || `<div class="none">has never moved</div>`);
   h += blk("IDENTITY", kv([["agent_id", `<code>${esc(a.agent_id)}</code>`],
     ["role", esc(a.role)], ["division", esc(a.division)],
     ["lifecycle", esc(a.lifecycle_state)], ["created", esc(a.created_at)]]));
