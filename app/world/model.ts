@@ -550,6 +550,27 @@ const ROUTES: Record<string, string> = {
 };
 
 /**
+ * The routes the architecture can carry, as from/to pairs.
+ *
+ * Drawn faintly under the scene so the map reads as a system even before any
+ * traffic exists. A route only lights up when a message has actually crossed
+ * it — the faint line is the wiring, the bright one is the traffic.
+ */
+export function tracedRoutes(): Array<{ from: string; to: string }> {
+  const seen = new Set<string>();
+  const out: Array<{ from: string; to: string }> = [];
+  for (const key of Object.keys(ROUTES)) {
+    const [from, to] = key.split(">");
+    // A pair drawn in both directions is one line on the map.
+    const canonical = from < to ? `${from}>${to}` : `${to}>${from}`;
+    if (seen.has(canonical)) continue;
+    seen.add(canonical);
+    out.push({ from, to });
+  }
+  return out;
+}
+
+/**
  * The path a pulse follows from one node to another.
  *
  * Unrecognised pairs get a curve derived from the two nodes instead of being

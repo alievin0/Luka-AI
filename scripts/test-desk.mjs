@@ -55,7 +55,7 @@ try {
   // The world's derivations live under `app/`, so they need their own root.
   execFileSync(
     "npx",
-    ["tsc", "app/world/model.ts",
+    ["tsc", "app/world/model.ts", "app/world/sprites.ts",
      "--outDir", outDir, "--rootDir", "app", "--module", "commonjs",
      "--target", "es2020", "--moduleResolution", "node",
      "--esModuleInterop", "--skipLibCheck", "--strict"],
@@ -75,6 +75,7 @@ const dbmod = await load("db/index.js");
 const mem = await load("db/memory.js");
 const tts = await load("tts.js");
 const world = await import(pathToFileURL(join(outDir, "world", "model.js")).href);
+const art = await import(pathToFileURL(join(outDir, "world", "sprites.js")).href);
 const roster = await load("agents.js");
 
 const repo = dbmod.getRepo();
@@ -626,6 +627,65 @@ await check("every edge the pipeline can emit resolves to a path", () => {
   for (const [from, to] of emitted) {
     assert.ok(world.routePath(from, to), `no path for ${from} → ${to}`);
   }
+});
+
+await check("every generated place has a pin to stand on", () => {
+  for (const place of art.PLACES) {
+    if (place.zone === "channel" || place.zone === "orchestrator") continue;
+    assert.ok(
+      world.NODES[place.zone],
+      `place "${place.key}" sits on zone "${place.zone}", which has no node`,
+    );
+  }
+});
+
+await check("no two assets fight over the same file", () => {
+  const files = art.allAssets().map((a) => a.file);
+  assert.strictEqual(new Set(files).size, files.length, "duplicate asset file name");
+  assert.strictEqual(files.length, 12);
+});
+
+await check("every asset names a real source it can be refetched from", () => {
+  for (const a of art.allAssets()) {
+    assert.match(a.file, /\.png$/, `${a.file} is not a png`);
+    assert.match(a.source, /^https:\/\//, `${a.file} has no https source`);
+  }
+});
+
+await check("a channel is a doorway, not a second body on the board", () => {
+  assert.strictEqual(art.hasPod("reception"), true);
+  assert.strictEqual(art.hasPod("channel-whatsapp"), false);
+  assert.strictEqual(art.hasPod("channel-instagram"), false);
+});
+
+await check("an agent's state picks the character that matches it", () => {
+  assert.strictEqual(art.podFor("working"), "idle");
+  assert.strictEqual(art.podFor("waiting"), "wait");
+  assert.strictEqual(art.podFor("escalated"), "alert");
+  assert.strictEqual(art.podFor("error"), "alert");
+  assert.strictEqual(art.podFor("anything_new"), "idle");
+});
+
+await check("a sprite is placed by its centre, in percentages of the art", () => {
+  const box = art.spriteBox({ x: 563, y: 338, w: 200 });
+  // Dead centre of a 1126 x 676 canvas, 200 wide.
+  assert.strictEqual(box.left, `${((563 - 100) / 1126) * 100}%`);
+  assert.strictEqual(box.top, `${((338 - 100) / 676) * 100}%`);
+  assert.strictEqual(box.width, `${(200 / 1126) * 100}%`);
+});
+
+await check("every place fits inside the canvas it is placed on", () => {
+  for (const p of art.PLACES) {
+    assert.ok(p.x - p.w / 2 > -p.w * 0.5, `${p.key} runs off the left`);
+    assert.ok(p.x + p.w / 2 < world.CAMPUS_W + p.w * 0.5, `${p.key} runs off the right`);
+    assert.ok(p.y + p.w / 2 < world.CAMPUS_H + p.w * 0.5, `${p.key} runs off the bottom`);
+  }
+});
+
+await check("the art is served from the committed copy when there is one", () => {
+  const a = { file: "x.png", source: "https://cdn.example/y.png" };
+  assert.strictEqual(art.spriteUrl(a, "local"), "/world/sprites/x.png");
+  assert.strictEqual(art.spriteUrl(a, "remote"), "https://cdn.example/y.png");
 });
 
 await check("an unknown event kind keeps its name instead of vanishing", () => {

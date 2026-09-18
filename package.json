@@ -2,7 +2,7 @@
   "name": "luka-ai",
   "version": "0.1.0",
   "private": true,
-  "description": "Luka — an AI shopping agent powered by Claude",
+  "description": "Luka \u2014 an AI shopping agent powered by Claude",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -10,7 +10,8 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test": "node scripts/test-affiliate.mjs && node scripts/test-desk.mjs",
-    "test:desk": "node scripts/test-desk.mjs"
+    "test:desk": "node scripts/test-desk.mjs",
+    "world:assets": "node scripts/fetch-world-assets.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.109.1",

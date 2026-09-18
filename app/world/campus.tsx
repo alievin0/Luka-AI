@@ -14,6 +14,8 @@ import {
   type Tone,
 } from "./model";
 import { IconChat, IconWhatsapp } from "./icons";
+import Scene from "./scene";
+import { POD_DROP, POD_W, SPRITE_DIR, hasPod, type SpriteSource } from "./sprites";
 
 /**
  * The campus.
@@ -76,6 +78,7 @@ export default function Campus({
   pulseQueue,
 }: CampusProps) {
   const { host, box } = useFittedBox(CAMPUS_W / CAMPUS_H);
+  const { source: artSource, drop: dropArt, arrived: artArrived } = useSpriteSource();
   const [pulses, setPulses] = useState<LivePulse[]>([]);
   const timers = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
   const fired = useRef<Set<number>>(new Set());
@@ -123,6 +126,7 @@ export default function Campus({
   return (
     <div ref={host} className="flex h-full w-full items-center justify-center">
     <div
+      data-campus=""
       className="relative overflow-hidden rounded-[18px]"
       style={
         box
@@ -130,13 +134,25 @@ export default function Campus({
           : { width: "100%", aspectRatio: `${CAMPUS_W} / ${CAMPUS_H}`, containerType: "inline-size" }
       }
     >
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src="/world/campus.webp"
-        alt="نموذج مصغّر لعالم الوكلاء: الاستقبال والمعرفة والحجوزات وبوابة السياسات والتحويل البشري"
-        className="absolute inset-0 h-full w-full select-none object-cover"
-        draggable={false}
-      />
+      {artSource ? (
+        <Scene
+          agents={agents}
+          edges={edges}
+          selected={selected}
+          onSelect={onSelect}
+          from={artSource}
+          onArtMissing={dropArt}
+          onArtReady={artArrived}
+        />
+      ) : (
+        /* eslint-disable-next-line @next/next/no-img-element */
+        <img
+          src="/world/campus.webp"
+          alt="نموذج مصغّر لعالم الوكلاء: الاستقبال والمعرفة والحجوزات وبوابة السياسات والتحويل البشري"
+          className="absolute inset-0 h-full w-full select-none object-cover"
+          draggable={false}
+        />
+      )}
 
       <svg
         viewBox={`0 0 ${CAMPUS_W} ${CAMPUS_H}`}
@@ -154,7 +170,7 @@ export default function Campus({
           </filter>
         </defs>
 
-        {ambient.map((a, i) => (
+        {!artSource && ambient.map((a, i) => (
           <g key={a.key} opacity={0.5}>
             <circle r="3.4" fill="#ffffff">
               <animateMotion
@@ -192,10 +208,16 @@ export default function Campus({
           const color = TONE_HEX[tone];
           const busy = BUSY.has(agent.state);
           const isSelected = selected === agent.code;
-          const ring = node.r + 6;
-          // The LED rides the ring at 45°, clear of the model's own signage.
-          const lx = node.x + ring * 0.707;
-          const ly = node.y - ring * 0.707;
+          // With a character standing there the marker belongs under its feet
+          // as a flattened puddle; on the flat render it rings the pod itself.
+          const standing = Boolean(artSource) && hasPod(agent.code);
+          const cx = node.x;
+          const cy = standing ? node.y + POD_DROP + POD_W * 0.3 : node.y;
+          const ring = standing ? POD_W * 0.34 : node.r + 6;
+          const flatten = standing ? 0.42 : 1;
+          // The LED rides the marker at 45°, clear of the model's own signage.
+          const lx = cx + ring * 0.707;
+          const ly = cy - ring * flatten * 0.707;
 
           return (
             <g
@@ -207,21 +229,36 @@ export default function Campus({
               }}
             >
               <title>{`${agent.name} — ${stateLabel(agent.state)}`}</title>
-              <circle cx={node.x} cy={node.y} r={ring + 10} fill="transparent" pointerEvents="all" />
-              <circle
-                cx={node.x}
-                cy={node.y}
-                r={ring}
+              <circle cx={cx} cy={cy} r={ring + 10} fill="transparent" pointerEvents="all" />
+              <ellipse
+                cx={cx}
+                cy={cy}
+                rx={ring}
+                ry={ring * flatten}
                 fill="none"
                 stroke={color}
                 strokeWidth={isSelected ? 3 : 2}
                 opacity={isSelected ? 1 : 0.82}
               />
               {busy && (
-                <circle cx={node.x} cy={node.y} r={ring} fill="none" stroke={color} strokeWidth="2">
+                <ellipse
+                  cx={cx}
+                  cy={cy}
+                  rx={ring}
+                  ry={ring * flatten}
+                  fill="none"
+                  stroke={color}
+                  strokeWidth="2"
+                >
                   <animate
-                    attributeName="r"
+                    attributeName="rx"
                     values={`${ring};${ring + 16}`}
+                    dur="2.2s"
+                    repeatCount="indefinite"
+                  />
+                  <animate
+                    attributeName="ry"
+                    values={`${ring * flatten};${(ring + 16) * flatten}`}
                     dur="2.2s"
                     repeatCount="indefinite"
                   />
@@ -231,7 +268,7 @@ export default function Campus({
                     dur="2.2s"
                     repeatCount="indefinite"
                   />
-                </circle>
+                </ellipse>
               )}
               <circle
                 cx={lx}
@@ -286,6 +323,80 @@ function useFittedBox(ratio: number) {
   }, [ratio]);
 
   return { host, box };
+}
+
+/**
+ * Which copy of the generated art the scene should use, if any.
+ *
+ * A committed copy under `public/world/sprites/` is what a real deployment
+ * wants, and a manifest there is how we know it exists. Without it the scene
+ * still runs, reading the art from the generator's CDN, because this session's
+ * network policy blocks that host and the files could not be committed from
+ * here — so that is the only way the world can be seen before someone runs
+ * `npm run world:assets` from a machine that can reach it.
+ *
+ * If the art cannot be loaded at all, `drop` puts the page back on the single
+ * flat render. A half-drawn world is worse than an honest still.
+ */
+function useSpriteSource(): {
+  source: SpriteSource | null;
+  drop: () => void;
+  arrived: () => void;
+} {
+  const [source, setSource] = useState<SpriteSource | null>(null);
+  const settled = useRef(false);
+  const deadline = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const drop = useCallback(() => {
+    settled.current = true;
+    if (deadline.current) clearTimeout(deadline.current);
+    setSource(null);
+  }, []);
+
+  const arrived = useCallback(() => {
+    if (deadline.current) {
+      clearTimeout(deadline.current);
+      deadline.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    fetch(`${SPRITE_DIR}/manifest.json`, { cache: "force-cache" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((m) => {
+        if (!alive || settled.current) return;
+        setSource(m && Array.isArray(m.files) && m.files.length ? "local" : "remote");
+      })
+      .catch(() => {
+        if (alive && !settled.current) setSource("remote");
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    // A host that is blocked rather than absent leaves the request hanging, so
+    // `onError` may never fire and the world would sit empty indefinitely. The
+    // first sprite that actually arrives cancels this.
+    if (source !== "remote") return;
+    deadline.current = setTimeout(() => {
+      if (!settled.current) drop();
+    }, 6000);
+    return () => {
+      if (deadline.current) clearTimeout(deadline.current);
+    };
+  }, [source, drop]);
+
+  useEffect(() => {
+    const pending = deadline.current;
+    return () => {
+      if (pending) clearTimeout(pending);
+    };
+  }, []);
+
+  return { source, drop, arrived };
 }
 
 /**
