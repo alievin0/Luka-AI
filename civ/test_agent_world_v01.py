@@ -27,6 +27,7 @@ from core import provider as P           # noqa: E402
 from core import runtime, store          # noqa: E402
 import agent_world_v01_demo as D         # noqa: E402
 import world_server as SRV               # noqa: E402
+import world_snapshot as SNAP            # noqa: E402
 
 ORCH, RES = "AGT-ORCHESTRATOR", "AGT-RESEARCHER"
 BUILD, REV, OPER = "AGT-BUILDER", "AGT-REVIEWER", "AGT-OPERATOR"
@@ -969,6 +970,108 @@ class WorldLooksLikeAWorld(unittest.TestCase):
         self.assertIn("transform-origin:0 0", css)
 
 
+class SnapshotIsAFaithfulCapture(unittest.TestCase):
+    """The snapshot page is the world seen from somewhere else, not a retelling.
+
+    It exists because a localhost port is not always reachable, and the whole of
+    its claim to be worth looking at is that every answer in it is the answer the
+    server really gives. These tests hold it to that: a capture that summarised,
+    rounded or filled in a gap would be a nicer page and a worse record."""
+
+    def setUp(self):
+        self.con = world()
+        self.r = D.run(self.con, verbose=False)
+        self.db = self.con.execute("PRAGMA database_list").fetchone()["file"]
+        self.con.close()
+        self.snap = SNAP.capture(self.db)
+
+    def test_every_captured_answer_is_the_answer_the_server_gives(self):
+        con = SRV.connect(self.db)
+        got = self.snap["responses"]
+        self.assertEqual(got["/api/world"], SRV.world_payload(con))
+        self.assertEqual(got["/api/away"], W.while_you_were_away(con))
+        for aid in got["/api/world"]["agents"]:
+            self.assertEqual(got["/api/agent/" + aid], SRV.agent_detail(con, aid))
+        for p in got["/api/world"]["projects"]:
+            self.assertEqual(got["/api/project/%d" % p["id"]],
+                             W.project_passport(con, p["id"]))
+        con.close()
+
+    def test_every_record_the_ui_can_click_is_in_the_capture(self):
+        con = SRV.connect(self.db)
+        got = self.snap["responses"]
+        for kind, table in (("task", "tasks"), ("artifact", "artifacts"),
+                            ("review", "reviews"), ("evidence", "evidence"),
+                            ("tool_call", "tool_calls"), ("event", "events"),
+                            ("memory", "memories"), ("message", "agent_messages")):
+            for row in con.execute("SELECT id FROM %s" % table):
+                path = "/api/record/%s/%d" % (kind, row["id"])
+                self.assertIn(path, got, path)
+                self.assertEqual(got[path], SRV.record(con, kind, row["id"]))
+        con.close()
+
+    def test_a_path_that_was_not_captured_is_refused_not_invented(self):
+        page = SNAP.build([self.snap])
+        self.assertIn("not in this snapshot", page)
+        self.assertIn("status: 404", page)
+
+    def test_the_page_carries_the_real_ui_sources(self):
+        page = SNAP.build([self.snap])
+        for f in ("world.css", "world.js"):
+            src = open(os.path.join(HERE, "world_ui", f), encoding="utf-8").read()
+            # a distinctive line from each, so the page cannot drift from the UI
+            probe = [ln for ln in src.splitlines()
+                     if len(ln) > 40 and "{" in ln][10]
+            self.assertIn(probe.strip(), page, f)
+        self.assertNotIn('href="/world.css"', page)
+        self.assertNotIn('src="/world.js"', page)
+
+    def test_the_page_admits_it_is_a_snapshot(self):
+        page = SNAP.build([self.snap])
+        self.assertIn("SNAPSHOT", page)
+        self.assertIn("not live", page)
+        self.assertIn(self.snap["meta"]["captured_at"][:10], page)
+
+    def test_the_capture_states_what_it_captured(self):
+        m = self.snap["meta"]
+        con = SRV.connect(self.db)
+        self.assertEqual(m["tasks"], con.execute(
+            "SELECT COUNT(*) c FROM tasks").fetchone()["c"])
+        self.assertEqual(m["events"], con.execute(
+            "SELECT COUNT(*) c FROM events").fetchone()["c"])
+        self.assertEqual(m["running"], len(SRV.world_payload(con)["running"]))
+        con.close()
+
+    def test_a_running_world_is_captured_running(self):
+        con = world()
+        D.run_until_running(con, verbose=False)
+        db = con.execute("PRAGMA database_list").fetchone()["file"]
+        con.close()
+        snap = SNAP.capture(db)
+        self.assertEqual(snap["meta"]["running"], 1)
+        placement = snap["responses"]["/api/world"]["stage"]["placement"]
+        self.assertEqual(placement[RES]["state"], "RUNNING")
+
+    def test_the_fragment_carries_no_document_skeleton(self):
+        page = SNAP.build([self.snap], fragment=True)
+        for tag in ("<!DOCTYPE", "<html", "<head>", "</head>", "<body>", "</body>"):
+            self.assertNotIn(tag, page, tag)
+        self.assertIn("<title>", page)
+        self.assertIn("<style>", page)
+
+    def test_two_captures_stay_separate(self):
+        con = world()
+        D.run_until_running(con, verbose=False)
+        db2 = con.execute("PRAGMA database_list").fetchone()["file"]
+        con.close()
+        a, b = self.snap, SNAP.capture(db2)
+        self.assertNotEqual(a["responses"]["/api/world"]["tasks"],
+                            b["responses"]["/api/world"]["tasks"])
+        page = SNAP.build([a, b])
+        self.assertIn(json.dumps(a["meta"]["db"]), page)
+        self.assertIn(json.dumps(b["meta"]["db"]), page)
+
+
 class SuiteHygiene(unittest.TestCase):
     def test_every_test_class_is_collected(self):
         import inspect
@@ -982,15 +1085,25 @@ class SuiteHygiene(unittest.TestCase):
 
     def test_no_live_model_is_reachable_from_v0_1(self):
         allowed = {"MockProvider", "CompromisedProvider", "Result", "Provider"}
+        # `P` is the provider module's alias, so the match has to be on that
+        # whole token. Unanchored, the pattern also matched the tail of any
+        # other identifier ending in P: a call on the module aliased SNAP read
+        # as a call on P. That is the third time a hygiene grep in this file has
+        # caught itself — and writing the offending literal into this comment
+        # made it the fourth, which is why the example above is described
+        # rather than quoted.
+        ctor = re.compile(r"(?<![A-Za-z0-9_])P\.(\w+)\(")
         for mod in ("test_agent_world_v01.py", "core/agent_runtime.py",
-                    "agent_world_v01_demo.py", "world_server.py"):
+                    "agent_world_v01_demo.py", "world_server.py",
+                    "world_snapshot.py"):
             code = open(os.path.join(HERE, mod), encoding="utf-8").read()
-            self.assertTrue(set(re.findall(r"P\.(\w+)\(", code)) <= allowed, mod)
+            self.assertTrue(set(ctor.findall(code)) <= allowed, mod)
         # The name check applies to the modules being DRIVEN, not to this file:
         # a test that greps for a provider name fails on its own source the
         # moment it names the provider it is looking for.
         for mod in ("core/agent_runtime.py", "agent_world_v01_demo.py",
-                    "world_server.py", "core/agent_world.py"):
+                    "world_server.py", "core/agent_world.py",
+                    "world_snapshot.py"):
             code = open(os.path.join(HERE, mod), encoding="utf-8").read()
             for live in ("ClaudeProvider", "LocalProvider", "from_env"):
                 self.assertNotIn(live, code, "%s can reach %s" % (mod, live))
