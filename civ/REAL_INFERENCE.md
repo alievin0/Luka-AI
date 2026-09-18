@@ -201,6 +201,11 @@ No fallback path invents an answer. Work that needs a model waits for one.
 
 ## 7. Closing the gate
 
+> **The paid path is built.** [`REAL_CLAUDE.md`](REAL_CLAUDE.md) and
+> `real_claude_gate.py` connect the world to the real Anthropic API, with a
+> hard spend cap, a kill switch and no fallback to a double. It has never been
+> run: no credential exists in this environment.
+
 Local first. Nothing is installed automatically, nothing is purchased, no
 endpoint is guessed at and no credential is invented.
 

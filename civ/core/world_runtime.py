@@ -39,6 +39,7 @@ import time
 
 from . import model_gate as GATE
 from . import provider as P
+from . import spend as SPEND
 from . import store
 from . import world_bus as BUS
 from . import world_supervisor as SUP
@@ -69,14 +70,31 @@ def worker_name(port=None, suffix=None):
                                ("-" + suffix) if suffix else "")
 
 
-def provider_factory(force=None):
+def provider_factory(force=None, cap=None, stop_file=None):
     """The world's provider, chosen the same way for every agent and task.
 
     Honest by construction: `P.from_env()` returns `NotConfigured` rather than
     something that produces text, so a world with no model parks its work
-    instead of inventing an answer for it."""
+    instead of inventing an answer for it.
+
+    **Capped by construction too.** A world left running with a real key set
+    would otherwise make real paid calls, unattended, for as long as it had
+    work — which is the one thing an autonomous world must not be able to do by
+    default. A provider that can actually spend gets a hard cap and a kill
+    switch in front of it; one that cannot spend is handed back untouched, so a
+    world with no model, or a test running a double, behaves exactly as before.
+
+    The cap is per runtime process and comes from `CIV_MAX_USD` / `CIV_MAX_CALLS`.
+    `stop_file` is checked before every call: `touch` it and the world stops
+    calling out, without a signal and without waiting for anything to finish."""
+    shared = cap or SPEND.Cap.from_env()
+
     def make(agent, task, attempt):
-        return P.from_env() if force is None else force
+        prov = P.from_env() if force is None else force
+        if prov.source == "model" and prov.available():
+            return SPEND.Budgeted(prov, cap=shared, stop_file=stop_file)
+        return prov
+    make.cap = shared
     return make
 
 

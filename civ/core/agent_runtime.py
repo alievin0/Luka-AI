@@ -182,7 +182,12 @@ def _transport_failure(res):
     if res.status == "OK":
         return False
     e = str(res.error or "").lower()
-    if "empty completion" in e or res.status == "NOT_CONFIGURED":
+    # A refusal is a decision, not a network problem. BUDGET in particular is
+    # NOT retryable: the markers below are matched as substrings, and a cap
+    # message naming "$0.50000" contains "500". Retrying a refusal costs a turn
+    # and, if the cap ever moved between attempts, could cost money.
+    if (res.status in ("NOT_CONFIGURED", "BUDGET", "REFUSED")
+            or "empty completion" in e):
         return False
     return any(m in e for m in ("429", "500", "502", "503", "504", "529", "408",
                                 "timeout", "timed out", "urlerror", "urlopen error",

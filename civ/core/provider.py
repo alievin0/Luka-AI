@@ -155,9 +155,25 @@ class ClaudeProvider(Provider):
     source = "model"
     URL = "https://api.anthropic.com/v1/messages"
 
-    def __init__(self, model=None, key=None):
+    def __init__(self, model=None, key=None, effort=None, base_url=None):
         self.model = model or os.environ.get("CIV_MODEL") or "claude-sonnet-5"
+        # The key is read here and nowhere else, from the environment and
+        # nowhere else. It is never written to a row, never put in a prompt,
+        # never logged, and never reaches an agent: an agent is a `principals`
+        # row, and this object is below the model gate the agent never sees.
         self.key = key or os.environ.get("ANTHROPIC_API_KEY")
+        # Where to send it. Present so a self-hosted or proxied endpoint can be
+        # named by configuration rather than by editing this file; it defaults
+        # to the published API and an unset variable changes nothing.
+        base = base_url or os.environ.get("ANTHROPIC_BASE_URL") or ""
+        self.url = (base.rstrip("/") + "/v1/messages") if base else self.URL
+        # Current models run adaptive thinking by default. That is the R23
+        # failure in a new place: at a small `max_tokens` the whole budget can
+        # go to thinking and no text block comes back, which the runtime sees
+        # as `empty completion` and the Owner sees as a broken world. `effort`
+        # bounds the thinking; unset it and the request body is unchanged from
+        # the one three closed campaigns were run with.
+        self.effort = effort or os.environ.get("CIV_EFFORT") or None
 
     def available(self):
         """A key is PRESENT. This does not mean it WORKS — see probe()."""
@@ -207,11 +223,14 @@ class ClaudeProvider(Provider):
             return Result("NOT_CONFIGURED", "model", self.name, model,
                           error=self.why_unavailable())
         t0 = time.time()
-        body = json.dumps({
+        payload = {
             "model": model, "max_tokens": max_tokens, "system": system,
             "messages": [{"role": "user", "content": prompt}],
-        }, ensure_ascii=False).encode("utf-8")
-        req = urllib.request.Request(self.URL, data=body, method="POST", headers={
+        }
+        if self.effort:
+            payload["output_config"] = {"effort": self.effort}
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        req = urllib.request.Request(self.url, data=body, method="POST", headers={
             "content-type": "application/json", "x-api-key": self.key,
             "anthropic-version": "2023-06-01"})
         try:

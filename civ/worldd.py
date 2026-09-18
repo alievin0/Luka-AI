@@ -50,6 +50,14 @@ def _pidfile(db):
                         "." + os.path.basename(db) + ".worldd")
 
 
+def _stopfile(db):
+    """Touch this and the world stops calling a paid model, immediately and
+    without stopping the world itself. It is checked before every model call,
+    so it does not wait for a turn, a lease or a queue to drain."""
+    return os.path.join(os.path.dirname(os.path.abspath(db)) or ".",
+                        "." + os.path.basename(db) + ".nomodel")
+
+
 def _alive(pid):
     try:
         os.kill(pid, 0)
@@ -84,10 +92,10 @@ def _clear_pid(db):
 
 # ── start ────────────────────────────────────────────────────────────
 def start(db, host, port, detach=False, max_seconds=None, ready=None,
-          provider=None):
+          provider=None, mode="simulation"):
     """Run the world. Blocks until stopped, unless --detach was used."""
     if detach:
-        return _detach(db, host, port)
+        return _detach(db, host, port, mode=mode)
 
     existing = _read_pid(db)
     if existing:
@@ -97,10 +105,19 @@ def start(db, host, port, detach=False, max_seconds=None, ready=None,
 
     con = store.connect(db)
     if not store.meta(con, "founded"):
-        store.found(con, mode="simulation")
+        store.found(con, mode=mode)
     api = "http://%s:%d" % (host, port)
-    world = RUN.build(con, api=api,
-                      provider_for=RUN.provider_factory(provider))
+    # A world left running with a real key set would otherwise spend, unattended,
+    # for as long as it had work. The factory caps any provider that can
+    # actually spend; with no model configured this changes nothing at all.
+    make = RUN.provider_factory(provider, stop_file=_stopfile(db))
+    world = RUN.build(con, api=api, provider_for=make)
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        print("MODEL: a paid provider is configured. Hard cap $%.2f / %d calls "
+              "(CIV_MAX_USD, CIV_MAX_CALLS).\n       Stop it spending at any "
+              "time with:  touch %s"
+              % (make.cap.max_usd, make.cap.max_calls, _stopfile(db)),
+              file=sys.stderr)
     runtime = RUN.Runtime(world, api=api)
 
     # The HTTP server runs in its own thread with its own connections. The
@@ -142,7 +159,7 @@ def start(db, host, port, detach=False, max_seconds=None, ready=None,
     return 0
 
 
-def _detach(db, host, port):
+def _detach(db, host, port, mode="simulation"):
     """Leave the terminal. The world outlives the shell that started it."""
     if _read_pid(db):
         print("already running", file=sys.stderr)
@@ -169,7 +186,7 @@ def _detach(db, host, port):
     os.dup2(fd, 2)
     devnull = os.open(os.devnull, os.O_RDONLY)
     os.dup2(devnull, 0)
-    os._exit(start(db, host, port) or 0)
+    os._exit(start(db, host, port, mode=mode) or 0)
 
 
 # ── status / stop ────────────────────────────────────────────────────
@@ -221,12 +238,19 @@ def main(argv=None):
                     help="run in the background, surviving this terminal")
     ap.add_argument("--max-seconds", type=float, default=None,
                     help="stop after this long (for supervised runs and tests)")
+    ap.add_argument("--mode", choices=["simulation", "live", "hybrid"],
+                    default="simulation",
+                    help="how to found a NEW world. LAW 2 keeps the two apart: "
+                         "a simulation refuses to record a real model run, and "
+                         "a live world refuses to record a simulated one. Only "
+                         "used when the database has no world in it yet.")
     a = ap.parse_args(argv)
     if a.command == "status":
         return status(a.db)
     if a.command == "stop":
         return stop(a.db)
-    return start(a.db, a.host, a.port, detach=a.detach, max_seconds=a.max_seconds)
+    return start(a.db, a.host, a.port, detach=a.detach, max_seconds=a.max_seconds,
+                 mode=a.mode)
 
 
 if __name__ == "__main__":

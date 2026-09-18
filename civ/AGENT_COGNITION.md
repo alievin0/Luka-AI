@@ -237,6 +237,8 @@ script that knew the answer.
 
 > The audit of that last column, and the gate that closes it, is
 > [`REAL_INFERENCE.md`](REAL_INFERENCE.md) — run `python3 real_inference_gate.py`.
+> The real Anthropic path, capped and switchable, is
+> [`REAL_CLAUDE.md`](REAL_CLAUDE.md).
 
 | | |
 |---|---|
