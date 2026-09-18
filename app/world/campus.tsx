@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { LOOK, PLACES, TONE_HEX, placeFor, type Place } from "./city";
+import { DEFAULT_LOOK, PLACES, TONE_HEX, lookFor, placeFor, type Look, type Place } from "./city";
 import type { CityHandle } from "./city3d";
 import { stateLabel, type Agent, type Edge, type Escalation } from "./model";
 import { IconChat, IconWhatsapp } from "./icons";
@@ -37,8 +37,50 @@ const PULSE_TONE: Record<string, string> = {
   pipeline_error: TONE_HEX.red,
 };
 
-/** The small fixtures get a quieter label than the buildings. */
+/** The doorways and the unbuilt get a quieter label than the agents. */
 const MINOR = new Set(["channel-whatsapp", "channel-web", "channel-instagram", "voice", "workshop"]);
+
+/**
+ * The panel's own colours, taken from the look.
+ *
+ * The cards float over the board, so they have to belong to it: white cards on
+ * a graphite console read as a different application pasted on top.
+ */
+function chromeOf(LOOK: Look) {
+  return LOOK.dark
+  ? {
+      card: "#151d38",
+      cardRing: "rgba(255,255,255,0.08)",
+      title: "#eaf0ff",
+      body: "#aab7d6",
+      muted: "#7d8aab",
+      chip: "rgba(21,29,56,0.9)",
+      chipText: "#c3cfee",
+      openBack: "#2a1524",
+      openText: "#ff8d96",
+      calmBack: "#10281f",
+      calmText: "#3fd6a4",
+      shadow: "0 10px 34px rgba(0,0,0,0.45)",
+    }
+  : {
+      card: "#ffffff",
+      cardRing: "rgba(0,0,0,0.06)",
+      title: "#16203c",
+      body: "#4a5470",
+      muted: "#98a1b6",
+      chip: "rgba(255,255,255,0.92)",
+      chipText: "#3b4666",
+      openBack: "#fff0f1",
+      openText: "#c0353d",
+      calmBack: "#f1fbf7",
+      calmText: "#0d8a63",
+      shadow: "0 10px 30px rgba(20,30,60,0.16)",
+    };
+}
+
+type Chrome = ReturnType<typeof chromeOf>;
+
+const LOOK_KEY = "luka.world.look";
 
 export type CampusProps = {
   agents: Agent[];
@@ -76,9 +118,36 @@ export default function Campus({
   const fired = useRef<Set<number>>(new Set());
   const select = useRef(onSelect);
   select.current = onSelect;
+  const lookRef = useRef(DEFAULT_LOOK);
 
   const [ready, setReady] = useState(false);
   const [supported, setSupported] = useState<boolean | null>(null);
+  // Which look the operator last chose, kept in their own browser.
+  const [lookKey, setLookKey] = useState(DEFAULT_LOOK);
+  const look = lookFor(lookKey);
+  lookRef.current = lookKey;
+  const C = chromeOf(look);
+
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(LOOK_KEY);
+      if (saved) setLookKey(saved);
+    } catch {
+      /* a browser with storage blocked simply opens on the default. */
+    }
+  }, []);
+
+  const flipLook = useCallback(() => {
+    setLookKey((current) => {
+      const next = current === "graphite" ? "daylight" : "graphite";
+      try {
+        window.localStorage.setItem(LOOK_KEY, next);
+      } catch {
+        /* not being able to remember it is not a reason to refuse to do it. */
+      }
+      return next;
+    });
+  }, []);
 
   /**
    * Anchoring a DOM node to a building.
@@ -113,7 +182,7 @@ export default function Campus({
     import("./city3d")
       .then(({ createCity }) => {
         if (!alive) return;
-        const handle = createCity(canvasEl, hostEl);
+        const handle = createCity(canvasEl, hostEl, lookFor(lookRef.current));
         handle.onPick((code) => select.current(code));
         for (const [id, item] of parked.current) handle.anchor(id, item.code, item.lift, item.el);
         city.current = handle;
@@ -125,10 +194,14 @@ export default function Campus({
 
     return () => {
       alive = false;
+      setReady(false);
       city.current?.dispose();
       city.current = null;
     };
-  }, []);
+    // Changing the look rebuilds the board: every material in it was made from
+    // that look, and repainting them one by one would be a second place for
+    // the two to disagree.
+  }, [lookKey]);
 
   useEffect(() => {
     if (!ready) return;
@@ -173,7 +246,7 @@ export default function Campus({
       ref={host}
       data-campus=""
       className="relative h-full w-full overflow-hidden rounded-[18px]"
-      style={{ background: LOOK.panel }}
+      style={{ background: look.panel }}
       // The page clears the selection when the area around the model is
       // clicked. Picking a building is a click too, and it reaches that
       // handler a moment after the model has already selected something — so
@@ -185,17 +258,10 @@ export default function Campus({
 
       {supported === false && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-6 text-center">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="/world/campus.webp"
-            alt="نموذج عالم الوكلاء"
-            className="absolute inset-0 h-full w-full select-none object-cover opacity-40"
-            draggable={false}
-          />
-          <p className="relative text-[14px] font-semibold" style={{ color: LOOK.dark ? "#eaf0ff" : "#16203c" }}>
+          <p className="relative text-[14px] font-semibold" style={{ color: C.title }}>
             المتصفح ما بيدعم WebGL
           </p>
-          <p className="relative max-w-[42ch] text-[12.5px] leading-relaxed text-[#5a6480]">
+          <p className="relative max-w-[42ch] text-[12.5px] leading-relaxed" style={{ color: C.body }}>
             العالم مبني ثلاثي الأبعاد، وبيحتاج WebGL حتى يشتغل. الأرقام والوكلاء والأحداث كلها
             شغّالة بالجداول على يسار الشاشة.
           </p>
@@ -211,15 +277,16 @@ export default function Campus({
             tone={tones.get(place.code) ?? null}
             selected={selected != null && chosenPlace?.code === place.code}
             anchor={anchor}
+            look={look}
           />
         ))}
 
         <Anchored id="card:inbound" code="customer" lift={6} anchor={anchor}>
-          <InboundCard inbound={inbound} />
+          <InboundCard inbound={inbound} c={C} />
         </Anchored>
 
         <Anchored id="card:escalation" code="policy" lift={14.5} anchor={anchor}>
-          <EscalationCard escalation={escalation} />
+          <EscalationCard escalation={escalation} c={C} />
         </Anchored>
 
         {chosen && chosenPlace && (
@@ -229,7 +296,7 @@ export default function Campus({
             lift={chosenPlace.crown + 2.4}
             anchor={anchor}
           >
-            <AgentCard agent={chosen} onClose={() => onSelect(null)} />
+            <AgentCard agent={chosen} onClose={() => onSelect(null)} c={C} />
           </Anchored>
         )}
       </div>
@@ -241,19 +308,26 @@ export default function Campus({
             type="button"
             onClick={() => city.current?.resetView()}
             className="pointer-events-auto rounded-full px-3 py-1.5 text-[11.5px] font-semibold shadow-[0_1px_6px_rgba(20,30,60,0.10)]"
-            style={{
-              background: LOOK.dark ? "rgba(22,32,60,0.92)" : "rgba(255,255,255,0.92)",
-              color: LOOK.dark ? "#dce5ff" : "#3b4666",
-            }}
+            style={{ background: C.chip, color: C.chipText }}
           >
             إعادة الزاوية
           </button>
+          <button
+            type="button"
+            onClick={flipLook}
+            aria-label={look.dark ? "تبديل للوضع الفاتح" : "تبديل للوضع الداكن"}
+            className="pointer-events-auto flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11.5px] font-semibold"
+            style={{ background: C.chip, color: C.chipText }}
+          >
+            <span
+              className="h-2.5 w-2.5 rounded-full"
+              style={{ background: look.dark ? "#f6f8ff" : "#16203c" }}
+            />
+            {look.dark ? "فاتح" : "داكن"}
+          </button>
           <span
             className="rounded-full px-3 py-1.5 text-[11px]"
-            style={{
-              background: LOOK.dark ? "rgba(22,32,60,0.7)" : "rgba(255,255,255,0.75)",
-              color: LOOK.dark ? "#93a3c8" : "#6b7590",
-            }}
+            style={{ background: C.chip, color: look.labelMinor }}
           >
             اسحب للف · عجلة الفأرة للتقريب
           </span>
@@ -302,37 +376,30 @@ function Label({
   tone,
   selected,
   anchor,
+  look,
 }: {
   place: Place;
   tone: string | null;
   selected: boolean;
   anchor: AnchorFn;
+  look: Look;
 }) {
   const minor = MINOR.has(place.code);
   return (
     <Anchored id={`label:${place.code}`} code={place.code} lift={place.crown} anchor={anchor}>
       <span
-        className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-1.5 whitespace-nowrap rounded-full shadow-[0_1px_6px_rgba(20,30,60,0.12)]"
+        className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-1.5 whitespace-nowrap rounded-full"
         style={{
-          background: selected
-            ? LOOK.dark
-              ? "#ffffff"
-              : "#16203c"
-            : LOOK.dark
-              ? "rgba(16,24,48,0.88)"
-              : "rgba(255,255,255,0.94)",
+          background: selected ? (look.dark ? "#ffffff" : "#16203c") : look.labelBack,
           color: selected
-            ? LOOK.dark
+            ? look.dark
               ? "#0c1226"
               : "#ffffff"
-            : LOOK.dark
-              ? minor
-                ? "#93a3c8"
-                : "#eaf0ff"
-              : minor
-                ? "#6b7590"
-                : "#16203c",
+            : minor
+              ? look.labelMinor
+              : look.label,
           padding: minor ? "2px 8px" : "3px 10px",
+          boxShadow: look.dark ? "0 2px 10px rgba(0,0,0,0.4)" : "0 1px 6px rgba(20,30,60,0.12)",
           fontSize: minor ? 10.5 : 12,
           fontWeight: minor ? 600 : 700,
         }}
@@ -361,12 +428,12 @@ function relativeTime(iso: string): string {
 }
 
 /** The message a real customer sent, floating over the plaza they sent it from. */
-function InboundCard({ inbound }: { inbound: CampusProps["inbound"] }) {
+function InboundCard({ inbound, c: C }: { inbound: CampusProps["inbound"]; c: Chrome }) {
   return (
     <div
       dir="rtl"
-      className="absolute bottom-0 left-1/2 w-[172px] -translate-x-1/2 rounded-[12px] px-2.5 py-2 shadow-[0_6px_20px_rgba(20,30,60,0.14)]"
-      style={{ background: "#ffffff" }}
+      className="absolute bottom-0 left-1/2 w-[172px] -translate-x-1/2 rounded-[12px] px-2.5 py-2 ring-1"
+      style={{ background: C.card, boxShadow: C.shadow, borderColor: C.cardRing }}
     >
       <div className="flex flex-row-reverse items-center gap-1.5">
         {/* The badge names the channel the message actually arrived on. */}
@@ -380,34 +447,34 @@ function InboundCard({ inbound }: { inbound: CampusProps["inbound"] }) {
             <IconChat className="h-[11px] w-[11px]" strokeWidth={2.2} />
           )}
         </span>
-        <span className="truncate text-[11.5px] font-bold text-[#2b3550]">
+        <span className="truncate text-[11.5px] font-bold" style={{ color: C.title }}>
           {inbound ? "عميل جديد" : "ما في رسائل"}
         </span>
       </div>
       <p
-        className="mt-1 overflow-hidden text-right text-[11.5px] leading-[1.45] text-[#4a5470]"
-        style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}
+        className="mt-1 overflow-hidden text-right text-[11.5px] leading-[1.45]"
+        style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", color: C.body }}
       >
         {inbound ? inbound.text : "افتح لوحة التجربة وابعث رسالة، وبتوصل لهون."}
       </p>
-      <span className="mt-0.5 block text-right text-[10px] text-[#98a1b6]">
+      <span className="mt-0.5 block text-right text-[10px]" style={{ color: C.muted }}>
         {inbound ? relativeTime(inbound.at) : "—"}
       </span>
       <span
         className="absolute -bottom-[7px] left-1/2 h-3.5 w-3.5 -translate-x-1/2 rotate-45"
-        style={{ background: "#ffffff" }}
+        style={{ background: C.card }}
       />
     </div>
   );
 }
 
-function EscalationCard({ escalation }: { escalation: Escalation | null }) {
+function EscalationCard({ escalation, c: C }: { escalation: Escalation | null; c: Chrome }) {
   const open = Boolean(escalation);
   return (
     <div
       dir="rtl"
-      className="absolute bottom-0 left-1/2 flex w-[172px] -translate-x-1/2 flex-row-reverse items-center gap-2 rounded-[12px] px-2.5 py-1.5 shadow-[0_6px_20px_rgba(20,30,60,0.14)]"
-      style={{ background: open ? "#fff0f1" : "#f1fbf7" }}
+      className="absolute bottom-0 left-1/2 flex w-[172px] -translate-x-1/2 flex-row-reverse items-center gap-2 rounded-[12px] px-2.5 py-1.5"
+      style={{ background: open ? C.openBack : C.calmBack, boxShadow: C.shadow }}
     >
       <span
         className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full text-white"
@@ -426,23 +493,23 @@ function EscalationCard({ escalation }: { escalation: Escalation | null }) {
         </svg>
       </span>
       <div className="min-w-0 flex-1 text-right leading-[1.35]">
-        <p className="truncate text-[11.5px] font-bold" style={{ color: open ? "#c0353d" : "#0d8a63" }}>
+        <p className="truncate text-[11.5px] font-bold" style={{ color: open ? C.openText : C.calmText }}>
           {open ? "طلب حسّاس" : "ما في تصعيدات"}
         </p>
-        <p className="truncate text-[10px] text-[#5a6480]">
+        <p className="truncate text-[10px]" style={{ color: C.body }}>
           {open ? "يتم تحويله للإنسان" : "كل الرسائل انحلّت"}
         </p>
       </div>
       <span
         className="absolute -bottom-[6px] left-1/2 h-3 w-3 -translate-x-1/2 rotate-45"
-        style={{ background: open ? "#fff0f1" : "#f1fbf7" }}
+        style={{ background: open ? C.openBack : C.calmBack }}
       />
     </div>
   );
 }
 
 /** What is behind a building, opened by clicking it. */
-function AgentCard({ agent, onClose }: { agent: Agent; onClose: () => void }) {
+function AgentCard({ agent, onClose, c: C }: { agent: Agent; onClose: () => void; c: Chrome }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -454,20 +521,21 @@ function AgentCard({ agent, onClose }: { agent: Agent; onClose: () => void }) {
   return (
     <div
       dir="rtl"
-      className="pointer-events-auto absolute bottom-0 left-1/2 w-[216px] -translate-x-1/2 rounded-[14px] p-3 shadow-[0_10px_34px_rgba(20,30,60,0.22)] ring-1 ring-black/5"
-      style={{ background: "#ffffff" }}
+      className="pointer-events-auto absolute bottom-0 left-1/2 w-[216px] -translate-x-1/2 rounded-[14px] p-3 ring-1"
+      style={{ background: C.card, boxShadow: C.shadow, borderColor: C.cardRing }}
       onClick={(e) => e.stopPropagation()}
     >
       <div className="flex flex-row-reverse items-start justify-between gap-2">
         <div className="min-w-0 text-right">
-          <p className="truncate text-[12.5px] font-semibold text-[#16203c]">{agent.name}</p>
-          <p className="truncate text-[10.5px] text-[#7b8499]">{agent.role}</p>
+          <p className="truncate text-[12.5px] font-semibold" style={{ color: C.title }}>{agent.name}</p>
+          <p className="truncate text-[10.5px]" style={{ color: C.muted }}>{agent.role}</p>
         </div>
         <button
           type="button"
           onClick={onClose}
           aria-label="إغلاق"
-          className="-m-1 shrink-0 rounded-full p-1 text-[#98a1b6] hover:text-[#16203c]"
+          className="-m-1 shrink-0 rounded-full p-1 hover:opacity-100"
+          style={{ color: C.muted }}
         >
           <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
             <path d="m7 7 10 10M17 7 7 17" />
@@ -477,7 +545,7 @@ function AgentCard({ agent, onClose }: { agent: Agent; onClose: () => void }) {
 
       <p
         className="mt-2 text-right text-[10.5px] font-medium"
-        style={{ color: agent.lifecycle === "planned" ? "#7b8499" : "#0d8a63" }}
+        style={{ color: agent.lifecycle === "planned" ? C.muted : C.calmText }}
       >
         {agent.lifecycle === "planned" ? "مصمَّم، لسه ما انبنى" : stateLabel(agent.state)}
       </p>
@@ -487,9 +555,10 @@ function AgentCard({ agent, onClose }: { agent: Agent; onClose: () => void }) {
           {agent.capabilities.slice(0, 4).map((c) => (
             <li
               key={c}
-              className="flex flex-row-reverse gap-1.5 text-right text-[10.5px] leading-[1.45] text-[#4a5470]"
+              className="flex flex-row-reverse gap-1.5 text-right text-[10.5px] leading-[1.45]"
+              style={{ color: C.body }}
             >
-              <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-[#c3cbdd]" />
+              <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full" style={{ background: C.muted }} />
               <span className="truncate">{c}</span>
             </li>
           ))}

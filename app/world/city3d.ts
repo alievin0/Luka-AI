@@ -1,39 +1,35 @@
 import * as THREE from "three";
 import {
-  GREENERY,
+  DECK,
   GROUND_D,
   GROUND_W,
-  LOOK,
-  PAVING,
-  POND,
   PLACES,
   TONE_HEX,
   anchorOf,
+  arcHeight,
   placeFor,
   roads,
   sampleRoute,
+  type Look,
   type Place,
   type Vec2,
 } from "./city";
 
 /**
- * The city, built out of geometry.
+ * The board, built out of geometry.
  *
- * Every wall, roof, pane of glass and little standing figure on this page is
- * made here out of boxes, cylinders and extrusions — there is not one image in
- * the scene. That is the point: a picture of a building can only ever be
- * photographed from the angle it was drawn at, and it cannot light up. A model
- * can be walked around, and a wall that means "the policy gate is busy" can
- * actually glow.
+ * Every node, link and travelling message on this page is made here out of
+ * discs, rings and tubes — there is not one image in the scene, and no scenery
+ * either. The earlier version of this drew the system as a little town, which
+ * read as a toy; what a serious operator wants to see is the graph itself, with
+ * depth used for the one thing a flat diagram cannot do — separating fifteen
+ * crossing routes by lifting each one over the others.
  *
- * The rules that keep it from looking like a toy are few and strict. One white
- * for every wall, one blue for every pane, one dark plate for every sign, and a
- * single accent per building — so the only saturated colour in the frame is the
- * one carrying live state. Everything stands on a plinth of the same height and
- * every corner is rounded by the same radius, which is what makes fifteen
- * different shapes read as one model rather than fifteen objects. And the sun
- * is a single key light with a soft shadow: a model without a contact shadow
- * reads as a decal printed on the floor rather than an object standing on it.
+ * The rules that keep it clean are few. One material for every platform, one
+ * for every core, one for the wiring. Nothing is coloured unless it is
+ * reporting something: a node at rest is the same graphite as its neighbours,
+ * and the only saturated colour on the board belongs to an agent that is
+ * actually working or a message that is actually crossing.
  */
 
 export type CityAgent = {
@@ -53,7 +49,7 @@ export type CityState = {
 export type CityHandle = {
   update: (state: CityState) => void;
   pulse: (from: string, to: string, color: string) => void;
-  /** Attach a DOM element to a place, to be carried with it every frame. */
+  /** Attach a DOM element to a node, to be carried with it every frame. */
   anchor: (id: string, code: string, lift: number, el: HTMLElement | null) => void;
   onPick: (fn: (code: string | null) => void) => void;
   onHover: (fn: (code: string | null) => void) => void;
@@ -65,13 +61,12 @@ export type CityHandle = {
 const BUSY = new Set(["working", "processing", "using_tool", "waiting", "deploying"]);
 
 /**
- * An idle agent lights nothing.
+ * A node at rest lights nothing.
  *
- * The first pass lit every building green the moment its agent existed, which
- * meant a system with nothing happening in it looked exactly as alive as one
- * under load — and a colour that is always on carries no information. A
- * building at rest is white now; a small beacon over it says the agent is
- * there at all, and the walls only light when there is something to report.
+ * A colour that is always on carries no information: lighting every node the
+ * moment its agent exists made a system with nothing happening in it look
+ * exactly as alive as one under load. A node at rest is graphite, with a small
+ * marker to say the agent is there at all.
  */
 const RESTING = new Set(["idle", "offline"]);
 
@@ -83,95 +78,16 @@ function toneOf(state: string): string {
   return TONE_HEX.green;
 }
 
-/* ── geometry helpers ───────────────────────────────────────────────────── */
-
-const RADIUS = 0.4;
-const BEVEL = 0.12;
-
-function roundedRect(w: number, d: number, r: number): THREE.Shape {
-  const s = new THREE.Shape();
-  const hw = w / 2;
-  const hd = d / 2;
-  const c = Math.min(r, hw - 0.01, hd - 0.01);
-  s.moveTo(-hw + c, -hd);
-  s.lineTo(hw - c, -hd);
-  s.quadraticCurveTo(hw, -hd, hw, -hd + c);
-  s.lineTo(hw, hd - c);
-  s.quadraticCurveTo(hw, hd, hw - c, hd);
-  s.lineTo(-hw + c, hd);
-  s.quadraticCurveTo(-hw, hd, -hw, hd - c);
-  s.lineTo(-hw, -hd + c);
-  s.quadraticCurveTo(-hw, -hd, -hw + c, -hd);
-  return s;
-}
-
-/**
- * A box with softened edges, standing with its base on y = 0.
- *
- * Sharp corners are what make an untextured model look like a debug view: real
- * light catches an edge over a millimetre or two and draws the bright line that
- * tells the eye where one face ends. Everything here is built from this.
- */
-function box(w: number, h: number, d: number, r = RADIUS): THREE.BufferGeometry {
-  const bevel = Math.min(BEVEL, h / 2.4);
-  const geo = new THREE.ExtrudeGeometry(roundedRect(w, d, r), {
-    depth: Math.max(0.02, h - bevel * 2),
-    bevelEnabled: true,
-    bevelThickness: bevel,
-    bevelSize: bevel,
-    bevelSegments: 2,
-    curveSegments: 5,
-    steps: 1,
-  });
-  geo.rotateX(-Math.PI / 2);
-  geo.translate(0, bevel, 0);
-  geo.computeVertexNormals();
-  return geo;
-}
-
-function wedge(w: number, h: number, d: number): THREE.BufferGeometry {
-  const s = new THREE.Shape();
-  s.moveTo(-w / 2, 0);
-  s.lineTo(w / 2, 0);
-  s.lineTo(0, h);
-  s.closePath();
-  const geo = new THREE.ExtrudeGeometry(s, { depth: d, bevelEnabled: false, curveSegments: 1 });
-  geo.translate(0, 0, -d / 2);
-  return geo;
-}
-
-/** A soft dark blob, dropped under everything that stands up. */
-function shadowTexture(): THREE.Texture {
-  const size = 128;
-  const canvas = document.createElement("canvas");
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext("2d");
-  if (ctx) {
-    // On a dark ground a dark blob is invisible, so the contact shadow there
-    // is a thin pool rather than the deep one a white model needs.
-    const tint = LOOK.dark ? "4,8,20" : "24,36,66";
-    const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
-    g.addColorStop(0, `rgba(${tint},${LOOK.dark ? 0.55 : 0.52})`);
-    g.addColorStop(0.55, `rgba(${tint},0.16)`);
-    g.addColorStop(1, `rgba(${tint},0)`);
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, size, size);
-  }
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}
+/* ── textures ───────────────────────────────────────────────────────────── */
 
 /** `#rrggbb` to `rgba(...)`, so a gradient can fade a look's own colour out. */
-function hexToRgba(hex: string, alpha: number): string {
+function rgba(hex: string, alpha: number): string {
   const n = parseInt(hex.replace("#", ""), 16);
   return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`;
 }
 
-/** The sky behind the model. A flat fill reads as a screenshot; a graded one
- *  reads as a photograph of an object. */
-function skyTexture(): THREE.Texture {
+/** The gradient behind the board. A flat fill reads as a screenshot. */
+function skyTexture(LOOK: Look): THREE.Texture {
   const canvas = document.createElement("canvas");
   canvas.width = 4;
   canvas.height = 256;
@@ -188,19 +104,67 @@ function skyTexture(): THREE.Texture {
   return tex;
 }
 
-/** The ground's own falloff, so the plate is not one flat fill. */
-function groundTexture(): THREE.Texture {
-  const size = 512;
+/**
+ * The floor: a ruled grid that fades out before it ends.
+ *
+ * A plate with an edge reads as a board sitting on a desk. Fading the floor
+ * into the background instead is what makes the graph read as the whole of the
+ * view rather than as an object photographed inside it.
+ */
+function floorTexture(LOOK: Look): THREE.Texture {
+  const size = 1024;
   const canvas = document.createElement("canvas");
   canvas.width = size;
   canvas.height = size;
   const ctx = canvas.getContext("2d");
   if (ctx) {
-    ctx.fillStyle = LOOK.ground;
+    ctx.fillStyle = LOOK.floor;
     ctx.fillRect(0, 0, size, size);
-    const g = ctx.createRadialGradient(size / 2, size * 0.46, size * 0.04, size / 2, size * 0.46, size * 0.66);
-    g.addColorStop(0, LOOK.groundInner);
-    g.addColorStop(1, hexToRgba(LOOK.groundInner, 0));
+
+    ctx.strokeStyle = LOOK.grid;
+    ctx.lineWidth = 1;
+    const step = size / 32;
+    for (let i = 0; i <= 32; i += 1) {
+      ctx.globalAlpha = i % 4 === 0 ? 0.85 : 0.4;
+      ctx.beginPath();
+      ctx.moveTo(i * step, 0);
+      ctx.lineTo(i * step, size);
+      ctx.moveTo(0, i * step);
+      ctx.lineTo(size, i * step);
+      ctx.stroke();
+    }
+
+    // The floor has to end without an edge. A plate with a border reads as a
+    // board lying on a desk; erasing the grid outwards instead lets the floor
+    // dissolve into the background, so the graph is the whole of the view.
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = "destination-out";
+    const g = ctx.createRadialGradient(size / 2, size / 2, size * 0.17, size / 2, size / 2, size * 0.5);
+    g.addColorStop(0, "rgba(0,0,0,0)");
+    g.addColorStop(0.72, "rgba(0,0,0,0.55)");
+    g.addColorStop(1, "rgba(0,0,0,1)");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, size, size);
+    ctx.globalCompositeOperation = "source-over";
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+/** A soft pool under each node, so it sits on the floor rather than hovering. */
+function poolTexture(LOOK: Look): THREE.Texture {
+  const size = 128;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  if (ctx) {
+    const tint = LOOK.dark ? "2,5,14" : "26,38,70";
+    const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+    g.addColorStop(0, `rgba(${tint},${LOOK.dark ? 0.62 : 0.34})`);
+    g.addColorStop(0.5, `rgba(${tint},0.18)`);
+    g.addColorStop(1, `rgba(${tint},0)`);
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, size, size);
   }
@@ -209,51 +173,66 @@ function groundTexture(): THREE.Texture {
   return tex;
 }
 
+/* ── geometry helpers ───────────────────────────────────────────────────── */
+
 /**
- * A flat strip following a path on the ground.
+ * A box with softened edges.
  *
- * The roads are the same curves the pipeline's pulses travel, laid down as
- * geometry rather than drawn again by hand, so a road can never lead somewhere
- * a message cannot go.
+ * Sharp corners are what make an untextured solid look like a debug view: real
+ * light catches an edge over a millimetre or two and draws the bright line that
+ * tells the eye where one face ends and the next begins.
  */
-function ribbon(points: Vec2[], width: number, y: number): THREE.BufferGeometry {
-  const half = width / 2;
-  const position: number[] = [];
-  const uv: number[] = [];
-  const index: number[] = [];
+function roundedBox(side: number, radius: number): THREE.BufferGeometry {
+  const half = side / 2;
+  const r = Math.min(radius, half * 0.5);
+  const shape = new THREE.Shape();
+  shape.moveTo(-half + r, -half);
+  shape.lineTo(half - r, -half);
+  shape.quadraticCurveTo(half, -half, half, -half + r);
+  shape.lineTo(half, half - r);
+  shape.quadraticCurveTo(half, half, half - r, half);
+  shape.lineTo(-half + r, half);
+  shape.quadraticCurveTo(-half, half, -half, half - r);
+  shape.lineTo(-half, -half + r);
+  shape.quadraticCurveTo(-half, -half, -half + r, -half);
 
-  let run = 0;
-  for (let i = 0; i < points.length; i += 1) {
-    const prev = points[Math.max(0, i - 1)];
-    const next = points[Math.min(points.length - 1, i + 1)];
-    const tx = next.x - prev.x;
-    const tz = next.z - prev.z;
-    const len = Math.hypot(tx, tz) || 1;
-    const nx = -tz / len;
-    const nz = tx / len;
-    if (i > 0) run += Math.hypot(points[i].x - points[i - 1].x, points[i].z - points[i - 1].z);
-
-    position.push(points[i].x + nx * half, y, points[i].z + nz * half);
-    position.push(points[i].x - nx * half, y, points[i].z - nz * half);
-    uv.push(run, 1, run, 0);
-
-    if (i < points.length - 1) {
-      const a = i * 2;
-      index.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
-    }
-  }
-
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute("position", new THREE.Float32BufferAttribute(position, 3));
-  geo.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
-  geo.setIndex(index);
+  const bevel = r * 0.8;
+  const geo = new THREE.ExtrudeGeometry(shape, {
+    depth: side - bevel * 2,
+    bevelEnabled: true,
+    bevelThickness: bevel,
+    bevelSize: bevel,
+    bevelSegments: 3,
+    curveSegments: 8,
+    steps: 1,
+  });
+  geo.center();
   geo.computeVertexNormals();
   return geo;
 }
 
+/**
+ * A link, as a tube arcing over the floor.
+ *
+ * The points are the route's own curve in plan; the height is added here so
+ * that two routes between the same pair of nodes, or two that cross, separate
+ * in depth instead of overlapping into one flickering streak.
+ */
+function arcPoints(points: Vec2[], lift: number, base = 0): THREE.Vector3[] {
+  return points.map((p, i) => {
+    const t = i / Math.max(1, points.length - 1);
+    return new THREE.Vector3(p.x, base + Math.sin(Math.PI * t) * lift, p.z);
+  });
+}
+
+function tube(points: THREE.Vector3[], radius: number): THREE.BufferGeometry {
+  const curve = new THREE.CatmullRomCurve3(points);
+  return new THREE.TubeGeometry(curve, Math.max(24, points.length), radius, 8, false);
+}
+
 /* ── the scene ──────────────────────────────────────────────────────────── */
 
-export function createCity(canvas: HTMLCanvasElement, host: HTMLElement): CityHandle {
+export function createCity(canvas: HTMLCanvasElement, host: HTMLElement, LOOK: Look): CityHandle {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.shadowMap.enabled = true;
@@ -263,166 +242,136 @@ export function createCity(canvas: HTMLCanvasElement, host: HTMLElement): CityHa
   renderer.outputColorSpace = THREE.SRGBColorSpace;
 
   const scene = new THREE.Scene();
-  const sky = skyTexture();
+  const sky = skyTexture(LOOK);
   scene.background = sky;
   scene.fog = new THREE.Fog(new THREE.Color(LOOK.fog), LOOK.fogNear, LOOK.fogFar);
 
-  const camera = new THREE.PerspectiveCamera(30, 1, 1, 600);
-  const target = new THREE.Vector3(0, 4.5, 6);
+  const camera = new THREE.PerspectiveCamera(30, 1, 1, 700);
+  const target = new THREE.Vector3(0, 2.5, 2);
 
   // The camera is driven in spherical coordinates rather than by an imported
   // controller: three numbers, clamped, eased — which is all an operator needs
   // and cannot be turned upside down by an enthusiastic drag.
-  const view = { radius: 148, theta: -0.26, phi: 0.87 };
+  const view = { radius: 144, theta: -0.24, phi: 0.84 };
   const wanted = { ...view };
   const HOME = { ...view };
 
   /* ── light ───────────────────────────────────────────────────────────── */
 
-  scene.add(new THREE.HemisphereLight(new THREE.Color(LOOK.hemiSky), new THREE.Color(LOOK.hemiGround), LOOK.hemiIntensity));
+  scene.add(
+    new THREE.HemisphereLight(
+      new THREE.Color(LOOK.hemiSky),
+      new THREE.Color(LOOK.hemiGround),
+      LOOK.hemiIntensity,
+    ),
+  );
 
   const key = new THREE.DirectionalLight(new THREE.Color(LOOK.keyColor), LOOK.keyIntensity);
-  key.position.set(-52, 78, 46);
+  key.position.set(-48, 76, 44);
   key.castShadow = true;
   key.shadow.mapSize.set(2048, 2048);
-  key.shadow.camera.left = -82;
-  key.shadow.camera.right = 82;
-  key.shadow.camera.top = 62;
-  key.shadow.camera.bottom = -62;
+  key.shadow.camera.left = -80;
+  key.shadow.camera.right = 80;
+  key.shadow.camera.top = 60;
+  key.shadow.camera.bottom = -60;
   key.shadow.camera.near = 20;
   key.shadow.camera.far = 220;
-  key.shadow.bias = -0.0007;
-  key.shadow.normalBias = 0.05;
+  key.shadow.bias = -0.0008;
+  key.shadow.normalBias = 0.04;
   scene.add(key);
 
   const fill = new THREE.DirectionalLight(new THREE.Color(LOOK.fillColor), LOOK.fillIntensity);
-  fill.position.set(64, 34, -46);
+  fill.position.set(62, 30, -44);
   scene.add(fill);
 
   const rim = new THREE.DirectionalLight(new THREE.Color(LOOK.rimColor), LOOK.rimIntensity);
-  rim.position.set(6, 22, -78);
+  rim.position.set(4, 20, -76);
   scene.add(rim);
 
-  /* ── materials, shared by everything ─────────────────────────────────── */
+  /* ── shared materials ────────────────────────────────────────────────── */
 
-  const wallMat = new THREE.MeshStandardMaterial({ color: LOOK.wall, roughness: 0.82, metalness: 0 });
-  const shadeMat = new THREE.MeshStandardMaterial({ color: LOOK.wallShade, roughness: 0.86, metalness: 0 });
-  const plinthMat = new THREE.MeshStandardMaterial({ color: LOOK.plinth, roughness: 0.92, metalness: 0 });
-  const glassMat = new THREE.MeshStandardMaterial({
-    color: LOOK.glass,
-    roughness: 0.16,
-    metalness: 0.06,
-    transparent: true,
-    opacity: 0.86,
-    emissive: new THREE.Color(LOOK.glassEmissive),
-    emissiveIntensity: LOOK.glassEmissiveIntensity,
+  const platformMat = new THREE.MeshStandardMaterial({
+    color: LOOK.platform,
+    roughness: 0.55,
+    metalness: 0.18,
   });
-  const plateMat = new THREE.MeshStandardMaterial({ color: LOOK.sign, roughness: 0.62, metalness: 0.05 });
-  const skinMat = new THREE.MeshStandardMaterial({ color: LOOK.skin, roughness: 0.75 });
-  const trunkMat = new THREE.MeshStandardMaterial({ color: LOOK.trunk, roughness: 0.9 });
-  const leafMat = new THREE.MeshStandardMaterial({ color: LOOK.tree, roughness: 0.85, flatShading: true });
-  const roadMat = new THREE.MeshStandardMaterial({ color: LOOK.road, roughness: 0.95, metalness: 0 });
+  const platformTopMat = new THREE.MeshStandardMaterial({
+    color: LOOK.platformTop,
+    roughness: 0.42,
+    metalness: 0.22,
+  });
+  // Clearcoat is what separates "a shape" from "an object": the second, tighter
+  // highlight over the body is how the eye reads a surface as real.
+  const coreMat = new THREE.MeshPhysicalMaterial({
+    color: LOOK.core,
+    roughness: LOOK.coreRoughness,
+    metalness: LOOK.coreMetalness,
+    clearcoat: 0.85,
+    clearcoatRoughness: 0.18,
+  });
+  const linkMat = new THREE.MeshBasicMaterial({
+    color: LOOK.link,
+    transparent: true,
+    opacity: LOOK.dark ? 0.75 : 0.9,
+    toneMapped: false,
+  });
 
-  const owned: Array<{ dispose: () => void }> = [
-    wallMat, shadeMat, plinthMat, glassMat, plateMat, skinMat, trunkMat, leafMat, roadMat,
-  ];
+  const owned: Array<{ dispose: () => void }> = [platformMat, platformTopMat, coreMat, linkMat, sky];
   const keep = <T extends { dispose: () => void }>(item: T): T => {
     owned.push(item);
     return item;
   };
 
-  const accentMat = (hex: string) =>
+  /* ── floor ───────────────────────────────────────────────────────────── */
+
+  const floor = new THREE.Mesh(
+    keep(new THREE.CircleGeometry(Math.max(GROUND_W, GROUND_D) * 0.62, 96)),
     keep(
       new THREE.MeshStandardMaterial({
-        color: hex,
-        emissive: new THREE.Color(hex),
-        emissiveIntensity: 0.45,
-        roughness: 0.45,
-        metalness: 0,
+        map: keep(floorTexture(LOOK)),
+        roughness: 0.92,
+        metalness: 0.05,
+        transparent: true,
       }),
-    );
-
-  /* ── ground ──────────────────────────────────────────────────────────── */
-
-  const groundTex = keep(groundTexture());
-  const plate = new THREE.Mesh(
-    keep(box(GROUND_W, 2.2, GROUND_D, 4)),
-    keep(new THREE.MeshStandardMaterial({ color: LOOK.plateSide, roughness: 0.95 })),
+    ),
   );
-  plate.position.y = -2.2;
-  plate.receiveShadow = true;
-  scene.add(plate);
+  floor.rotation.x = -Math.PI / 2;
+  floor.receiveShadow = true;
+  scene.add(floor);
 
-  const lawn = new THREE.Mesh(
-    keep(new THREE.PlaneGeometry(GROUND_W - 1.2, GROUND_D - 1.2)),
-    keep(new THREE.MeshStandardMaterial({ map: groundTex, roughness: 0.96, metalness: 0 })),
+  const poolMat = keep(
+    new THREE.MeshBasicMaterial({
+      map: keep(poolTexture(LOOK)),
+      transparent: true,
+      depthWrite: false,
+      opacity: 0.95,
+    }),
   );
-  lawn.rotation.x = -Math.PI / 2;
-  lawn.position.y = 0.002;
-  lawn.receiveShadow = true;
-  scene.add(lawn);
+  const poolGeo = keep(new THREE.PlaneGeometry(1, 1));
 
-  const blobTex = keep(shadowTexture());
-  const blobMat = keep(
-    new THREE.MeshBasicMaterial({ map: blobTex, transparent: true, depthWrite: false, opacity: 0.9 }),
-  );
-  const blobGeo = keep(new THREE.PlaneGeometry(1, 1));
+  /* ── links ───────────────────────────────────────────────────────────── */
 
-  function dropShadow(x: number, z: number, size: number) {
-    const m = new THREE.Mesh(blobGeo, blobMat);
-    m.rotation.x = -Math.PI / 2;
-    m.position.set(x, 0.02, z);
-    m.scale.setScalar(size);
-    scene.add(m);
-  }
-
-  /* ── paving and roads ────────────────────────────────────────────────── */
-
-  const pavingMat = keep(new THREE.MeshStandardMaterial({ color: LOOK.paving, roughness: 0.94 }));
-  for (const pad of PAVING) {
-    const disc = new THREE.Mesh(keep(new THREE.CircleGeometry(pad.r, 48)), pavingMat);
-    disc.rotation.x = -Math.PI / 2;
-    disc.position.set(pad.x, 0.012, pad.z);
-    disc.receiveShadow = true;
-    scene.add(disc);
-  }
-
-  const water = new THREE.Mesh(
-    keep(new THREE.CircleGeometry(1, 56)),
-    keep(new THREE.MeshStandardMaterial({ color: LOOK.water, roughness: 0.22, metalness: 0.1 })),
-  );
-  water.rotation.x = -Math.PI / 2;
-  water.scale.set(POND.rx, POND.rz, 1);
-  water.position.set(POND.x, 0.03, POND.z);
-  scene.add(water);
-
-  const bank = new THREE.Mesh(keep(new THREE.RingGeometry(1, 1.09, 56)), pavingMat);
-  bank.rotation.x = -Math.PI / 2;
-  bank.scale.set(POND.rx + 1.2, POND.rz + 1.2, 1);
-  bank.position.set(POND.x, 0.022, POND.z);
-  scene.add(bank);
-
+  const wiring = new THREE.Group();
+  scene.add(wiring);
   for (const road of roads()) {
-    const mesh = new THREE.Mesh(keep(ribbon(road.points, 1.8, 0.05)), roadMat);
-    mesh.receiveShadow = true;
-    scene.add(mesh);
+    const lift = arcHeight(road.points);
+    const mesh = new THREE.Mesh(keep(tube(arcPoints(road.points, lift, DECK), 0.13)), linkMat);
+    wiring.add(mesh);
   }
 
-  /* ── buildings ───────────────────────────────────────────────────────── */
+  /* ── nodes ───────────────────────────────────────────────────────────── */
 
   type Built = {
     place: Place;
     group: THREE.Group;
-    ring: THREE.Mesh;
+    /** The lit ring around the platform: the node's state, at a glance. */
+    rimMat: THREE.MeshBasicMaterial;
+    /** The solid standing on it. */
+    core: THREE.Mesh;
+    coreMat: THREE.MeshStandardMaterial;
     halo: THREE.Mesh;
-    beacon: THREE.Mesh;
-    beaconMat: THREE.MeshBasicMaterial;
-    stateMat: THREE.MeshStandardMaterial;
-    ringMat: THREE.MeshBasicMaterial;
     haloMat: THREE.MeshBasicMaterial;
-    people: Array<{ group: THREE.Group; mat: THREE.MeshStandardMaterial }>;
     pick: THREE.Mesh;
-    lit: boolean;
     busy: boolean;
     resting: boolean;
     seed: number;
@@ -432,410 +381,127 @@ export function createCity(canvas: HTMLCanvasElement, host: HTMLElement): CityHa
   const pickable: THREE.Mesh[] = [];
   const spin: Array<{ mesh: THREE.Object3D; rate: number }> = [];
 
-  function mesh(geo: THREE.BufferGeometry, mat: THREE.Material, cast = true): THREE.Mesh {
-    const m = new THREE.Mesh(keep(geo), mat);
-    m.castShadow = cast;
-    m.receiveShadow = true;
-    return m;
-  }
-
-  function person(color: string) {
-    const group = new THREE.Group();
-    const mat = keep(new THREE.MeshStandardMaterial({ color, roughness: 0.6 }));
-
-    const legs = mesh(new THREE.CylinderGeometry(0.26, 0.3, 0.75, 10), plateMat);
-    legs.position.y = 0.37;
-    group.add(legs);
-
-    const body = mesh(new THREE.CapsuleGeometry(0.33, 0.62, 4, 12), mat);
-    body.position.y = 1.16;
-    group.add(body);
-
-    const head = mesh(new THREE.SphereGeometry(0.31, 16, 12), skinMat);
-    head.position.y = 1.92;
-    group.add(head);
-
-    const cap = mesh(new THREE.SphereGeometry(0.325, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), mat);
-    cap.position.y = 1.93;
-    group.add(cap);
-
-    return { group, mat };
-  }
-
-  function tree(x: number, z: number, r: number) {
-    const g = new THREE.Group();
-    const trunk = mesh(new THREE.CylinderGeometry(0.16, 0.22, 1.1, 8), trunkMat);
-    trunk.position.y = 0.55;
-    g.add(trunk);
-    const crown = mesh(new THREE.IcosahedronGeometry(r, 1), leafMat);
-    crown.position.y = 1.1 + r * 0.72;
-    crown.scale.set(1, 1.12, 1);
-    g.add(crown);
-    g.position.set(x, 0, z);
-    scene.add(g);
-    dropShadow(x, z, r * 3.1);
-  }
-
-  /**
-   * The body every building shares: a plinth, a light strip, a dark sign.
-   *
-   * The strip is the building's status light. Giving each building a
-   * decorative colour of its own and *then* a status colour was the thing that
-   * made the first pass read as a toy — twelve saturated rings competing with
-   * the one piece of colour that actually means something. There is one lit
-   * edge per building now, and it is lit by the agent standing in it.
-   */
-  function base(place: Place, group: THREE.Group, strip: THREE.Material) {
-    const pw = place.w + 3.2;
-    const pd = place.d + 3.2;
-
-    const plinth = mesh(box(pw, 0.62, pd, 0.9), plinthMat);
-    plinth.castShadow = false;
-    group.add(plinth);
-
-    // The strip is a thin slab the building stands on top of: what stays
-    // visible is the margin around the walls, which reads as a lit edge.
-    const edge = new THREE.Mesh(keep(box(pw - 0.5, 0.12, pd - 0.5, 0.8)), strip);
-    edge.position.y = 0.6;
-    group.add(edge);
-
-    const deck = mesh(box(place.w + 1.4, 0.24, place.d + 1.4, 0.7), shadeMat);
-    deck.position.y = 0.66;
-    deck.castShadow = false;
-    group.add(deck);
-
-    return 0.9;
-  }
-
-  function sign(place: Place, group: THREE.Group, y: number) {
-    const s = mesh(box(Math.min(place.w * 0.3, 3.8), 0.78, 0.26, 0.18), plateMat);
-    s.position.set(0, y, place.d / 2 + 0.16);
-    group.add(s);
-  }
-
   function build(place: Place) {
     const group = new THREE.Group();
-    const anchor = anchorOf(place);
-    group.position.set(anchor.x, 0, anchor.z);
+    const at = anchorOf(place);
+    group.position.set(at.x, 0, at.z);
     group.rotation.y = place.rot;
 
-    const accent = accentMat(place.accent);
-    // With colour turned on, a building wears its own on its roof; with it off
-    // every roof is the same white and the only colour is the status light.
-    const trim = LOOK.colouredRoofs
-      ? keep(new THREE.MeshStandardMaterial({ color: place.accent, roughness: 0.66, metalness: 0 }))
-      : shadeMat;
-    // Unlit until an agent reports for work there.
-    const stateMat = keep(
-      new THREE.MeshStandardMaterial({
-        color: LOOK.resting,
-        emissive: new THREE.Color(LOOK.resting),
-        emissiveIntensity: 0.1,
-        roughness: 0.6,
-      }),
+    const r = place.w / 2;
+
+    // the pool it stands in
+    const pool = new THREE.Mesh(poolGeo, poolMat);
+    pool.rotation.x = -Math.PI / 2;
+    pool.position.y = 0.012;
+    pool.scale.setScalar(place.w * 2.1);
+    group.add(pool);
+
+    // the platform it stands on
+    const base = new THREE.Mesh(
+      keep(new THREE.CylinderGeometry(r, r * 1.03, DECK, 72)),
+      platformMat,
     );
-    const floor = base(place, group, stateMat);
-    const h = place.h;
-    const { w, d } = place;
+    base.position.y = DECK / 2;
+    base.castShadow = true;
+    base.receiveShadow = true;
+    group.add(base);
 
-    if (place.kind === "pavilion") {
-      const body = mesh(box(w, h * 0.62, d), wallMat);
-      body.position.y = floor;
-      group.add(body);
+    const deck = new THREE.Mesh(
+      keep(new THREE.CylinderGeometry(r * 0.9, r * 0.9, 0.12, 72)),
+      platformTopMat,
+    );
+    deck.position.y = DECK + 0.04;
+    deck.receiveShadow = true;
+    group.add(deck);
 
-      const band = mesh(box(w * 0.99, h * 0.3, d * 0.99, 0.4), glassMat);
-      band.position.y = floor + h * 0.24;
-      group.add(band);
-
-      const roof = mesh(box(w * 0.84, 0.55, d * 0.84, 0.6), trim);
-      roof.position.y = floor + h * 0.62;
-      group.add(roof);
-
-      const canopy = mesh(box(w * 0.5, 0.3, 4.2, 0.4), trim);
-      canopy.position.set(0, floor + h * 0.52, d / 2 + 1.6);
-      group.add(canopy);
-
-      for (const sx of [-1, 1]) {
-        const post = mesh(new THREE.CylinderGeometry(0.16, 0.16, h * 0.52, 8), shadeMat);
-        post.position.set(sx * w * 0.2, floor + h * 0.26, d / 2 + 3.4);
-        group.add(post);
-      }
-      sign(place, group, floor + h * 0.44);
-    }
-
-    if (place.kind === "archive") {
-      const tiers = [
-        { s: 1, y: 0, hh: h * 0.34 },
-        { s: 0.82, y: h * 0.36, hh: h * 0.3 },
-        { s: 0.62, y: h * 0.68, hh: h * 0.26 },
-      ];
-      for (const t of tiers) {
-        const slab = mesh(box(w * t.s, t.hh, d * t.s), wallMat);
-        slab.position.y = floor + t.y;
-        group.add(slab);
-        const pane = mesh(box(w * t.s * 1.01, t.hh * 0.34, d * t.s * 1.01, 0.3), glassMat);
-        pane.position.y = floor + t.y + t.hh * 0.52;
-        group.add(pane);
-      }
-      const lid = mesh(box(w * 0.64, 0.42, d * 0.64, 0.5), trim);
-      lid.position.y = floor + h * 0.94;
-      group.add(lid);
-      sign(place, group, floor + h * 0.2);
-    }
-
-    if (place.kind === "hub") {
-      const dais = mesh(new THREE.CylinderGeometry(w * 0.62, w * 0.66, 0.5, 48), shadeMat);
-      dais.position.y = floor;
-      group.add(dais);
-
-      const shaft = mesh(box(w * 0.54, h * 0.86, d * 0.54, 0.6), wallMat);
-      shaft.position.y = floor + 0.5;
-      group.add(shaft);
-
-      for (let i = 0; i < 3; i += 1) {
-        const pane = mesh(box(w * 0.56, h * 0.14, d * 0.56, 0.5), glassMat);
-        pane.position.y = floor + 0.5 + h * (0.16 + i * 0.24);
-        group.add(pane);
-      }
-
-      const cap = mesh(box(w * 0.66, 0.6, d * 0.66, 0.5), trim);
-      cap.position.y = floor + 0.5 + h * 0.86;
-      group.add(cap);
-
-      // The ring turns because this is the one building that never stops
-      // working: everything the pipeline does passes through it.
-      const ring = new THREE.Mesh(keep(new THREE.TorusGeometry(w * 0.72, 0.17, 10, 64)), accent);
-      ring.rotation.x = Math.PI / 2;
-      ring.position.y = floor + h * 0.68;
-      group.add(ring);
-      spin.push({ mesh: ring, rate: 0.28 });
-      sign(place, group, floor + h * 0.34);
-    }
-
-    if (place.kind === "hall") {
-      const body = mesh(box(w, h * 0.72, d), wallMat);
-      body.position.y = floor;
-      group.add(body);
-
-      const vault = mesh(new THREE.CylinderGeometry(d * 0.46, d * 0.46, w * 0.92, 24, 1, false, 0, Math.PI), trim);
-      vault.rotation.z = Math.PI / 2;
-      vault.position.y = floor + h * 0.72;
-      group.add(vault);
-
-      // A grid of windows, which is what tells the eye how big the hall is.
-      for (let row = 0; row < 2; row += 1) {
-        for (let col = -2; col <= 2; col += 1) {
-          const win = mesh(box(1.5, 1.5, 0.3, 0.25), glassMat);
-          win.position.set(col * 2.5, floor + h * 0.22 + row * 2.4, d / 2 + 0.04);
-          group.add(win);
-        }
-      }
-      sign(place, group, floor + h * 0.58);
-    }
-
-    if (place.kind === "workshop") {
-      const body = mesh(box(w, h * 0.66, d), wallMat);
-      body.position.y = floor;
-      group.add(body);
-
-      const roof = mesh(box(w * 1.04, 0.5, d * 1.04, 0.5), trim);
-      roof.position.y = floor + h * 0.66;
-      group.add(roof);
-
-      // Skylights, because a workshop is where the light is let in.
-      for (let i = -1; i <= 1; i += 1) {
-        const light = mesh(box(w / 4.6, 0.34, d * 0.62, 0.2), glassMat);
-        light.position.set(i * (w / 3.4), floor + h * 0.72, 0);
-        group.add(light);
-      }
-
-      const band = mesh(box(w * 1.01, h * 0.2, d * 1.01, 0.4), glassMat);
-      band.position.y = floor + h * 0.34;
-      group.add(band);
-
-      const pipe = mesh(new THREE.CylinderGeometry(0.4, 0.46, h * 0.55, 12), wallMat);
-      pipe.position.set(w * 0.32, floor + h * 0.78, -d * 0.28);
-      group.add(pipe);
-      sign(place, group, floor + h * 0.4);
-    }
-
-    if (place.kind === "gate") {
-      for (const sx of [-1, 1]) {
-        const pylon = mesh(box(3, h, d * 0.9), wallMat);
-        pylon.position.set(sx * (w / 2 - 1.5), floor, 0);
-        group.add(pylon);
-        const lamp = new THREE.Mesh(keep(box(2.2, 0.18, d * 0.8, 0.2)), accent);
-        lamp.position.set(sx * (w / 2 - 1.5), floor + h + 0.1, 0);
-        group.add(lamp);
-      }
-
-      const lintel = mesh(box(w, 1.5, d * 0.7), trim);
-      lintel.position.y = floor + h;
-      group.add(lintel);
-
-      // The screen every message passes through before the model sees it.
-      const screenMat = keep(
-        new THREE.MeshBasicMaterial({
-          color: place.accent,
-          transparent: true,
-          opacity: 0.18,
-          side: THREE.DoubleSide,
-          depthWrite: false,
-          toneMapped: false,
-        }),
-      );
-      const screen = new THREE.Mesh(keep(new THREE.PlaneGeometry(w - 3.4, h * 0.82)), screenMat);
-      screen.position.y = floor + h * 0.44;
-      group.add(screen);
-      sign(place, group, floor + h + 0.9);
-    }
-
-    if (place.kind === "house") {
-      const body = mesh(box(w, h * 0.62, d), wallMat);
-      body.position.y = floor;
-      group.add(body);
-
-      const roof = mesh(wedge(w * 1.06, h * 0.42, d * 1.04), trim);
-      roof.position.y = floor + h * 0.62;
-      group.add(roof);
-
-      const door = mesh(box(2.1, 2.6, 0.26, 0.3), plateMat);
-      door.position.set(-w * 0.2, floor + 1.3, d / 2 + 0.02);
-      group.add(door);
-
-      const win = mesh(box(2.4, 1.7, 0.26, 0.3), glassMat);
-      win.position.set(w * 0.22, floor + h * 0.36, d / 2 + 0.02);
-      group.add(win);
-
-      // A porch lamp: the human is the one place on the campus that is warm.
-      const lamp = new THREE.Mesh(keep(new THREE.SphereGeometry(0.36, 14, 10)), accent);
-      lamp.position.set(-w * 0.2 + 1.6, floor + 3.1, d / 2 + 0.3);
-      group.add(lamp);
-      sign(place, group, floor + h * 0.52);
-    }
-
-    if (place.kind === "shop") {
-      const body = mesh(box(w, h * 0.7, d), wallMat);
-      body.position.y = floor;
-      group.add(body);
-      const front = mesh(box(w * 0.78, h * 0.34, 0.3, 0.3), glassMat);
-      front.position.set(0, floor + h * 0.26, d / 2 + 0.02);
-      group.add(front);
-      const awning = new THREE.Mesh(keep(box(w * 0.9, 0.24, 2.4, 0.3)), accent);
-      awning.position.set(0, floor + h * 0.52, d / 2 + 1);
-      awning.rotation.x = 0.22;
-      group.add(awning);
-      const roof = mesh(box(w * 0.7, 0.5, d * 0.7, 0.4), trim);
-      roof.position.y = floor + h * 0.7;
-      group.add(roof);
-      sign(place, group, floor + h * 0.56);
-    }
-
-    if (place.kind === "tower") {
-      const shaft = mesh(box(w * 0.52, h * 0.82, d * 0.52, 0.4), wallMat);
-      shaft.position.y = floor;
-      group.add(shaft);
-      const head = mesh(box(w, h * 0.16, d, 0.5), trim);
-      head.position.y = floor + h * 0.82;
-      group.add(head);
-      const glassBand = mesh(box(w * 1.01, h * 0.1, d * 1.01, 0.5), glassMat);
-      head.position.y = floor + h * 0.82;
-      glassBand.position.y = floor + h * 0.85;
-      group.add(glassBand);
-      const cap = new THREE.Mesh(keep(new THREE.ConeGeometry(w * 0.4, 1.6, 16)), accent);
-      cap.position.y = floor + h * 0.98 + 0.8;
-      group.add(cap);
-      sign(place, group, floor + h * 0.3);
-    }
-
-    if (place.kind === "scaffold") {
-      // Where the agents that are designed but not built stand. It is a frame
-      // with nothing inside it on purpose.
-      for (const sx of [-1, 1]) {
-        for (const sz of [-1, 1]) {
-          const post = mesh(box(0.42, h, 0.42, 0.1), shadeMat);
-          post.position.set(sx * (w / 2 - 0.6), floor, sz * (d / 2 - 0.6));
-          group.add(post);
-        }
-      }
-      for (const level of [0.45, 0.95]) {
-        const beam = mesh(box(w, 0.28, d, 0.1), shadeMat);
-        beam.position.y = floor + h * level;
-        beam.castShadow = false;
-        group.add(beam);
-      }
-      const arm = mesh(box(w * 1.5, 0.34, 0.5, 0.1), shadeMat);
-      arm.position.set(w * 0.4, floor + h + 1.2, 0);
-      group.add(arm);
-      const mast = mesh(box(0.5, h * 0.45, 0.5, 0.1), shadeMat);
-      mast.position.set(-w * 0.2, floor + h, 0);
-      group.add(mast);
-    }
-
-    if (place.kind === "mast") {
-      const pole = mesh(new THREE.CylinderGeometry(0.28, 0.34, h, 12), shadeMat);
-      pole.position.y = floor + h / 2;
-      group.add(pole);
-      for (let i = 0; i < 3; i += 1) {
-        const cone = new THREE.Mesh(keep(new THREE.ConeGeometry(1.5 - i * 0.25, 1.1, 18, 1, true)), accent);
-        cone.rotation.z = -Math.PI / 2;
-        cone.position.set(1.1, floor + h - 0.6 - i * 1.5, 0);
-        group.add(cone);
-      }
-    }
-
-    if (place.kind === "plaza") {
-      const dais = mesh(new THREE.CylinderGeometry(w * 0.52, w * 0.56, 0.45, 40), shadeMat);
-      dais.position.y = floor - 0.2;
-      group.add(dais);
-      for (const a of [0.7, 2.3, 4.1]) {
-        const bench = mesh(box(3.4, 0.4, 1.1, 0.2), wallMat);
-        bench.position.set(Math.cos(a) * w * 0.38, floor + 0.15, Math.sin(a) * w * 0.38);
-        bench.rotation.y = -a;
-        group.add(bench);
-      }
-    }
-
-    if (place.kind === "kiosk") {
-      const post = mesh(box(0.7, h * 0.55, 0.7, 0.2), shadeMat);
-      post.position.y = floor;
-      group.add(post);
-      const board = new THREE.Mesh(keep(box(w, h * 0.5, 0.55, 0.7)), accent);
-      board.position.y = floor + h * 0.62;
-      board.castShadow = true;
-      group.add(board);
-      const lip = mesh(box(w * 0.7, 0.22, 0.7, 0.2), wallMat);
-      lip.position.y = floor + h * 0.88;
-      group.add(lip);
-    }
-
-    /* the live parts: a ring on the ground, a halo, a beacon overhead */
-
-    const ringR = Math.max(w, d) * 0.62 + 1.6;
-    const ringMat = keep(new THREE.MeshBasicMaterial({ color: TONE_HEX.green, transparent: true, opacity: 0.45, toneMapped: false }));
-    const ring = new THREE.Mesh(keep(new THREE.TorusGeometry(ringR, 0.16, 8, 72)), ringMat);
+    // the rim: the one part of a node that carries colour
+    const rimMat = keep(
+      new THREE.MeshBasicMaterial({ color: LOOK.resting, transparent: true, opacity: 0.95, toneMapped: false }),
+    );
+    const ring = new THREE.Mesh(keep(new THREE.TorusGeometry(r * 0.97, 0.085, 10, 110)), rimMat);
     ring.rotation.x = -Math.PI / 2;
-    ring.position.y = 0.12;
-    ring.visible = false;
+    ring.position.y = DECK - 0.02;
     group.add(ring);
 
-    const haloMat = keep(new THREE.MeshBasicMaterial({ color: TONE_HEX.blue, transparent: true, opacity: 0.4, toneMapped: false }));
-    const halo = new THREE.Mesh(keep(new THREE.TorusGeometry(ringR, 0.1, 8, 72)), haloMat);
+    // A gate gets a second ring, because every message is screened there; so
+    // does the hub, because everything routes through it.
+    if (place.kind === "gate" || place.kind === "hub") {
+      const outer = new THREE.Mesh(keep(new THREE.TorusGeometry(r * 1.2, 0.05, 8, 110)), rimMat);
+      outer.rotation.x = -Math.PI / 2;
+      outer.position.y = 0.18;
+      group.add(outer);
+    }
+
+    /**
+     * The solid itself.
+     *
+     * This is the node, and it has to have weight: a small mark floating over a
+     * disc reads as a diagram, and the point of building this in three
+     * dimensions is that the thing on screen is an object. Each form says what
+     * the node does — a gate is a ring you pass through, a customer is a
+     * sphere, a hub is a cut gem — and every one of them is a real volume,
+     * sitting on its platform and casting a shadow across it.
+     */
+    const c = place.core;
+    const planned = place.kind === "planned";
+    const coreGeo =
+      place.kind === "hub"
+        ? new THREE.IcosahedronGeometry(c, 1)
+        : place.kind === "gate"
+          ? new THREE.TorusGeometry(c * 0.74, c * 0.34, 24, 64)
+          : place.kind === "channel"
+            ? new THREE.CapsuleGeometry(c * 0.6, c * 0.95, 8, 24)
+            : place.kind === "source"
+              ? new THREE.SphereGeometry(c, 40, 28)
+              : place.kind === "sink"
+                ? new THREE.SphereGeometry(c, 40, 28)
+                : roundedBox(c * 1.62, c * 0.34);
+
+    const coreMaterial = planned
+      ? keep(
+          new THREE.MeshStandardMaterial({
+            color: LOOK.core,
+            roughness: 0.5,
+            metalness: 0,
+            transparent: true,
+            opacity: 0.3,
+            wireframe: true,
+          }),
+        )
+      : keep(coreMat.clone());
+    const core = new THREE.Mesh(keep(coreGeo), coreMaterial);
+    core.position.y = place.h;
+    core.castShadow = true;
+    core.receiveShadow = true;
+    if (place.kind === "sink") core.scale.set(1, 0.74, 1);
+    if (place.kind === "gate") core.rotation.x = Math.PI / 2;
+    group.add(core);
+
+    // Only the two nodes whose whole job is to keep turning actually turn.
+    if (place.kind === "hub") spin.push({ mesh: core, rate: 0.22 });
+
+    if (place.kind === "hub") {
+      const orbit = new THREE.Mesh(keep(new THREE.TorusGeometry(c * 1.55, 0.085, 10, 96)), rimMat);
+      orbit.rotation.x = Math.PI / 2.5;
+      orbit.position.y = place.h;
+      group.add(orbit);
+      spin.push({ mesh: orbit, rate: -0.42 });
+    }
+
+    // the pulse a working node gives off
+    const haloMat = keep(
+      new THREE.MeshBasicMaterial({ color: TONE_HEX.blue, transparent: true, opacity: 0.4, toneMapped: false }),
+    );
+    const halo = new THREE.Mesh(keep(new THREE.TorusGeometry(r * 0.97, 0.06, 8, 110)), haloMat);
     halo.rotation.x = -Math.PI / 2;
-    halo.position.y = 0.12;
+    halo.position.y = DECK - 0.02;
     halo.visible = false;
     group.add(halo);
 
-    const beaconMat = keep(new THREE.MeshBasicMaterial({ color: TONE_HEX.green, toneMapped: false }));
-    const beacon = new THREE.Mesh(keep(new THREE.SphereGeometry(0.52, 16, 12)), beaconMat);
-    beacon.position.y = place.crown - 1.1;
-    beacon.visible = false;
-    group.add(beacon);
-
-    // Picking is done against one honest box rather than the walls: a click
-    // near a building should select it, not miss between two panes of glass.
+    // Picking is done against one honest cylinder rather than the parts: a
+    // click near a node should select it, not miss between a ring and a mark.
     const pick = new THREE.Mesh(
-      keep(new THREE.BoxGeometry(Math.max(w, 6) + 3, place.crown, Math.max(d, 6) + 3)),
+      keep(new THREE.CylinderGeometry(r * 1.15, r * 1.15, place.crown, 12)),
       keep(new THREE.MeshBasicMaterial({ visible: false })),
     );
     pick.position.y = place.crown / 2;
@@ -844,61 +510,44 @@ export function createCity(canvas: HTMLCanvasElement, host: HTMLElement): CityHa
     pickable.push(pick);
 
     scene.add(group);
-    dropShadow(anchor.x, anchor.z, Math.max(w, d) + 7);
 
     built.set(place.code, {
       place,
       group,
-      ring,
+      rimMat,
+      core,
+      coreMat: coreMaterial,
       halo,
-      beacon,
-      beaconMat,
-      stateMat,
-      ringMat,
       haloMat,
-      people: [],
       pick,
-      lit: false,
       busy: false,
       resting: true,
-      seed: Math.abs(Math.sin(place.w * 12.9898 + place.h * 78.233)) * 6.28,
+      seed: Math.abs(Math.sin(at.x * 12.9898 + at.z * 78.233)) * 6.28,
     });
   }
 
   for (const place of PLACES) build(place);
-  for (const g of GREENERY) tree(g.x, g.z, g.r);
-
-  // Three people waiting on the customer's plaza: the campus should not look
-  // abandoned before anyone has written in.
-  const plaza = built.get("customer");
-  if (plaza) {
-    const seats: Array<[number, number, number, string]> = [
-      [-1.9, 1.4, 0.5, "#4f6bd8"],
-      [1.7, 0.4, -0.7, "#d98b4f"],
-      [0.2, -2, 2.6, "#4fa88b"],
-    ];
-    for (const [x, z, ry, color] of seats) {
-      const p = person(color);
-      p.group.position.set(x, 0.9, z);
-      p.group.rotation.y = ry;
-      p.group.scale.setScalar(1.45);
-      plaza.group.add(p.group);
-    }
-  }
 
   /* ── traffic ─────────────────────────────────────────────────────────── */
 
   const trafficGroup = new THREE.Group();
   scene.add(trafficGroup);
 
-  type Runner = { mesh: THREE.Mesh; points: Vec2[]; t: number; speed: number; loop: boolean; lift: number };
+  type Runner = {
+    mesh: THREE.Mesh;
+    points: THREE.Vector3[];
+    t: number;
+    speed: number;
+    loop: boolean;
+  };
   const runners: Runner[] = [];
-  const dotGeo = keep(new THREE.SphereGeometry(0.55, 14, 10));
-  const cometGeo = keep(new THREE.SphereGeometry(1, 16, 12));
+  const dotGeo = keep(new THREE.SphereGeometry(0.42, 14, 10));
+  const cometGeo = keep(new THREE.SphereGeometry(0.62, 16, 12));
 
-  function sampleFor(from: string, to: string): Vec2[] {
+  function laneFor(from: string, to: string): THREE.Vector3[] {
     const points = sampleRoute(from, to);
-    return points.length > 1 ? points : [];
+    if (points.length < 2) return [];
+    return arcPoints(points, arcHeight(points), DECK + 0.2);
   }
 
   function clearTraffic() {
@@ -907,6 +556,7 @@ export function createCity(canvas: HTMLCanvasElement, host: HTMLElement): CityHa
       const m = child as THREE.Mesh;
       if (Array.isArray(m.material)) m.material.forEach((x) => x.dispose());
       else m.material?.dispose();
+      if (m.geometry && m.userData.owned) m.geometry.dispose();
     }
     for (let i = runners.length - 1; i >= 0; i -= 1) {
       if (runners[i].loop) runners.splice(i, 1);
@@ -918,56 +568,71 @@ export function createCity(canvas: HTMLCanvasElement, host: HTMLElement): CityHa
     const busiest = Math.max(1, ...edges.map((e) => e.count));
 
     for (const edge of edges) {
-      const points = sampleFor(edge.from, edge.to);
+      const points = laneFor(edge.from, edge.to);
       if (!points.length) continue;
 
-      // A road is the wiring; a lit lane on top of it is the traffic. It has
-      // to be wider than the road it covers, or the only thing that shows is
-      // the grey underneath.
+      // A link that has carried traffic is drawn over its own wiring, brighter
+      // and thicker in proportion to what actually crossed it.
       const hot = edge.count / busiest;
-      const color = new THREE.Color(hot > 0.6 ? "#3f74f4" : "#7e9df5");
+      const geo = tube(points, 0.13 + hot * 0.16);
+      geo.userData = {};
       const lane = new THREE.Mesh(
-        keep(ribbon(points, 1.1 + hot * 1.5, 0.14)),
-        keep(new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.72 + hot * 0.25, toneMapped: false })),
+        geo,
+        keep(
+          new THREE.MeshBasicMaterial({
+            color: new THREE.Color(hot > 0.6 ? "#5b8bf5" : "#4a63a8"),
+            transparent: true,
+            opacity: 0.55 + hot * 0.4,
+            toneMapped: false,
+          }),
+        ),
       );
+      lane.userData.owned = true;
       trafficGroup.add(lane);
     }
 
-    // The handful of busiest routes keep a dot running, so the city reads as a
-    // system under load rather than a diagram that only twitches on an event.
+    // The busiest handful keep a dot running, so the board reads as a system
+    // under load rather than a diagram that only twitches on an event.
     for (const edge of [...edges].sort((a, b) => b.count - a.count).slice(0, 6)) {
-      const points = sampleFor(edge.from, edge.to);
+      const points = laneFor(edge.from, edge.to);
       if (!points.length) continue;
-      const m = new THREE.Mesh(dotGeo, keep(new THREE.MeshBasicMaterial({ color: "#ffffff", toneMapped: false })));
-      const glow = new THREE.Mesh(
-        keep(new THREE.SphereGeometry(1.25, 12, 10)),
-        keep(new THREE.MeshBasicMaterial({ color: "#4b7ef8", transparent: true, opacity: 0.34, depthWrite: false, toneMapped: false })),
+      const m = new THREE.Mesh(
+        dotGeo,
+        keep(new THREE.MeshBasicMaterial({ color: "#8fb0ff", toneMapped: false })),
       );
-      m.add(glow);
       trafficGroup.add(m);
-      runners.push({ mesh: m, points, t: Math.random(), speed: 0.1, loop: true, lift: 0.7 });
+      runners.push({ mesh: m, points, t: Math.random(), speed: 0.11, loop: true });
     }
   }
 
   function pulse(from: string, to: string, color: string) {
-    const points = sampleFor(from, to);
+    const points = laneFor(from, to);
     if (!points.length) return;
-    const m = new THREE.Mesh(cometGeo, keep(new THREE.MeshBasicMaterial({ color, toneMapped: false })));
+    const m = new THREE.Mesh(
+      cometGeo,
+      keep(new THREE.MeshBasicMaterial({ color, toneMapped: false })),
+    );
     const halo = new THREE.Mesh(
-      keep(new THREE.SphereGeometry(2.3, 14, 10)),
-      keep(new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.34, depthWrite: false, toneMapped: false })),
+      keep(new THREE.SphereGeometry(1.7, 14, 10)),
+      keep(
+        new THREE.MeshBasicMaterial({
+          color,
+          transparent: true,
+          opacity: 0.3,
+          depthWrite: false,
+          toneMapped: false,
+        }),
+      ),
     );
     m.add(halo);
     trafficGroup.add(m);
-    runners.push({ mesh: m, points, t: 0, speed: 0.42, loop: false, lift: 1.6 });
+    runners.push({ mesh: m, points, t: 0, speed: 0.4, loop: false });
   }
 
-  function along(points: Vec2[], t: number): Vec2 {
+  function along(points: THREE.Vector3[], t: number, out: THREE.Vector3) {
     const i = Math.min(points.length - 2, Math.floor(t * (points.length - 1)));
     const f = t * (points.length - 1) - i;
-    const a = points[i];
-    const b = points[i + 1];
-    return { x: a.x + (b.x - a.x) * f, z: a.z + (b.z - a.z) * f };
+    out.copy(points[i]).lerp(points[i + 1], f);
   }
 
   /* ── live state ──────────────────────────────────────────────────────── */
@@ -979,57 +644,39 @@ export function createCity(canvas: HTMLCanvasElement, host: HTMLElement): CityHa
     setEdges(state.edges);
 
     for (const entry of built.values()) {
-      entry.lit = false;
       entry.busy = false;
       entry.resting = true;
-      for (const p of entry.people) entry.group.remove(p.group);
-      entry.people = [];
-      entry.ring.visible = false;
       entry.halo.visible = false;
-      entry.beacon.visible = false;
-      entry.stateMat.color.set(LOOK.resting);
-      entry.stateMat.emissive.set(LOOK.resting);
-      entry.stateMat.emissiveIntensity = 0.1;
+      entry.rimMat.color.set(LOOK.resting);
+      if (entry.place.kind !== "planned") entry.coreMat.color.set(LOOK.core);
+      entry.coreMat.emissive?.set("#000000");
     }
 
     for (const agent of state.agents) {
-      // An agent with no code behind it gets nothing on the map: an unbuilt
-      // agent must never look like it is standing somewhere working.
+      // An agent with no code behind it gets nothing lit: an unbuilt agent
+      // must never look like it is working. Its node stays a wire outline.
       if (agent.lifecycle === "planned") continue;
       const place = placeFor(agent.code) ?? placeFor(agent.zone);
       if (!place) continue;
       const entry = built.get(place.code);
-      if (!entry) continue;
+      if (!entry || entry.place.kind === "planned") continue;
 
       const hex = toneOf(agent.state);
       const active = !RESTING.has(agent.state);
-      entry.lit = true;
       entry.busy = entry.busy || BUSY.has(agent.state);
       entry.resting = entry.resting && !active;
 
-      entry.ringMat.color.set(hex);
       entry.haloMat.color.set(hex);
-      entry.beaconMat.color.set(active ? hex : TONE_HEX.green);
-      entry.beacon.visible = true;
-      entry.ring.visible = entry.ring.visible || active;
       entry.halo.visible = entry.halo.visible || BUSY.has(agent.state);
 
       if (active) {
-        entry.stateMat.color.set(hex);
-        entry.stateMat.emissive.set(hex);
-        entry.stateMat.emissiveIntensity = 0.8;
-      }
-
-      // Somebody stands in front of the building, wearing the colour of the
-      // state it is in — or a plain uniform while there is nothing to report.
-      if (place.kind !== "plaza" && place.kind !== "kiosk") {
-        const p = person(active ? hex : LOOK.wallShade);
-        const slot = entry.people.length;
-        p.group.position.set((slot - 0.5) * 2.4, 0.9, place.d / 2 + 2.9);
-        p.group.rotation.y = 0.25 - slot * 0.4;
-        p.group.scale.setScalar(1.45);
-        entry.group.add(p.group);
-        entry.people.push(p);
+        entry.rimMat.color.set(hex);
+        entry.coreMat.color.set(hex);
+        entry.coreMat.emissive?.set(hex);
+        entry.coreMat.emissiveIntensity = 0.45;
+      } else {
+        // Alive but with nothing to report: a quiet green rim, nothing more.
+        entry.rimMat.color.set(TONE_HEX.green);
       }
     }
   }
@@ -1044,7 +691,8 @@ export function createCity(canvas: HTMLCanvasElement, host: HTMLElement): CityHa
     "card:escalation": { x: 96, top: 92 },
   };
 
-  const clamp = (v: number, lo: number, hi: number) => (hi < lo ? (lo + hi) / 2 : Math.min(hi, Math.max(lo, v)));
+  const clamp = (v: number, lo: number, hi: number) =>
+    hi < lo ? (lo + hi) / 2 : Math.min(hi, Math.max(lo, v));
 
   type Anchor = { id: string; code: string; lift: number; el: HTMLElement };
   const anchors = new Map<string, Anchor>();
@@ -1065,10 +713,8 @@ export function createCity(canvas: HTMLCanvasElement, host: HTMLElement): CityHa
       const at = anchorOf(place);
       projected.set(at.x, a.lift, at.z).project(camera);
 
-      // A card whose building is near the edge of the frame would hang off it,
-      // so the anchor is held inside the panel rather than followed blindly.
-      // Each overlay declares the room it actually needs: an agent card is
-      // much taller than a name pill and would be clipped by the same margin.
+      // A card whose node is near the edge of the frame would hang off it, so
+      // the anchor is held inside the panel rather than followed blindly.
       const room = PAD[a.id] ?? PAD.label;
       const x = clamp((projected.x * 0.5 + 0.5) * width, room.x, width - room.x);
       const y = clamp((-projected.y * 0.5 + 0.5) * height, room.top, height - 14);
@@ -1112,7 +758,7 @@ export function createCity(canvas: HTMLCanvasElement, host: HTMLElement): CityHa
       moved += Math.abs(dx) + Math.abs(dy);
       last = { x: e.clientX, y: e.clientY };
       wanted.theta -= dx * 0.005;
-      wanted.phi = THREE.MathUtils.clamp(wanted.phi - dy * 0.004, 0.22, 1.35);
+      wanted.phi = THREE.MathUtils.clamp(wanted.phi - dy * 0.004, 0.2, 1.36);
       return;
     }
     const code = codeAt(e.clientX, e.clientY);
@@ -1131,7 +777,7 @@ export function createCity(canvas: HTMLCanvasElement, host: HTMLElement): CityHa
 
   const onWheel = (e: WheelEvent) => {
     e.preventDefault();
-    wanted.radius = THREE.MathUtils.clamp(wanted.radius * Math.exp(e.deltaY * 0.0012), 52, 210);
+    wanted.radius = THREE.MathUtils.clamp(wanted.radius * Math.exp(e.deltaY * 0.0012), 52, 230);
   };
 
   canvas.addEventListener("pointerdown", onDown);
@@ -1161,6 +807,7 @@ export function createCity(canvas: HTMLCanvasElement, host: HTMLElement): CityHa
   resize();
 
   const clock = new THREE.Clock();
+  const cursor3 = new THREE.Vector3();
   let frame = 0;
 
   function tick() {
@@ -1179,29 +826,23 @@ export function createCity(canvas: HTMLCanvasElement, host: HTMLElement): CityHa
     );
     camera.lookAt(target);
 
-    for (const s of spin) s.mesh.rotation.z += s.rate * dt;
+    for (const s of spin) s.mesh.rotation.y += s.rate * dt;
 
     for (const entry of built.values()) {
       const isSelected = selected === entry.place.code;
-      const lift = isSelected ? 0.6 : 0;
+      const lift = isSelected ? 0.5 : 0;
       entry.group.position.y += (lift - entry.group.position.y) * Math.min(1, dt * 8);
 
-      if (entry.beacon.visible) {
-        entry.beacon.position.y =
-          entry.place.crown - 1.1 + Math.sin(time * 1.7 + entry.seed) * 0.28;
-        const rest = entry.resting ? 0.6 : 1;
-        entry.beacon.scale.setScalar(isSelected ? rest * 1.45 : rest);
-      }
-      if (entry.halo.visible) {
-        const t = (time * 0.55 + entry.seed) % 1;
-        entry.halo.scale.setScalar(1 + t * 0.55);
-        entry.haloMat.opacity = 0.45 * (1 - t);
-      }
-      entry.ringMat.opacity = isSelected ? 0.95 : 0.42;
+      // A solid that bobs looks weightless, so only a working node moves, and
+      // only enough to be noticed.
+      const rise = entry.resting ? 0 : 0.25 + Math.sin(time * 1.9 + entry.seed) * 0.22;
+      entry.core.position.y += (entry.place.h + rise - entry.core.position.y) * Math.min(1, dt * 6);
+      entry.rimMat.opacity = isSelected ? 1 : entry.resting ? 0.7 : 0.95;
 
-      for (let i = 0; i < entry.people.length; i += 1) {
-        const p = entry.people[i];
-        p.group.position.y = 0.9 + (entry.busy ? Math.abs(Math.sin(time * 2.4 + i)) * 0.16 : 0);
+      if (entry.halo.visible) {
+        const t = (time * 0.6 + entry.seed) % 1;
+        entry.halo.scale.set(1 + t * 0.5, 1 + t * 0.5, 1);
+        entry.haloMat.opacity = 0.5 * (1 - t);
       }
     }
 
@@ -1212,14 +853,13 @@ export function createCity(canvas: HTMLCanvasElement, host: HTMLElement): CityHa
         if (r.loop) r.t -= 1;
         else {
           trafficGroup.remove(r.mesh);
-          const mat = r.mesh.material as THREE.Material;
-          mat.dispose();
+          (r.mesh.material as THREE.Material).dispose();
           runners.splice(i, 1);
           continue;
         }
       }
-      const at = along(r.points, r.t);
-      r.mesh.position.set(at.x, r.lift + Math.sin(Math.PI * r.t) * (r.loop ? 0.3 : 1.1), at.z);
+      along(r.points, r.t, cursor3);
+      r.mesh.position.copy(cursor3);
     }
 
     placeAnchors(width, height);
@@ -1239,7 +879,6 @@ export function createCity(canvas: HTMLCanvasElement, host: HTMLElement): CityHa
     canvas.removeEventListener("pointercancel", onUp);
     canvas.removeEventListener("wheel", onWheel);
     for (const item of owned) item.dispose();
-    sky.dispose();
     scene.traverse((o) => {
       const m = o as THREE.Mesh;
       if (m.geometry) m.geometry.dispose();
