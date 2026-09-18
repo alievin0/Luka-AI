@@ -44,11 +44,22 @@ class World:
     it does not trust one."""
 
     def __init__(self, con, gw, provider_for, requirements_for=None,
-                 worker="worker-1", max_in_flight=3, instruction_for=None):
+                 worker="worker-1", max_in_flight=3, instruction_for=None,
+                 review_for=None):
         self.con, self.gw = con, gw
         self.provider_for = provider_for
         self.requirements_for = requirements_for or (lambda task: [])
         self.instruction_for = instruction_for or (lambda task: task["objective"])
+        # How the Reviewer reaches a verdict. Injected like everything else the
+        # supervisor does not want to decide for itself.
+        #
+        # The default is `deterministic_review` and stays the default: this
+        # file's rule is that a model writes CONTENT and never a fork, because
+        # in an always-on world a model's decision is one nobody is reading.
+        # A caller that wants a judging model must say so explicitly, take the
+        # consequence, and — as `h_review_requested` enforces — get no verdict
+        # at all rather than a default one when the model does not give one.
+        self.review_for = review_for or deterministic_review
         self.worker, self.max_in_flight = worker, max_in_flight
         self.ticks = 0
         # A worker announces itself so the world can tell a live process from
@@ -263,6 +274,7 @@ def h_task_ready(w, item):
         con, agent, tid, project_id=task["project_id"],
         extra={"the owner's instruction": w.instruction_for(task)})
     mem = ctx["memory"]
+    art, undeclared = None, None
     try:
         turn = RT.run_agent_turn(
             con, w.gw, prov, agent, tid, instruction=brief,
@@ -272,13 +284,41 @@ def h_task_ready(w, item):
         if usd:
             POL.charge(con, scopes, usd, why="task %d turn" % tid)
             POL.note_chain(con, item["chain_id"], usd=usd)
-        art = RT.persist_artifact(con, turn, task["project_id"])
+        try:
+            art = RT.persist_artifact(con, turn, task["project_id"])
+        except RT.Denied as e:
+            # The agent ended its turn WITHOUT declaring an artifact — the
+            # runtime offers `{"type":"complete","result":…}` as well, and a
+            # real model uses it: asked to report, it reports.
+            #
+            # That is a failed attempt, and it must be handled as one. It used
+            # to escape this handler as an exception, which nacked the queue
+            # item while the task stayed RUNNING and its lease stayed spent —
+            # so the retry could not re-lease it, deferred, and the whole
+            # project stopped with no failure recorded anywhere and nothing in
+            # the record saying why. A double always declared an artifact, so
+            # nothing ever took this path.
+            #
+            # Now it goes where every other unacceptable result goes: a
+            # correction, with the reason in front of the next attempt.
+            undeclared = str(e)
     finally:
         W.release_lease(con, lease["lease_id"])
         # It stops working when the lease ends, wherever it happens to be. It
         # does NOT walk home: an agent standing where it last worked is the
         # truth, and sending it somewhere for tidiness is invented movement.
         SPACE.finish_work(con, agent, why="lease on task #%d released" % tid)
+
+    if art is None:
+        answered = (turn.answer or "").strip()
+        reason = ("the agent ended its turn without declaring an artifact"
+                  + (": it answered %r instead" % answered[:160] if answered
+                     else " and said nothing the runtime could act on"))
+        _emit(w, item, "CORRECTION_NEEDED", "task:%d" % tid,
+              dict(item["payload"], task_id=tid, agent=agent, reason=reason))
+        return {"agent": agent, "no_artifact": reason, "answered": bool(answered),
+                "tool_calls": turn.tool_calls, "denials": turn.denials,
+                "why": undeclared}
 
     _emit(w, item, "ARTIFACT_CREATED", "artifact:%d" % art,
           dict(item["payload"], task_id=tid, artifact_id=art, agent=agent))
@@ -345,6 +385,18 @@ def h_verification_done(w, item):
     return {"next": "correction"}
 
 
+def deterministic_review(w, art, task, ver, unmet):
+    """The world's own verdict: the verification row, read back.
+
+    Returns (verdict, rationale, run_id). No model is consulted and none is
+    needed — every input to this decision is already a row."""
+    verdict = "APPROVE" if not unmet else "REJECT"
+    rationale = ("every declared requirement is met and the artifact matches the "
+                 "bytes the gateway returned" if verdict == "APPROVE"
+                 else "requirement(s) not met: " + "; ".join(unmet))
+    return verdict, rationale, None
+
+
 def h_review_requested(w, item):
     """The Reviewer sees the artifact and the evidence. Never the reasoning."""
     con, p = w.con, item["payload"]
@@ -366,15 +418,20 @@ def h_review_requested(w, item):
     unmet = [c["requirement"] for c in
              json.loads((ver["detail"] if ver else "{}")).get("checks", [])
              if not c["passed"]] if ver else []
-    verdict = "APPROVE" if not unmet else "REJECT"
-    rationale = ("every declared requirement is met and the artifact matches the "
-                 "bytes the gateway returned" if verdict == "APPROVE"
-                 else "requirement(s) not met: " + "; ".join(unmet))
+    verdict, rationale, run_id = w.review_for(w, art, task, ver, unmet)
+    # An unreadable verdict is NOT an approval and not a rejection. Defaulting
+    # either way would be the supervisor deciding while reporting that the
+    # reviewer had — so the artifact keeps its REVIEW status and a person is
+    # told, which is what "could not be reviewed" actually means.
+    if verdict not in ("APPROVE", "REJECT"):
+        store.signal(con, "HIGH", "The reviewer returned no usable verdict",
+                     "artifact #%d: %s" % (art, str(rationale)[:160]))
+        return {"escalated": "no verdict", "why": str(rationale)[:160]}
     rid = RT.persist_review(con, art, REV, verdict, rationale,
-                            evidence_id=ver["id"] if ver else None)
+                            evidence_id=ver["id"] if ver else None, run_id=run_id)
     _emit(w, item, "REVIEW_DONE", "review:%d" % rid,
           dict(p, review_id=rid, verdict=verdict))
-    return {"verdict": verdict, "review": rid}
+    return {"verdict": verdict, "review": rid, "run": run_id}
 
 
 def _go_to_review(w, item, art, task):
