@@ -665,6 +665,18 @@ test("no sensing channel invents a reading for hardware the robot lacks", () => 
   assert.equal(grip.forceSensed, false);
   assert.ok(Number.isNaN(grip.force), `reported ${grip.force} N with no force sensor`);
 
+  // Reach: the arm was the channel this guard forgot, and the note above says a
+  // new channel should be added here. It was not, and the ROS bridge's arm went
+  // on reporting a tip at the origin having finished moving for a robot with no
+  // arm topic at all. The guard only ever covered the simulator, which is the
+  // implementation that does not touch a machine, so `bridge.test.ts` now
+  // carries the same questions for the one that does.
+  const reach = bare.robot.arm();
+  assert.ok(
+    reach.reachable === undefined || typeof reach.reachable === "boolean",
+    "reachability must be a boolean or unknown, never invented",
+  );
+
   // And the whole point of all of it: a robot this stripped down is still
   // governed, because geometry does not need any of those channels.
   const verdict = bare.governor.assess(robot);

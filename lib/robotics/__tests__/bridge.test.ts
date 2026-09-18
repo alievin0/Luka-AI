@@ -548,3 +548,53 @@ test("a robot that never answers leaves the topics unverified, not verified", as
   assert.equal(await asking, null, "silence was read as a successful answer");
   assert.equal(bridge.missingTopics(), null, "silence was read as nothing missing");
 });
+
+test("nothing published yet is not a robot sitting quietly at its origin", async () => {
+  // The standing guard, pointed at the implementation that would touch a real
+  // machine.
+  //
+  // There was one of these already and it ran against the simulator, so it
+  // could not have caught a defect that exists only here — and one did. The
+  // arm reported `{ tip: (0, 0), height: 0, moving: false }` when its topic had
+  // never published: an arm parked at the origin of the body frame, having
+  // finished moving. Twenty lines above it, the gripper gets the identical
+  // question right and says so in a comment.
+  //
+  // `grasp.adaptive` waits for the arm to settle and then closes the fingers,
+  // so a silent arm topic meant closing them on whatever happened to be there.
+  const { bridge } = await connected();
+
+  const arm = bridge.arm();
+  assert.ok(Number.isNaN(arm.tip.x), `reported a tip at x=${arm.tip.x} with no arm topic`);
+  assert.ok(Number.isNaN(arm.tip.y));
+  assert.ok(Number.isNaN(arm.height));
+  assert.equal(
+    arm.moving,
+    true,
+    "an arm that has never reported anything was described as having stopped, which is what " +
+      "a caller waiting for it to settle acts on",
+  );
+  assert.equal(arm.reachable, undefined, "claimed to know whether an unheard-from arm can reach");
+
+  // The channels that were already right, asserted here so this file guards the
+  // whole surface rather than the one that was wrong.
+  const grip = bridge.gripper();
+  assert.equal(grip.forceSensed, false);
+  assert.ok(Number.isNaN(grip.force), "reported newtons from a gripper that has said nothing");
+  assert.ok(Number.isNaN(grip.closure));
+
+  assert.deepEqual(bridge.detectObjects(), [], "invented detections from a silent camera");
+  assert.deepEqual(bridge.trackHumans(), [], "invented person tracks from a silent camera");
+  assert.deepEqual(bridge.health(), {}, "invented diagnostics");
+
+  const scan = bridge.lidar();
+  assert.equal(scanQuality(scan), 0, "a lidar that has published nothing looked usable");
+
+  // A pose with nothing behind it must not read as the origin either: the
+  // origin is a perfectly plausible place for a robot to be.
+  const pose = bridge.pose();
+  assert.ok(
+    Number.isNaN(pose.x) || Number.isNaN(pose.y) || Number.isNaN(pose.theta),
+    `reported a pose of (${pose.x}, ${pose.y}) with no odometry`,
+  );
+});

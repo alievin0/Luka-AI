@@ -526,13 +526,34 @@ export class Ros2Bridge implements RobotIO {
   }
 
   arm(): ArmState {
-    return (
-      this.read<ArmState>(this.topics.armState) ?? {
-        tip: { x: 0, y: 0 },
-        height: 0,
-        moving: false,
-      }
+    const msg = this.shaped<ArmState>(
+      this.topics.armState,
+      this.read(this.topics.armState),
+      (m) => {
+        const tip = (m as { tip?: { x?: unknown; y?: unknown } }).tip;
+        return (
+          typeof tip?.x === "number" &&
+          typeof tip?.y === "number" &&
+          typeof (m as { height?: unknown }).height === "number"
+        );
+      },
     );
+    if (msg) return msg;
+
+    // No reading means the arm's position is unknown, not that it is parked at
+    // the origin having finished moving — which is what this used to say, in
+    // the same class and twenty lines below a gripper that gets it right.
+    //
+    // `moving: true` is the safe half of the answer. A capability polling until
+    // the arm settles will time out and say the arm never reported settling,
+    // which is true. `moving: false` let it proceed: `grasp.adaptive` waits for
+    // the arm and then closes the fingers, so a silent arm topic meant closing
+    // on whatever happened to be between them.
+    return {
+      tip: { x: Number.NaN, y: Number.NaN },
+      height: Number.NaN,
+      moving: true,
+    };
   }
 
   health(): Record<string, number> {
