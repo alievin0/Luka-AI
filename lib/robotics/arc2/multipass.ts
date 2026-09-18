@@ -1,3 +1,47 @@
+// ── KILLED. Read this before using anything below. ───────────────────────────
+//
+// The capability this module was built for — "from its first 2–3 passes a robot
+// can predict when the track it made itself becomes unrecoverable" — is dead.
+// Four independent reasons, any one of which is sufficient:
+//
+// 1. THE MOTIVATING FAILURE IS NOT A MULTI-PASS FAILURE. Spirit did not rut
+//    itself in gradually. It "broke through a thin sulfate-rich soil crust and
+//    became embedded in an underlying mix of sulfate and basaltic sands" — a
+//    buried layer boundary, encountered once. A smooth power law in pass number
+//    cannot predict a discontinuity by construction. The example that motivated
+//    this module argues against it.
+//
+// 2. PASS NUMBER IS THE WRONG INDEPENDENT VARIABLE. Sinkage is driven
+//    dominantly by SLIP, not by traffic count: published slip-sinkage work puts
+//    sinkage at a slip ratio of 0.6 at three to seven times the static value.
+//    Fitting z_N = z_1·N^a with slip free to vary does not measure a soil
+//    property; it lumps an unrecorded slip history into the exponent. `a` is
+//    not identifiable on a robot that is not holding slip constant, and a real
+//    one never is.
+//
+// 3. DIRECT MEASUREMENT ALREADY DOES THE JOB, AND HAS FLOWN SINCE 2004. MER
+//    Visual Odometry slip checks and keep-out zones detect slip ratios to 125%
+//    and changes as small as 2 mm, and grew into what JPL calls a critical
+//    vehicle safety system. The terramechanics literature's own recommendation
+//    is that slip ratio and wheel sinkage are the immobility indices. Both are
+//    instantaneous, both are measured, neither needs a fitted exponent.
+//
+// 4. THE MEASUREMENT IS OUT OF REACH OF THE RIG THAT WAS SPECCED FOR IT.
+//    Fitting `a` from passes 2 and 3 propagates rut-depth error as
+//    δa ≈ √2·(δz/z)/ln(1.5). For a 10 mm first-pass rut, δa = 0.05 needs
+//    δz ≤ 0.2 mm. The 8×8 ToF sensor in the BOM is specified at ±5 % — about
+//    ±5 mm at 100 mm — which gives δa ≈ 0.9–1.5 on a parameter whose entire
+//    meaningful range is [0, 1]. Off by a factor of roughly twenty-five. The
+//    rig could not have measured the number it existed to measure.
+//
+// Nothing here is registered, nothing imports it, and it is kept for the same
+// reason `sense.look-first` is kept: a refutation that is deleted gets
+// reinvented. `BUILD.md` carries the sources and the full argument.
+//
+// The arithmetic below is correct. It is the premise that is wrong.
+//
+// ─────────────────────────────────────────────────────────────────────────────
+//
 // ── What the robot does to the ground it has already driven on ───────────────
 //
 // `terramechanics.ts` next door models one pass of one wheel, and says so in

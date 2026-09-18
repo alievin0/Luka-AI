@@ -1,5 +1,52 @@
 # ARC-2 — Engineering Build Plan
 
+> ## STATUS: C4 (pass-budget) is **KILLED**. 2026-09-18.
+>
+> The build target below did not survive its own kill test. It was refuted on
+> paper, before any part was bought, which is what the kill test was for.
+>
+> **1. The motivating failure is not a multi-pass failure.** Spirit "broke
+> through a thin sulfate-rich soil crust and became embedded in an underlying
+> mix of sulfate and basaltic sands" — a buried layer boundary hit once, not a
+> rut deepened by repetition. A power law in pass number cannot predict a
+> discontinuity. The example that motivated the idea argues against it.
+>
+> **2. Pass number is the wrong independent variable.** Sinkage is driven
+> dominantly by slip — published slip-sinkage work puts sinkage at slip 0.6 at
+> 3–7× static. With slip free, `a` is not a soil property, it is an unrecorded
+> slip history in disguise, and it is not identifiable.
+>
+> **3. Direct measurement already does it, and has flown for twenty years.**
+> MER Visual Odometry slip checks and keep-out zones resolve 2 mm and slip to
+> 125 %. The literature's own recommendation is that slip ratio and sinkage are
+> the immobility indices. No fitted exponent required.
+>
+> **4. Slip-triggered morphology switching is published.** *Choosing the Best
+> Locomotion Mode in Reconfigurable Rovers* (Electronics 8(7) 818, 2019) has a
+> reconfigurable rover reactively choosing its locomotion mode from an estimated
+> slip ratio; the push–pull follow-up (J. Terramechanics, 2023) delineates the
+> terrain and slope ranges where each mode wins. That is the core of C5 too.
+>
+> **5. The rig could not have measured it.** δa ≈ √2·(δz/z)/ln(1.5) from passes
+> 2 and 3. A 10 mm first-pass rut needs δz ≤ 0.2 mm for δa = 0.05; the specced
+> ±5 % ToF gives ≈ ±5 mm and so δa ≈ 0.9–1.5 on a parameter that lives in
+> [0, 1]. Twenty-five times too coarse.
+>
+> **C5 is killed with it** — it was conditional on C4 returning a number, and
+> its decision boundary is the published one above.
+>
+> **Do not buy the BOM below.** It is left in place as the record of what was
+> specced, including the two errors worth remembering: the ToF that could not
+> resolve the quantity, and a handheld ASABE penetrometer listed as if it were
+> an onboard instrument when it measures soil strength by hand and can never be
+> on the robot.
+>
+> Everything below this line is the plan as written **before** the kill test.
+> It is kept unedited so the reasoning can be audited, not because it stands.
+
+---
+
+
 Not an audit. The one thing this document has to do is get a physical
 experiment specified well enough that somebody can order the parts.
 
