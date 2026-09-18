@@ -95,6 +95,11 @@ class PersistentIdentity(unittest.TestCase):
             self.assertTrue(v["contract"]["escalation_rules"])
 
     def test_the_agents_are_materially_distinct(self):
+        """Distinct in what they can TOUCH, not only in what they are called.
+
+        The Researcher and the Builder both write artifacts; if they wrote to the
+        same directory with the same grant they would be interchangeable, and a
+        file could not say which of them made it. Their write scopes differ."""
         con = world()
         seen = set()
         for a in W.CREW:
@@ -104,13 +109,25 @@ class PersistentIdentity(unittest.TestCase):
             self.assertNotIn(key, seen, "%s is a duplicate of another agent" % a["id"])
             seen.add(key)
 
+    def test_the_two_writers_cannot_reach_each_others_output(self):
+        con = world()
+        gw = W.build_gateway(con)
+        mine = gw.call(RES, "WRITE_ARTIFACT", path="finding.md", body="x")
+        self.assertIn("research", mine)
+        theirs = gw.call(BUILD, "WRITE_ARTIFACT", path="deliverable.md", body="y")
+        self.assertIn("build", theirs)
+        with self.assertRaises(runtime.Denied):
+            gw.call(RES, "WRITE_ARTIFACT", path=theirs, body="overwritten")
+        with self.assertRaises(runtime.Denied):
+            gw.call(BUILD, "WRITE_ARTIFACT", path=mine, body="overwritten")
+
 
 class CapabilityAndPermission(unittest.TestCase):
     def test_no_agent_holds_a_capability_its_role_does_not_need(self):
         con = world()
         expected = {
             ORCH: set(),                                   # coordinates, cannot act
-            RES: {"READ_REPO"},
+            RES: {"READ_REPO", "WRITE_ARTIFACT"},   # a finding is an artifact
             BUILD: {"READ_REPO", "WRITE_ARTIFACT"},
             REV: {"READ_REPO"},                            # read, never write
             OPER: {"READ_REPO", "EXECUTE_SANDBOX"},

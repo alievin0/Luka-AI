@@ -49,3 +49,4 @@ civ/*.db-*
 
 # archived benchmark worlds (R20: --fresh archives instead of deleting)
 civ/*.db.archived-*
+civ/world_fixtures/

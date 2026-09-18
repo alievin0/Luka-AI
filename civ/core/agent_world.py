@@ -32,9 +32,21 @@ REPO_ROOT = os.path.dirname(HERE)
 
 READ_SCOPE = {"cap": "READ_REPO", "scope": {"path_prefix": REPO_ROOT},
               "rate": {"per_lease": 20, "per_hour": 400}}
-WRITE_SCOPE = {"cap": "WRITE_ARTIFACT",
-               "scope": {"path_prefix": ARTIFACT_DIR, "max_bytes": 200000},
-               "rate": {"per_lease": 8, "per_hour": 200}}
+def write_scope(sub=None):
+    """WRITE_ARTIFACT, scoped to where this role's output belongs.
+
+    Two agents holding the identical tool over the identical directory are
+    interchangeable — whatever their job titles say. Findings and deliverables
+    land in different places, so the Researcher and the Builder cannot overwrite
+    each other's work and the record can always say which of them produced a
+    file. The distinction is enforced by the gateway, not by convention."""
+    root = os.path.join(ARTIFACT_DIR, sub) if sub else ARTIFACT_DIR
+    return {"cap": "WRITE_ARTIFACT",
+            "scope": {"path_prefix": root, "max_bytes": 200000},
+            "rate": {"per_lease": 8, "per_hour": 200}}
+
+
+WRITE_SCOPE = write_scope()
 EXEC_SCOPE = {"cap": "EXECUTE_SANDBOX",
               "scope": {"argv0_allow": ["python3", "python", "python3.11"],
                         "argv_script_root": ARTIFACT_DIR,
@@ -60,7 +72,13 @@ CREW = [
          tier="actor", division="Knowledge", department="Research",
          mission="Investigate a question and come back with evidence, keeping "
                  "what was observed separate from what it means.",
-         tools=["fs.read"], permissions=[READ_SCOPE],
+         # WRITE_ARTIFACT because a research finding IS an artifact: a researcher
+         # that can only read has to hand its findings to someone else to write
+         # down, and the record then attributes the work to the wrong agent.
+         # Scoped to the artifact directory like every other writer. The REVIEWER
+         # is the one that must never write, and does not.
+         tools=["fs.read", "fs.write"],
+         permissions=[READ_SCOPE, write_scope("research")],
          memory_scope=["self", "project"],
          success_metrics=[{"metric": "claims_backed_by_evidence", "target": 1.0}],
          escalation_rules=[{"when": "no_evidence_available", "action": "NEED_EVIDENCE"}],
@@ -70,7 +88,8 @@ CREW = [
          tier="actor", division="Engineering", department="Delivery",
          mission="Turn an approved task into a real artifact on disk and report "
                  "what was actually produced, not what was intended.",
-         tools=["fs.read", "fs.write"], permissions=[READ_SCOPE, WRITE_SCOPE],
+         tools=["fs.read", "fs.write"],
+         permissions=[READ_SCOPE, write_scope("build")],
          memory_scope=["self", "project"],
          success_metrics=[{"metric": "artifacts_accepted", "target": 0.8}],
          escalation_rules=[{"when": "spec_contradicts_itself", "action": "ESCALATE"}],
@@ -135,12 +154,43 @@ class WorldError(RuntimeError):
 
 
 # ── FOUNDING ────────────────────────────────────────────────────────
+def found_owner_plane(con):
+    """Register OWNER_PLANE as a real principal.
+
+    It is the actor on everything the CONTROL PLANE does — approvals,
+    deterministic verification, redelivering an expired lease. Those acts have to
+    be attributable like any other, and `evidence.collected_by` has a foreign key
+    to `principals`, so an owner plane that is only a string is an owner plane
+    whose verifications cannot be recorded. It holds no tool and never will."""
+    if con.execute("SELECT 1 FROM principals WHERE id=?", (OWNER,)).fetchone():
+        return OWNER
+    # Inserted directly rather than through contract.register, which validates an
+    # AGENT contract and requires an AGT- id. The owner plane is deliberately NOT
+    # an agent: it has no mission to pursue, no autonomy to exercise and no
+    # capability to hold. Loosening the agent validator to admit it would make
+    # "is this an agent?" unanswerable, which is a worse trade than one insert.
+    con.execute(
+        "INSERT INTO principals(id,name,role,division,department,tier,mission,"
+        "autonomy_level,tools,permissions,memory_scope,success_metrics,"
+        "escalation_rules,lifecycle_state,created_at) "
+        "VALUES(?,?,?,?,?,'owner_plane',?,0,'[]','[]',?,?,?,'ACTIVE',?)",
+        (OWNER, "Owner Plane", "Control Plane", "Governance", "Owner",
+         "Approve, verify and record. Hold no capability and delegate none.",
+         json.dumps(["org"]),
+         json.dumps([{"metric": "decisions_recorded", "target": 1.0}]),
+         json.dumps([{"when": "always", "action": "OWNER_APPROVAL"}]), now()))
+    store.event(con, "OWNER_PLANE_REGISTERED", actor=OWNER, subject=OWNER,
+                payload={"tier": "owner_plane", "capabilities": []})
+    return OWNER
+
+
 def found_agents(con):
     """Register the five, idempotently. Returns their ids.
 
     Calling this twice is not calling it twice: an agent that already exists
     keeps its id, its history and its memory. That is what persistent means
     here — the identity outlives the process that created it."""
+    found_owner_plane(con)
     ids = []
     for a in CREW:
         ids.append(a["id"])
