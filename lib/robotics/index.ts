@@ -122,6 +122,12 @@ export function createSimRig(options: SimRigOptions = {}): SimRig {
       capabilities: options.capabilities ?? FULL_HARDWARE,
       beamDropout: options.beamDropout,
       blindSector: options.blindSector,
+      // How far the profile says the camera reaches. A profile that declares a
+      // shorter one has to get a shorter one, or the field is decorative — and
+      // a declared parameter nothing reads is the shape of half the findings in
+      // this package.
+      visionRange: profile?.visionRange,
+      visionFov: profile?.visionFov,
     });
     const runtime = new RobotRuntime({
       registry,

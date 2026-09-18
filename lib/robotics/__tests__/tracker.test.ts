@@ -13,6 +13,7 @@ import { createSimRig } from "../index.ts";
 import { SimWorld } from "../sim/world.ts";
 import { SimRobotAdapter } from "../sim/adapter.ts";
 import { SafetyGovernor } from "../safety/governor.ts";
+import { SIMULATED_ROVER } from "../hal/profile.ts";
 
 /** A robot at the origin facing +x, with one person placed where you like. */
 function looking(at: { x: number; y: number }, seed = 3) {
@@ -141,5 +142,33 @@ test("stepping aside does not cancel itself by turning away from the reason", as
     carrying.contacts < abandoning.contacts,
     `carrying the escape through touched people ${carrying.contacts.toFixed(2)} times per crossing ` +
       `against ${abandoning.contacts.toFixed(2)} for abandoning it`,
+  );
+});
+
+test("a profile that declares a shorter camera gets a shorter camera", () => {
+  // `RobotProfile` now carries the tracker's reach, because declaring "camera"
+  // says the machine has one and not how far it sees — and the difference is
+  // the whole corridor result. A field the rig does not read would be
+  // decorative, which is the shape of half the findings in this package.
+  const short = createSimRig({
+    scenario: "busy-corridor",
+    seed: 2,
+    profile: { ...SIMULATED_ROVER, visionRange: 2, visionFov: Math.PI * 0.9 },
+  });
+  const long = createSimRig({ scenario: "busy-corridor", seed: 2, profile: SIMULATED_ROVER });
+  let shortSaw = 0;
+  let longSaw = 0;
+  for (let tick = 0; tick < 200; tick += 1) {
+    short.robot.drive(0.6, 0);
+    long.robot.drive(0.6, 0);
+    short.world.step(0.05);
+    long.world.step(0.05);
+    shortSaw += short.robot.trackHumans().length;
+    longSaw += long.robot.trackHumans().length;
+  }
+  assert.ok(longSaw > 0, "the six-metre camera saw nobody, so this proves nothing");
+  assert.ok(
+    shortSaw < longSaw * 0.6,
+    `a two-metre camera reported ${shortSaw} tracks against ${longSaw} for a six-metre one`,
   );
 });

@@ -97,6 +97,23 @@ export type RobotProfile = {
   /** Everything the platform genuinely has. Anything absent is simply absent. */
   capabilities: HardwareCapability[];
   /**
+   * How far the person tracker actually reaches, metres, and how wide, radians.
+   *
+   * Declaring `"camera"` says the machine has one. It does not say how far it
+   * sees, and the difference decides whether a capability works. `hri.yield-path`
+   * predicts a closest approach and steps out of it; measured on a tracker with
+   * no reach at all it cleared 45 corridor crossings in 60, and gated to six
+   * metres and 162° the same code cleared 24 — because stepping aside means
+   * turning, and turning swings the camera off the person who caused it.
+   *
+   * Leave them undefined when nobody has measured them, which is different from
+   * assuming they are generous. A detector's useful range is the distance at
+   * which it still produces a track you would act on, not the distance at which
+   * a person occupies one pixel.
+   */
+  visionRange?: number;
+  visionFov?: number;
+  /**
    * Sense-to-act latency budget in ms. The governor measures the real figure
    * and widens its separation distances when the measurement exceeds this, so
    * an optimistic number here costs safety margin rather than buying speed.
@@ -208,6 +225,8 @@ export const SIMULATED_ROVER: RobotProfile = {
     "radio",
   ],
   reactionTimeMs: 120,
+  visionRange: 6,
+  visionFov: Math.PI * 0.9,
   maxContactForce: 28,
   link: {
     kind: "loopback",
