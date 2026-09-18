@@ -117,6 +117,11 @@ def workspaces(con):
         "SELECT * FROM world_places WHERE kind='workspace' ORDER BY id")]
 
 
+# How far behind its station an agent stands: far enough not to be inside the
+# worktop, close enough to be working at it.
+WORKING_SIDE = 0.62
+
+
 def slot(con, workspace, principal_id):
     """Where inside a workspace an agent stands.
 
@@ -128,6 +133,17 @@ def slot(con, workspace, principal_id):
     p = place(con, workspace)
     if p is None:
         raise SpaceError("no such workspace: %r" % workspace)
+    # A seat outranks a slot. If this agent holds a station in this room, that
+    # station IS where it stands — the working side of its own desk, not a
+    # position the renderer or this function invented for it. There is still
+    # exactly one authority for where anybody is (`agent_locations`); this only
+    # decides what gets written into it.
+    st = con.execute("SELECT x, y, facing FROM workstations "
+                     "WHERE occupied_by=? AND workspace=?",
+                     (principal_id, workspace)).fetchone()
+    if st is not None:
+        return (round(st["x"] - math.sin(st["facing"]) * WORKING_SIDE, 3),
+                round(st["y"] + math.cos(st["facing"]) * WORKING_SIDE, 3))
     here = [r["principal_id"] for r in con.execute(
         "SELECT principal_id FROM agent_locations WHERE workspace=? "
         "AND principal_id<>? ORDER BY principal_id", (workspace, principal_id))]

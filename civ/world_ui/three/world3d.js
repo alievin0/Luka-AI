@@ -15,6 +15,7 @@
    slides from the position it was at to the position it is at. Both ends come
    from the database. The slide is the picture catching up, never the truth. */
 import * as THREE from "../vendor/three.module.min.js";
+import { buildBody, poseBody, disposeBody } from "./bodies.js";
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g,
@@ -38,7 +39,7 @@ const STATE_COL = {
 const U = 1.0;
 const P3 = (x, y, z = 0) => new THREE.Vector3(x * U, z * U, y * U);
 
-let W = null, PREV = null, SEL = null, FOLLOW = null;
+let W = null, PREV = null, SEL = null, FOLLOW = null, HEMI = null, AMB = null;
 let scene, camera, renderer, raycaster, labels;
 const GROUP = { districts: null, facilities: null, workspaces: null, agents: null,
                 routes: null };
@@ -69,8 +70,10 @@ function boot() {
 
     // Enough sky to read the architecture. "Dark and premium" is a palette, not
   // an excuse for buildings that render as black masses.
-  scene.add(new THREE.HemisphereLight(0x5c7a92, 0x0d1419, 1.5));
-  scene.add(new THREE.AmbientLight(0x35485a, 0.55));
+  HEMI = new THREE.HemisphereLight(0x5c7a92, 0x0d1419, 1.5);
+  AMB = new THREE.AmbientLight(0x35485a, 0.55);
+  scene.add(HEMI);
+  scene.add(AMB);
   const key = new THREE.DirectionalLight(0xd7e6f2, 1.9);
   key.position.set(-60, 88, -34);
   key.castShadow = true;
@@ -127,8 +130,8 @@ function materials() {
     emissiveIntensity: .5 });
   M.frame = new THREE.MeshStandardMaterial({ color: 0x7b8f9e, roughness: .42, metalness: .5 });
   M.floor = new THREE.MeshStandardMaterial({ color: 0x33414d, roughness: .85 });
-  M.floorLive = new THREE.MeshStandardMaterial({ color: 0x2e4044, roughness: .82,
-    emissive: C.live, emissiveIntensity: .1 });
+  M.floorLive = new THREE.MeshStandardMaterial({ color: 0x32424b, roughness: .84,
+    emissive: C.live, emissiveIntensity: .035 });
   M.desk = new THREE.MeshStandardMaterial({ color: 0x5a6b78, roughness: .6, metalness: .22 });
   M.screen = new THREE.MeshStandardMaterial({ color: 0x132026, roughness: .28,
     emissive: 0x3f9e93, emissiveIntensity: .9 });
@@ -264,84 +267,47 @@ function racks(g, p) {
               p.y + p.h / 2));
 }
 
-/* ══ AGENT EMBODIMENTS — one species, five silhouettes ═══════════════
-   Same grammar every time: a floating core over a base ring, in the agent's
-   state colour. What changes is the superstructure, which says what the
-   agent is FOR. No faces: these are machines that do a job, and a face would
-   be a claim about an inner life that nothing here supports. */
-const AGENT_SCALE = 2.3;
-function embodiment(id, col) {
+/* ══ AGENT EMBODIMENTS ═══════════════════════════════════
+   The geometry lives in bodies.js. What this file adds is the part that is
+   about the WORLD rather than the body: the pool of light an agent stands in
+   so it reads against a dark floor, and a small status bead whose colour is
+   the state the database reports. The body itself never changes colour — an
+   agent's identity is not a status light, and a red agent would be a different
+   agent every time a task failed. */
+function embodiment(a, col, lod) {
   const g = new THREE.Group();
-  g.scale.setScalar(AGENT_SCALE);
-  const mat = new THREE.MeshStandardMaterial({ color: col, roughness: .34, metalness: .45,
-    emissive: col, emissiveIntensity: .75 });
-  const thin = new THREE.MeshStandardMaterial({ color: col, roughness: .42, metalness: .38,
-    emissive: col, emissiveIntensity: .5, transparent: true, opacity: .92 });
-  const put = (geo, m, x, y, z, rx = 0, ry = 0, rz = 0) => {
-    const mesh = new THREE.Mesh(geo, m);
-    mesh.position.set(x, y, z);
-    mesh.rotation.set(rx, ry, rz);
-    mesh.castShadow = true;
-    g.add(mesh);
-    return mesh;
-  };
-  // the base every one of them stands on
-  const base = new THREE.Mesh(new THREE.TorusGeometry(.34, .05, 8, 26), thin);
-  base.rotation.x = Math.PI / 2;
-  base.position.y = .05;
-  g.add(base);
-  // A pool on the floor. An agent standing in a dark room is otherwise a
-  // silhouette against a silhouette.
-  const pool = new THREE.Mesh(new THREE.CircleGeometry(.8, 28),
-    new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: .22,
+  const app = a.appearance;
+  if (!app) {                                  // not embodied — say so, do not invent
+    const q = new THREE.Mesh(new THREE.BoxGeometry(.5, 1.7, .4),
+      new THREE.MeshStandardMaterial({ color: 0x3a464f, roughness: .9,
+        transparent: true, opacity: .4, wireframe: true }));
+    q.position.y = .85;
+    g.add(q);
+    return g;
+  }
+  const body = buildBody(THREE, app, { lod });
+  g.add(body);
+  g.userData.body = body;
+
+  // A ring on the floor, not a puddle of paint: it separates a dark body from a
+  // dark floor without washing colour over the room.
+  const pool = new THREE.Mesh(new THREE.RingGeometry(.40, .52, lod === "far" ? 10 : 30),
+    new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: .26,
       side: THREE.DoubleSide, depthWrite: false }));
   pool.rotation.x = -Math.PI / 2;
   pool.position.y = .02;
   g.add(pool);
-  put(new THREE.CylinderGeometry(.04, .04, .5, 6), thin, 0, .3, 0);
+  g.userData.pool = pool;
 
-  if (id === "AGT-ORCHESTRATOR") {
-    put(new THREE.IcosahedronGeometry(.3, 1), mat, 0, 1.06, 0);
-    for (let i = 0; i < 5; i++) {
-      const a = i * Math.PI * 2 / 5;
-      put(new THREE.CylinderGeometry(.028, .028, .46, 5), thin,
-          Math.cos(a) * .42, 1.06, Math.sin(a) * .42, 0, 0, Math.PI / 2 - a * 0);
-      put(new THREE.SphereGeometry(.075, 9, 7), mat,
-          Math.cos(a) * .64, 1.06, Math.sin(a) * .64);
-    }
-    put(new THREE.TorusGeometry(.5, .022, 6, 34), thin, 0, 1.06, 0, Math.PI / 2);
-  } else if (id === "AGT-RESEARCHER") {
-    put(new THREE.CylinderGeometry(.19, .23, .74, 12), mat, 0, .92, 0);
-    const lens = put(new THREE.TorusGeometry(.3, .045, 8, 30), mat, 0, 1.38, .06, Math.PI / 2.6);
-    put(new THREE.CircleGeometry(.27, 24),
-        new THREE.MeshStandardMaterial({ color: col, emissive: col,
-          emissiveIntensity: .5, transparent: true, opacity: .34,
-          side: THREE.DoubleSide }), 0, 1.38, .06, Math.PI / 2.6);
-    put(new THREE.CylinderGeometry(.022, .022, .5, 6), thin, .26, 1.0, -.2, 0, 0, .5);
-  } else if (id === "AGT-BUILDER") {
-    put(new THREE.BoxGeometry(.42, .78, .34), mat, 0, .94, 0);
-    put(new THREE.BoxGeometry(.62, .1, .5), mat, 0, 1.4, 0);
-    put(new THREE.CylinderGeometry(.03, .03, .62, 6), thin, .34, 1.14, .1, 0, 0, .55);
-    put(new THREE.BoxGeometry(.2, .12, .2), mat, .58, .88, .16);
-    put(new THREE.CylinderGeometry(.03, .03, .44, 6), thin, -.3, 1.2, -.08, 0, 0, -.7);
-  } else if (id === "AGT-REVIEWER") {
-    put(new THREE.SphereGeometry(.24, 16, 12), mat, 0, 1.06, 0);
-    for (const s of [-1, 1]) {
-      put(new THREE.BoxGeometry(.07, .8, .07), thin, s * .38, 1.06, 0);
-      put(new THREE.BoxGeometry(.07, .07, .34), thin, s * .38, 1.44, .14);
-      put(new THREE.BoxGeometry(.07, .07, .34), thin, s * .38, .68, .14);
-    }
-    put(new THREE.TorusGeometry(.32, .028, 6, 30), thin, 0, 1.06, 0, 0, 0, Math.PI / 2);
-  } else {                                   // OPERATOR
-    put(new THREE.CylinderGeometry(.26, .3, .5, 10), mat, 0, .78, 0);
-    put(new THREE.SphereGeometry(.2, 14, 11), mat, 0, 1.18, 0);
-    for (let i = 0; i < 6; i++) {
-      const a = i * Math.PI / 3;
-      put(new THREE.BoxGeometry(.05, .05, .3), thin,
-          Math.cos(a) * .34, 1.18, Math.sin(a) * .34, 0, -a, 0);
-    }
-    put(new THREE.TorusGeometry(.42, .03, 6, 30), thin, 0, .72, 0, Math.PI / 2);
-  }
+  // The status mark. A small shoulder tab, sitting ON the body rather than
+  // floating over it — this is the only thing a state change repaints, because
+  // an agent's identity is not a status light.
+  const h = (app.height || 1.78);
+  const bead = new THREE.Mesh(new THREE.BoxGeometry(.11, .022, .05),
+    new THREE.MeshBasicMaterial({ color: col }));
+  bead.position.set(0, h * 0.815, -h * 0.055);
+  g.add(bead);
+  g.userData.bead = bead;
   return g;
 }
 
@@ -405,27 +371,73 @@ function buildWorld() {
       f.userData = { kind: "workspace", id: p.id };
       GROUP.workspaces.add(f);
       PICK.push(f);
-      fitOut(GROUP.workspaces, p, busy);
+      fitOut(GROUP.workspaces, p);
     }
   }
 }
 
-/* A workspace shows what actually happens in it: a desk per seat of capacity,
-   and a screen that is LIT only where somebody is standing. */
-function fitOut(g, p, busy) {
-  const seats = Math.min(6, Math.max(1, p.capacity || 1));
-  const cols = Math.min(3, seats);
-  const rows = Math.ceil(seats / cols);
-  for (let i = 0; i < seats; i++) {
-    const c = i % cols, r = (i / cols) | 0;
-    const x = p.x + p.w * (c + .5) / cols;
-    const y = p.y + p.h * (r + .5) / rows;
-    g.add(box(M.desk, Math.min(1.5, p.w / cols * .6), .08,
-              Math.min(.8, p.h / rows * .4), x, .62, y));
-    for (const s of [-1, 1])
-      g.add(box(M.desk, .05, .28, .05, x + s * .4, .44, y));
-    g.add(box(busy ? M.screen : M.screenOff, Math.min(1.1, p.w / cols * .45), .5, .04,
-              x, .92, y - .22));
+/* A workspace is furnished from the `workstations` table and from nothing else.
+   Every desk on this floor is a row with an id, a position, a heading and a
+   kind — `ws_lab#3` is a specific desk, not the fourth rectangle the renderer
+   happened to lay down. The kind comes from what the room is FOR, so a build
+   cell gets benches and verification gets consoles, and a station is LIT only
+   when `active_stations` says a live lease is being worked at it. Scale is
+   deliberate and checked: a 0.74m worktop and a 0.46m screen beside a 1.7m
+   agent, because a world where the furniture dwarfs the workers is a world
+   nobody can read. */
+const STATION = {
+  desk:    { w: 1.30, d: 0.62, top: 0.74, screen: [0.62, 0.42] },
+  bench:   { w: 1.60, d: 0.78, top: 0.90, screen: [0.40, 0.28] },
+  console: { w: 1.10, d: 0.58, top: 0.78, screen: [0.78, 0.50] },
+  frame:   { w: 1.20, d: 1.20, top: 0.10, screen: [0.00, 0.00] },
+  shelf:   { w: 1.40, d: 0.46, top: 1.70, screen: [0.00, 0.00] },
+};
+function fitOut(g, p) {
+  const live = W.active_stations || {};
+  for (const st of (W.stations || [])) {
+    if (st.workspace !== p.id) continue;
+    const k = STATION[st.kind] || STATION.desk;
+    const working = !!live[st.id];
+    const c = Math.cos(st.facing), sn = Math.sin(st.facing);
+    // the station's own axes, so a desk faces the way its row says it does
+    const fx = (a, b) => st.x + a * c - b * sn;
+    const fy = (a, b) => st.y + a * sn + b * c;
+    if (st.kind === "frame") {                 // an open working frame, not a desk
+      for (const sx of [-1, 1]) {
+        g.add(box(M.frame, .09, 1.9, .09, fx(sx * k.w / 2, -k.d / 2), .95,
+                  fy(sx * k.w / 2, -k.d / 2)));
+        g.add(box(M.frame, .09, 1.9, .09, fx(sx * k.w / 2, k.d / 2), .95,
+                  fy(sx * k.w / 2, k.d / 2)));
+      }
+      g.add(box(M.frame, k.w + .12, .09, .09, fx(0, -k.d / 2), 1.92, fy(0, -k.d / 2)));
+      g.add(box(working ? M.screen : M.screenOff, k.w * .7, .05, k.d * .7,
+                st.x, .12, st.y));
+    } else if (st.kind === "shelf") {           // storage: racks, no seat
+      g.add(box(M.rack, k.w, .06, k.d, st.x, .38, st.y));
+      g.add(box(M.rack, k.w, .06, k.d, st.x, .92, st.y));
+      g.add(box(M.rack, k.w, .06, k.d, st.x, 1.46, st.y));
+      for (const sx of [-1, 1])
+        g.add(box(M.desk, .07, k.top, .07, fx(sx * k.w / 2, 0), k.top / 2,
+                  fy(sx * k.w / 2, 0)));
+    } else {
+      g.add(box(M.desk, k.w, .055, k.d, st.x, k.top, st.y));
+      for (const sx of [-1, 1])
+        for (const sy of [-1, 1])
+          g.add(box(M.desk, .05, k.top, .05, fx(sx * (k.w / 2 - .09), sy * (k.d / 2 - .07)),
+                    k.top / 2, fy(sx * (k.w / 2 - .09), sy * (k.d / 2 - .07))));
+      const [sw, sh] = k.screen;
+      if (sw) {
+        const px = fx(0, -k.d * .32), pz = fy(0, -k.d * .32);
+        g.add(box(M.desk, .10, .14, .10, px, k.top + .09, pz));
+        const scr = box(working ? M.screen : M.screenOff, sw, sh, .035,
+                        px, k.top + .18 + sh / 2, pz);
+        scr.rotation.y = -st.facing;
+        g.add(scr);
+      }
+      if (st.kind === "bench")                  // a vice at the working edge
+        g.add(box(M.frame, .16, .18, .16, fx(k.w * .32, k.d * .18), k.top + .10,
+                  fy(k.w * .32, k.d * .18)));
+    }
   }
 }
 
@@ -447,19 +459,26 @@ function syncAgents() {
     const col = STATE_COL[a.state] || STATE_COL.IDLE;
     if (!e) {
       const root = new THREE.Group();
-      const body = embodiment(a.id, col);
-      root.add(body);
+      const shell = embodiment(a, col, LOD_BODY);
+      root.add(shell);
       GROUP.agents.add(root);
-      const lamp = new THREE.PointLight(col, 0, 9, 2);
+      const lamp = new THREE.PointLight(col, 0, 5.5, 2);
       lamp.position.set(0, 2.4, 0);
       root.add(lamp);
-      e = { root, body, lamp, col, from: P3(a.x, a.y), to: P3(a.x, a.y), t: 1 };
+      // A per-agent phase offset, derived from the body id so it is the same
+      // every load. Without it five agents at five desks breathe in lockstep,
+      // which reads as one puppeteer rather than five workers.
+      const bid = a.body_id || a.id;
+      let ph = 0;
+      for (let i = 0; i < bid.length; i++) ph = (ph * 31 + bid.charCodeAt(i)) % 997;
+      e = { root, shell, body: shell.userData.body, lamp, col, phase: ph / 997 * 6.28,
+            lod: LOD_BODY, from: P3(a.x, a.y), to: P3(a.x, a.y), t: 1, face: 0 };
       AGENTS.set(a.id, e);
       root.position.copy(e.to);
     } else if (col !== e.col) {
-      e.root.remove(e.body);
-      e.body = embodiment(a.id, col);
-      e.root.add(e.body);
+      // Identity does not change with status. Only the bead and the pool do.
+      if (e.shell.userData.bead) e.shell.userData.bead.material.color.setHex(col);
+      if (e.shell.userData.pool) e.shell.userData.pool.material.color.setHex(col);
       e.col = col;
     }
     // The only motion this file owns: slide from where the server last said it
@@ -472,11 +491,21 @@ function syncAgents() {
     }
     e.state = a.state;
     e.data = a;
+    // The animation is whatever the server derived from real rows. This client
+    // never picks one, and there is no animation for "looking busy".
+    e.anim = a.movement === "MOVING" ? "walk" : (a.animation_state || "idle");
+    // Facing. An agent at a station stands on the working side of it and looks
+    // AT it, so its heading is the opposite of the station's own. One that is
+    // not seated keeps the heading its last leg gave it.
+    if (a.at_station && a.facing != null) e.face = Math.PI - a.facing;
     // A room is lit because somebody is working in it, and goes dark when they
     // stop. The light follows the lease, not the clock.
     if (e.lamp) {
+      // A room is lit because somebody is working in it, and goes dark when they
+      // stop. Only a RUNNING agent — one holding a live lease — lights anything;
+      // an idle agent contributes no light, which is why an idle room is dim.
       e.lamp.color.setHex(col);
-      e.lamp.intensity = a.state === "RUNNING" ? 8 : a.state === "MOVING" ? 3 : 1.2;
+      e.lamp.intensity = a.state === "RUNNING" ? 3.2 : a.state === "MOVING" ? 0.9 : 0;
     }
   }
   for (const [id, e] of AGENTS) {
@@ -546,9 +575,30 @@ const LODS = [
 ];
 function levelFor(d) { return LODS.find((l) => d > l.above) || LODS[LODS.length - 1]; }
 
+/* Body detail is its own tier, because "which groups are drawn" and "how many
+   triangles a body is worth" are different questions. A body at 90 metres is a
+   silhouette; rebuilding it at "near" detail costs geometry nobody can see. */
+let LOD_BODY = "near";
+function bodyTierFor(d) { return d > 60 ? "far" : d > 26 ? "mid" : "near"; }
+function retierBodies() {
+  const want = bodyTierFor(CAM.dist);
+  if (want === LOD_BODY) return;
+  LOD_BODY = want;
+  for (const [, e] of AGENTS) {
+    if (e.lod === want || !e.data || !e.data.appearance) continue;
+    e.root.remove(e.shell);
+    if (e.body) disposeBody(e.body);
+    e.shell = embodiment(e.data, e.col, want);
+    e.body = e.shell.userData.body;
+    e.lod = want;
+    e.root.add(e.shell);
+  }
+}
+
 function applyLOD() {
   const l = levelFor(CAM.dist);
   LEVEL = l.id;
+  retierBodies();
   // Close in, the shells become glass. A world where the agents are sealed
   // inside opaque boxes shows you a business park, not an organisation.
   const inside = l.id === "facility" || l.id === "workspace";
@@ -558,6 +608,13 @@ function applyLOD() {
     m.depthWrite = !inside;
     m.needsUpdate = true;
   }
+  // A shell you can see through still casts a solid shadow, which is how a
+  // floor you are standing on ends up pitch dark. Inside, the building stops
+  // casting and the interior gets its own light — a lit room is ARCHITECTURE,
+  // and it says nothing about whether anyone is working.
+  GROUP.facilities.traverse((o) => { if (o.isMesh) o.castShadow = !inside; });
+  if (HEMI) HEMI.intensity = inside ? 2.3 : 1.5;
+  if (AMB) AMB.intensity = inside ? 1.05 : 0.55;
   GROUP.facilities.visible = l.draws.includes("facilities");
   GROUP.workspaces.visible = l.draws.includes("workspaces");
   GROUP.agents.visible = l.draws.includes("agents");
@@ -626,19 +683,27 @@ let last = performance.now();
 function tick(now) {
   const dt = Math.min(.05, (now - last) / 1000);
   last = now;
+  const T = now / 1000;
   for (const e of AGENTS.values()) {
     if (e.t < 1) {
       e.t = Math.min(1, e.t + dt * 1.25);
       const k = e.t < .5 ? 2 * e.t * e.t : 1 - Math.pow(-2 * e.t + 2, 2) / 2;
       e.root.position.lerpVectors(e.from, e.to, k);
       const d = e.to.clone().sub(e.from);
-      if (d.lengthSq() > .01) e.root.rotation.y = Math.atan2(d.x, d.z);
+      if (d.lengthSq() > .01) e.face = Math.atan2(d.x, d.z);
     }
-    // A working agent's core turns slowly. It is the ONLY idle motion in this
-    // scene, it happens only while a lease exists, and it says "this one is
-    // running" without claiming anything about what it is thinking.
-    if (e.state === "RUNNING") e.body.rotation.y += dt * .5;
+    // Turn toward the heading rather than snapping to it.
+    let dy = e.face - e.root.rotation.y;
+    while (dy > Math.PI) dy -= Math.PI * 2;
+    while (dy < -Math.PI) dy += Math.PI * 2;
+    e.root.rotation.y += dy * Math.min(1, dt * 7);
+    // The pose is a pure function of the animation the SERVER derived and the
+    // clock. Nothing here decides what an agent is doing; if the database has
+    // no work for it, the animation is "idle" and it stands there.
+    if (e.body) poseBody(e.body, e.anim || "idle", T, e.phase);
   }
+  for (const sh of STRESS.children)
+    if (sh.userData.body) poseBody(sh.userData.body, sh.userData.anim, T, sh.userData.phase);
   if (FOLLOW && AGENTS.has(FOLLOW)) {
     const p = AGENTS.get(FOLLOW).root.position;
     CAM.target.lerp(new THREE.Vector3(p.x, 0, p.z), .07);
@@ -649,6 +714,34 @@ function tick(now) {
   requestAnimationFrame(tick);
 }
 
+/* ══ RENDER STRESS ═════════════════════════════════════════
+   Measuring what the RENDERER can carry is a different question from how many
+   agents exist, and conflating them is how a demo ends up claiming a thousand
+   agents are running. These are clones of real bodies with no identity, no row
+   and no state: they are scenery for a frame-rate measurement, they live in
+   their own group, and they are gone the moment the measurement ends. */
+const STRESS = new THREE.Group();
+function stress(n) {
+  STRESS.clear();
+  if (!n) { scene.remove(STRESS); return 0; }
+  scene.add(STRESS);
+  const src = [...AGENTS.values()].filter((e) => e.data && e.data.appearance);
+  if (!src.length) return 0;
+  const b = bounds(true);
+  const cols = Math.ceil(Math.sqrt(n));
+  for (let i = 0; i < n; i++) {
+    const e = src[i % src.length];
+    const tier = i < 40 ? "near" : i < 200 ? "mid" : "far";
+    const sh = embodiment(e.data, e.col, tier);
+    sh.position.set(b.x0 + (i % cols) * (b.x1 - b.x0) / cols,
+                    0, b.y0 + Math.floor(i / cols) * (b.y1 - b.y0) / cols);
+    sh.userData.anim = ["idle", "type", "read", "assemble", "wait"][i % 5];
+    sh.userData.phase = (i * 0.618) % 6.28;
+    STRESS.add(sh);
+  }
+  return STRESS.children.length;
+}
+
 /* ══ PICKING ═════════════════════════════════════════════════════════ */
 function pick(ev) {
   const m = new THREE.Vector2((ev.clientX / innerWidth) * 2 - 1,
@@ -657,9 +750,10 @@ function pick(ev) {
   const agentHits = raycaster.intersectObjects(
     [...AGENTS.values()].map((e) => e.root), true);
   if (agentHits.length && GROUP.agents.visible) {
-    for (const [id, e] of AGENTS) {
-      if (agentHits[0].object.parent === e.body || e.body.children.includes(agentHits[0].object)
-          || agentHits[0].object.parent?.parent === e.root) return openAgent(id);
+    // A body is a deep rig, so identify the agent by walking up to the root
+    // this file owns rather than guessing at a depth.
+    for (let o = agentHits[0].object; o; o = o.parent) {
+      for (const [id, e] of AGENTS) if (e.root === o) return openAgent(id);
     }
   }
   const hits = raycaster.intersectObjects(PICK, false);
@@ -996,6 +1090,23 @@ async function main() {
     if (l) { flyTo((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, l.above + 12); applyLOD(); }
   }
   if (q.get("observatory")) openObservatory();
+  if (q.get("dist")) { CAM.dist = Number(q.get("dist")); applyCam(); applyLOD(); }
+  if (q.get("yaw")) { CAM.yaw = Number(q.get("yaw")); applyCam(); }
+  if (q.get("pitch")) { CAM.pitch = Number(q.get("pitch")); applyCam(); }
+  // A test seam, and only a seam: it exposes the camera, the agent map and the
+  // renderer's own counters so a test can assert what is on screen. It reads
+  // state; it cannot create an agent, a task or an activity.
+  window.__w3d = {
+    cam: CAM, agents: AGENTS, world: () => W, lod: () => LEVEL,
+    bodyTier: () => LOD_BODY, applyCam, applyLOD, flyTo, focusPlace,
+    triangles: () => renderer.info.render.triangles,
+    drawCalls: () => renderer.info.render.calls,
+    anims: () => Object.fromEntries([...AGENTS].map(([k, e]) => [k, e.anim])),
+    // Stress only: clones EXISTING bodies to measure the renderer. It never
+    // touches the database, and the clones are not agents — nothing reads them
+    // back as if they were. `stress(0)` removes them again.
+    stress: (n) => stress(n),
+  };
   // The world re-reads itself. It does NOT animate between reads: an agent
   // moves only because the server put it somewhere else.
   setInterval(() => { load().catch(() => {}); }, 4000);

@@ -24,6 +24,7 @@ from core import open_world as OW       # noqa: E402
 from core import world_space as SPACE   # noqa: E402
 from core import world_growth as GROW    # noqa: E402
 from core import capability_graph as CAP # noqa: E402
+from core import embodiment as EMB       # noqa: E402
 from core import model_gate as GATE     # noqa: E402
 from core import world_bus as BUS        # noqa: E402
 from core import agent_world as W        # noqa: E402
@@ -388,6 +389,15 @@ def world3d(con):
         }
     built = {r["place_id"]: dict(r) for r in con.execute(
         "SELECT * FROM constructions ORDER BY id")}
+    # The embodiment layer: a persistent body per identity, where it is standing,
+    # what it is doing and the row that says so. Derived, never invented.
+    bodies = EMB.all_embodiments(con)
+    for aid, e in bodies.items():
+        if aid in agents:
+            agents[aid].update({k: e[k] for k in (
+                "body_id", "appearance", "station", "station_x", "station_y",
+                "at_station", "facing", "activity_state", "animation_state",
+                "because", "tool", "tool_call_id", "waypoints")})
     return {
         "places": places,
         "types": types,
@@ -400,6 +410,12 @@ def world3d(con):
         "activity": activity(con, 24),
         "quiet": BUS.quiet(con),
         "projects": OW.project_plots(con),
+        "bodies": bodies,
+        "stations": [dict(r) for r in con.execute(
+            "SELECT * FROM workstations ORDER BY workspace, seat")],
+        "active_stations": EMB.active_stations(con),
+        "encounters": EMB.encounters(con),
+        "navmesh": EMB.navmesh(con),
     }
 
 
@@ -489,6 +505,9 @@ class Handler(BaseHTTPRequestHandler):
             if parts[0] == "chain" and len(parts) > 1:
                 return self._send(json.dumps(
                     CAP.execution_chain(con, int(parts[1])), ensure_ascii=False))
+            if parts[0] == "embodiment" and len(parts) > 1:
+                return self._send(json.dumps(EMB.embodiment(con, parts[1]),
+                                             ensure_ascii=False))
             if parts[0] == "world3d":
                 return self._send(json.dumps(world3d(con), ensure_ascii=False))
             if parts[0] == "growth":
@@ -520,6 +539,8 @@ class Handler(BaseHTTPRequestHandler):
             rel = "index.html"          # the transitional floor plan, kept working
         elif path in ("/3d", "/3d/"):
             rel = "three/world3d.html"
+        elif path in ("/bodies", "/bodies/", "/registry", "/registry/"):
+            rel = "three/registry.html"
         else:
             rel = path.lstrip("/")
         full = os.path.abspath(os.path.join(UI, rel))

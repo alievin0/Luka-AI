@@ -176,29 +176,41 @@ STATION_WORKSPACE = {w["station"]: wid for wid, w in WORKSPACES.items()
                      if w.get("station")}
 
 
+# Where work goes, as a table rather than a ladder — because the same table has
+# to be readable BACKWARDS. "Which room does this task belong in" and "what is
+# this room FOR" are the same fact, and a room that answered the second question
+# from a second table could disagree with itself.
+STATUS_WORKSPACE = {
+    "DISCOVERED": "ws_intake", "PROPOSED": "ws_intake", "ACCEPTED": "ws_dock",
+    "ARCHIVED": "ws_stacks", "COMPLETED": "ws_test", "REVIEW": "ws_inspection",
+    "REJECTED": "ws_inspection", "FAILED": "ws_inspection",
+}
+CAP_WORKSPACE = (("build", "ws_cell_0"), ("review", "ws_inspection"),
+                 ("execute", "ws_pad"), ("operate", "ws_pad"))
+# The inverse: what each room exists to do. Rooms reached only by a task STATUS
+# carry the capability of the work done there, which is why verification and
+# inspection are review rooms and the archive rooms are storage.
+WORKSPACE_CAPABILITY = dict(
+    [(w, c) for c, w in CAP_WORKSPACE]
+    + [("ws_lab", "research"), ("ws_test", "review"), ("ws_intake", "coordinate"),
+       ("ws_dispatch", "coordinate"), ("ws_dock", "store"), ("ws_stacks", "store"),
+       ("ws_vault", "store"), ("ws_knowledge", "store"), ("ws_design", "build"),
+       ("ws_cell_1", "build"), ("ws_cell_2", "build"), ("ws_cell_3", "build"),
+       ("owner_deck", "observe")])
+
+
 def workspace_of(task):
     """Which workspace a task occupies. One row in, one workspace out.
 
     Built on the same status reading `task_station` uses, mapped onto the richer
     tree. A test asserts the two never disagree."""
     s = task["status"]
-    if s in ("DISCOVERED", "PROPOSED"):
-        return "ws_intake"
-    if s == "ACCEPTED":
-        return "ws_dock"
-    if s == "ARCHIVED":
-        return "ws_stacks"
-    if s == "COMPLETED":
-        return "ws_test"
-    if s in ("REVIEW", "REJECTED", "FAILED"):
-        return "ws_inspection"
+    if s in STATUS_WORKSPACE:
+        return STATUS_WORKSPACE[s]
     caps = set(json.loads(task["required_caps"] or "[]"))
-    if "build" in caps:
-        return "ws_cell_0"
-    if "review" in caps:
-        return "ws_inspection"
-    if "execute" in caps or "operate" in caps:
-        return "ws_pad"
+    for cap, ws in CAP_WORKSPACE:
+        if cap in caps:
+            return ws
     return "ws_lab"
 
 

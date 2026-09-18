@@ -22,6 +22,7 @@ import time
 
 from . import agent_runtime as RT, agent_world as W, always_on as A
 from . import store, world_bus as BUS, world_policy as POL
+from . import embodiment as EMB
 from . import world_space as SPACE
 from .store import now
 
@@ -235,6 +236,9 @@ def h_task_ready(w, item):
         return {"deferred": "task %d could not be leased" % tid}
     SPACE.begin_work(con, agent, tid, lease_id=lease["lease_id"],
                      activity="working on task #%d" % tid)
+    # It takes a desk in the room it walked to, and keeps it. "At its
+    # workstation" has to name one station, or it names a rectangle.
+    EMB.take_station(con, agent, SPACE.locate(con, agent)["workspace"])
 
     # What this identity already knows, retrieved because it is waking, not
     # because someone passed it along in a prompt from the last run.
@@ -263,7 +267,7 @@ def h_task_ready(w, item):
             "travelled": moved}
 
 
-def _go_to_work(w, item, agent, task):
+def _go_to_work(w, item, agent, task):  # noqa: C901
     """Send an agent to the workspace its task belongs in, and say why.
 
     Returns what the journey cost, or None when the agent was already there —
@@ -282,6 +286,8 @@ def _go_to_work(w, item, agent, task):
         # proceeds — rather than a full workspace failing real work.
         store.signal(w.con, "MEDIUM", "An agent could not reach its work", str(e))
         return {"refused": str(e)}
+    if r.get("arrived"):
+        EMB.take_station(w.con, agent, dest)
     if r.get("abandoned"):
         # `travel` now declines a journey it cannot finish instead of raising —
         # which is better behaviour and was quietly worse reporting, because the
@@ -358,6 +364,9 @@ def _go_to_review(w, item, art, task):
                      why="artifact #%d needs an independent verdict" % art,
                      task_id=task["id"] if task else None,
                      worker=w.worker, queue_id=item["id"])
+        # A seat at the bench it just walked to. An agent holding a desk in the
+        # room it left is an agent the world cannot place.
+        EMB.take_station(w.con, REV, "ws_inspection")
     except (SPACE.SpaceError, sqlite3.IntegrityError) as e:
         store.signal(w.con, "MEDIUM", "The Reviewer could not reach the bench", str(e))
 
@@ -590,6 +599,7 @@ def reconcile(w, reason="periodic"):
                      by=OWNER)
             unblocked.append(r["id"])
     resumed = _resume_if_an_engine_exists(w)
+    EMB.reconcile_stations(con)
     pending = con.execute("SELECT COUNT(*) c FROM approvals WHERE decision IS NULL"
                           ).fetchone()["c"]
     d = BUS.depth(con)

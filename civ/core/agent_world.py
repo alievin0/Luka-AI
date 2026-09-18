@@ -222,6 +222,7 @@ def _stand_the_crew(con, ids):
     where the Researcher is gets no answer, and a world with agents that are
     nowhere is back to being a picture."""
     from . import capability_graph as CAP
+    from . import embodiment as EMB
     from . import open_world as OW
     from . import world_growth as GROW
     from . import world_space as SPACE
@@ -234,10 +235,16 @@ def _stand_the_crew(con, ids):
     CAP.seed_tools(con)
     SPACE.seed_places(con)
     CAP.seed_capabilities(con)
+    # A persistent identity gets a persistent body, once. The appearance is
+    # derived from a seed and then written down, so R-01 after a restart is the
+    # same R-01 — LAW 43 refuses to change it afterwards.
+    EMB.fit_all_stations(con)
     for aid in ids:
         if SPACE.locate(con, aid) is None:
             SPACE.stand(con, aid, OW.HOME_WORKSPACE.get(aid, "ws_dispatch"),
                         why="founded; stands in its own district holding nothing")
+        EMB.embody(con, aid)
+        EMB.take_station(con, aid, SPACE.locate(con, aid)["workspace"])
 
 
 def build_gateway(con):
