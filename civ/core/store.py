@@ -54,7 +54,11 @@ def connect(path=None):
                     "DEFAULT '{}'")
     if "updated_at" not in cols:
         con.execute("ALTER TABLE principals ADD COLUMN updated_at TEXT")
-    _widen_bench_run_status(con)
+    # Widening a CHECK means rebuilding the table, and these tables hold the
+    # owner's only copy of campaigns #1-#3 and of every tool call ever audited.
+    # Each rebuild verifies itself before it drops anything. See _widen_check.
+    _widen_check(con, BENCH_SCHEMA, "bench_runs", "'INCOMPLETE'")
+    _widen_check(con, SCHEMA, "tool_calls", "'ERROR'")
     return con
 
 
@@ -74,53 +78,58 @@ def _table_ddl(schema_path, table):
         tmp.close()
 
 
-def _widen_bench_run_status(con):
-    """Let an existing world record INCOMPLETE. Lossless, or it does not happen.
+def _widen_check(con, schema_path, table, marker):
+    """Let an existing world accept a CHECK value it predates. Lossless, or it
+    does not happen.
 
-    A CHECK constraint can only be widened by rebuilding the table, and this
-    table holds the raw runs of campaigns #1-#3 on the owner's machine. So the
-    rebuild copies every row inside one transaction and verifies the count and a
-    checksum of the copy against the original before dropping anything. If they
-    disagree the whole thing rolls back and the old table stands. LAW 12 forbids
-    REWRITING a closed campaign; this changes no row, only what the table will
-    accept from here on.
+    A CHECK constraint can only be widened by rebuilding the table, and these
+    tables hold history: bench_runs carries the raw runs of campaigns #1-#3 and
+    tool_calls carries every authorisation decision ever made. So the rebuild
+    copies every row inside one transaction and verifies the count AND a checksum
+    of the copy against the original before dropping anything. If they disagree
+    the whole thing rolls back and the old table stands. LAW 12 forbids REWRITING
+    a closed campaign; this changes no row, only what the table will accept from
+    here on.
+
+    `marker` is the new value, quoted exactly as the schema writes it. Its
+    presence is the migration's own idempotence check, so re-opening a world is
+    a no-op.
     """
-    row = con.execute("SELECT sql FROM sqlite_master WHERE type='table' "
-                      "AND name='bench_runs'").fetchone()
-    if row is None or "'INCOMPLETE'" in (row["sql"] or ""):
+    row = con.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name=?",
+                      (table,)).fetchone()
+    if row is None or marker in (row["sql"] or ""):
         return False
-    ddl = _table_ddl(BENCH_SCHEMA, "bench_runs")
-    if not ddl or "'INCOMPLETE'" not in ddl:
+    ddl = _table_ddl(schema_path, table)
+    if not ddl or marker not in ddl:
         return False
-    cols = [r[1] for r in con.execute("PRAGMA table_info(bench_runs)")]
+    tmp = "%s_migrating" % table
+    cols = [r[1] for r in con.execute("PRAGMA table_info(%s)" % table)]
     collist = ",".join('"%s"' % c for c in cols)
 
-    def fingerprint(table):
-        rows = con.execute("SELECT %s FROM %s ORDER BY id" % (collist, table)).fetchall()
+    def fingerprint(name):
+        rows = con.execute("SELECT %s FROM %s ORDER BY id" % (collist, name)).fetchall()
         return len(rows), sha([[r[c] for c in cols] for r in rows])
 
-    before = fingerprint("bench_runs")
+    before = fingerprint(table)
     con.execute("PRAGMA foreign_keys=OFF")
     try:
         con.execute("BEGIN")
-        con.execute(ddl.replace("bench_runs", "bench_runs_migrating", 1))
-        con.execute("INSERT INTO bench_runs_migrating(%s) SELECT %s FROM bench_runs"
-                    % (collist, collist))
-        after = fingerprint("bench_runs_migrating")
-        if after != before:
-            raise RuntimeError("bench_runs migration would lose rows: %r -> %r"
-                               % (before, after))
-        con.execute("DROP TABLE bench_runs")
-        # law_evaluator_isolation lives on bench_evaluations and names bench_runs.
-        # Modern SQLite reparses every trigger during a RENAME and refuses when one
-        # of them points at a table that is momentarily absent; legacy_alter_table
-        # is the documented way through, and the schema script below restores the
-        # trigger either way.
+        con.execute(ddl.replace(table, tmp, 1))
+        con.execute("INSERT INTO %s(%s) SELECT %s FROM %s" % (tmp, collist, collist, table))
+        if fingerprint(tmp) != before:
+            raise RuntimeError("%s migration would lose rows: %r -> %r"
+                               % (table, before, fingerprint(tmp)))
+        con.execute("DROP TABLE %s" % table)
+        # A trigger elsewhere may name this table (law_evaluator_isolation names
+        # bench_runs). Modern SQLite reparses every trigger during a RENAME and
+        # refuses while one points at a table that is momentarily absent;
+        # legacy_alter_table is the documented way through, and re-running the
+        # schema script below restores every trigger and index either way.
         con.execute("PRAGMA legacy_alter_table=ON")
-        con.execute("ALTER TABLE bench_runs_migrating RENAME TO bench_runs")
+        con.execute("ALTER TABLE %s RENAME TO %s" % (tmp, table))
         con.execute("PRAGMA legacy_alter_table=OFF")
         if list(con.execute("PRAGMA foreign_key_check")):
-            raise RuntimeError("bench_runs migration broke a foreign key")
+            raise RuntimeError("%s migration broke a foreign key" % table)
         con.execute("COMMIT")
     except Exception:
         con.execute("ROLLBACK")
@@ -128,10 +137,9 @@ def _widen_bench_run_status(con):
         con.execute("PRAGMA foreign_keys=ON")
         raise
     con.execute("PRAGMA foreign_keys=ON")
-    # The index and LAW 12's trigger went with the dropped table; the schema
-    # script is idempotent and puts them back.
-    with open(BENCH_SCHEMA, encoding="utf-8") as fh:
-        con.executescript(fh.read())
+    for path in (SCHEMA, ORG_SCHEMA, BENCH_SCHEMA):
+        with open(path, encoding="utf-8") as fh:
+            con.executescript(fh.read())
     return True
 
 

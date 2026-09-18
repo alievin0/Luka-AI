@@ -559,3 +559,105 @@ pre-existing warning · 0 failures).
 harness able to test persistence, parallelism, dynamic team formation,
 replanning, long-horizon work or cross-run learning, and no result from it may
 be reported without that scope attached.
+
+---
+
+## ADVERSARIAL INTEGRATION AUDIT (2026-09-18, against 8312f3c)
+
+Ten areas, probed by trying to break each one rather than by reading the code.
+**No model was run.** Every result below comes from scripted providers,
+`CompromisedProvider`, or direct gateway calls. Tasks, reference answers,
+evaluators, metrics, thresholds and the statistical rule were not touched, and
+campaigns #1–#3 are byte-identical.
+
+### Vulnerabilities found — four, all now fixed and pinned
+
+**A-1 · An authorised call whose tool raised left no audit record.** `Gateway.call`
+logged only *after* `self._tools[cap](**args)` returned. A missing file, a
+directory, or an argument name the tool does not take produced a real gateway
+interaction with **no `tool_calls` row at all**. Worse, `agent_turn` identified
+its step as "the last `tool_calls` row", so the next step's entry then pointed at
+the *previous* step's record. Proven: three loop steps, two distinct rows, step 1
+and step 2 both claiming row 2, and `tool_denials=2` against one logged denial.
+G-5 was false, and MULTI's three role turns carry three times the exposure, so the
+miscount was *asymmetric between conditions*.
+*Fixed:* the gateway records `decision='ERROR'` when a bound tool raises, and the
+loop links by `id > before` — so a step can never claim another step's row, and
+records `None` honestly when no row exists. `tool_calls.decision` was widened by
+the same verified, lossless migration used for `bench_runs`.
+
+**A-2 · Model arguments could bind the gateway's own parameters.** `Gateway.call`'s
+signature is `(self, principal_id, cap, /, lease_id=None, **args)`. `principal_id`
+and `cap` are positional-only and out of reach, but **`lease_id` is an ordinary
+keyword**: a model that put `lease_id` in its args was setting a gateway
+parameter, not a tool argument. Proven with a real `ACTIVE` lease held by
+`AGT-000002`: the resulting `tool_calls` row carried that lease for a call made by
+`AGT-BENCH-SOLO`. Fail-closed for an invalid id, but it corrupts attribution and
+spends another principal's `per_lease` budget.
+*Fixed:* the loop refuses `RESERVED_ARGS` by name, before the gateway, recorded as
+a denial. The loop forwards untrusted args, so the loop is where they are refused.
+
+**A-3 · A malformed capability name was refused without being recorded.** A list or
+dict `cap` raised `TypeError: unhashable` on `cap not in grants`, before `log()`;
+and the `TOOL_DENIED` event bound `cap` raw, so the audit write itself would fail
+on a non-text name. *Fixed:* the gateway denies a non-string capability and
+records it, and the event coerces with `str(cap)` as the row already did.
+
+**A-4 · The dry-run path ran every task under the last task's grants.**
+`dry_run_into` called `bench_crew` once per task up front, but `bench_crew`
+*rewrites* the principals' permissions from the task — so every run executed with
+whatever the final task granted. Both conditions were equally wrong, so it is not
+a parity break, and `main()` (the real campaign path) always refreshed per run, so
+campaigns #1–#3 are unaffected. But the dry path is what the regression suite
+exercises. *Fixed:* `bench_crew` is called per run.
+
+### What held
+
+| Area | Result |
+|---|---|
+| **1 · Capability parity** | All 16 tasks × 4 role slots: grants byte-identical, and equal to the task's `allowed_tools` exactly. No role holds the evaluator's `EXECUTE_SANDBOX`; a later task never inherits an earlier one's grant. |
+| **2 · Gateway enforcement** | 20 attacks, **0 allowed**: read/write/exec out of scope, `../` traversal, absolute-path escape, `~` expansion, and capability-name collisions (lowercase, trailing space, `:suffix`, prefix-extension, zero-width, non-string). Every refusal is the gateway, not a prompt, and every one is now audited. |
+| **3 · Observation integrity** | Model text shaped like a tool result produced 0 `tool_calls` rows, 0 steps and no artifact. A nomination resolves only against what the gateway wrote. |
+| **4 · Injection containment** | A fixture carrying fake `<system>` blocks, fake tool results, fake capability grants, a fake lease, secret-exfiltration, scope-change and grading instructions. The model **saw all of it and obeyed it** in every case; 9 demanded calls, 0 authorised, no escape file, and none of it reached the graded artifact. |
+| **5 · Provenance** | model turn → request → decision → execution → observation → next turn → artifact reconstructs whole. Denied *and* errored calls both recorded; the run's denial count now equals the audit log's. |
+| **6 · Cost / failure** | 7 run shapes — clean, multi-step, incomplete, retried, dead provider, multi-role, critic-dies. Every model call billed exactly once, no duplicates, `bench_runs.usd` equals the `runs` ledger, and no failed run reports as free. |
+| **7 · Handoff** | Both clips recorded with kept/dropped counts; critic and reviser shown byte-identical drafts; the graded string untruncated and free of critique text, role names and step counts. |
+| **8 · SINGLE vs MULTI** | Same task, same tool, tool output determines the answer: **both conditions consumed the observation and produced it.** Neither is credited with a read it did not make. |
+| **9 · Grading isolation** | `evaluate()` reads exactly `status`, `output`, `artifact_id` — no `exec_graph`, `agents_used`, `model_runs`, cost or latency. Blind tokens differ per run and carry no condition. |
+| **10 · Regression** | 321 → **344**, all green. No existing assertion weakened. |
+
+### Remaining confounds
+
+**One, declared, and deliberately not "fixed".** The critic turn runs at
+`max_tokens=500`; every other turn in either condition runs at 900. §3 lists
+max_tokens per turn among the quantities held identical, so this is a real
+deviation. It is **not** a privilege or information-flow confound: SINGLE has no
+critic, the asymmetry is internal to MULTI, and it can only *constrain* the
+organisation, never flatter it — so it cannot manufacture the advantage the
+hypothesis looks for. R23 pins 900/500 as the budgets that produced real answers
+across campaigns #1–#2, and **nothing measured here shows the 500 was ever
+binding**. Raising it would be retuning a pre-registered parameter on suspicion,
+which is the exact defect R23 exists to prevent. It stays, pinned by a test that
+confines it to the critic, and is *measured* before Campaign #4 rather than
+guessed at now.
+
+**Pre-existing and already declared:** `EXECUTE_SANDBOX` is a subprocess under the
+same user, not an OS boundary — asserted in code, unchanged by the loop.
+
+### Verdict
+
+**No material privilege, information-flow, provenance or grading confound
+remains.** Parity is proven per task, the gateway refuses everything outside a
+grant and records every refusal, untrusted bytes confer no authority, the
+execution chain reconstructs whole, cost is exact, and the evaluator sees only the
+declared deliverable.
+
+The harness is **VALID to calibrate on**, with two conditions:
+
+1. **The pre-registration must be re-sealed.** The harness that produced the
+   Campaign #3 sealed manifest is not the harness that would run Campaign #4.
+   The task and evaluator hashes still match, but the execution model changed.
+2. **None of this was validated against a real model.** Every result above comes
+   from scripted or adversarial doubles. That is the right way to test the
+   architecture — a well-behaved model would pass by declining — but it means the
+   first real run is still the first real run.

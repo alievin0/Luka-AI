@@ -4,6 +4,7 @@
 Per §15: unit, failure path, authorization, invalid input, reproducibility,
 evaluator isolation, security. The __main__ block stays last (R14).
 """
+import inspect
 import json
 import os
 import re
@@ -816,6 +817,294 @@ class IncompleteIsARecordedStatus(unittest.TestCase):
         with self.assertRaises(sqlite3.IntegrityError) as e:
             con.execute("UPDATE bench_runs SET output='rewritten' WHERE id=1")
         self.assertIn("LAW 12", str(e.exception))
+
+
+# ── the integration audit of the loop (2026-09-18) ──────────────────
+class TokenCounting(ScriptedProvider):
+    """Records the max_tokens each role turn was given."""
+
+    def __init__(self, script, usd=0.0):
+        super().__init__(script, usd=usd)
+        self.budgets = []
+
+    def complete(self, system, prompt, model=None, max_tokens=800):
+        self.budgets.append(max_tokens)
+        return super().complete(system, prompt, model=model, max_tokens=max_tokens)
+
+
+class CapabilityParity(unittest.TestCase):
+    """LAW 11 compares sha(allowed_tools). This compares what the principals
+    actually hold, for every task in both task sets."""
+
+    ROLES = ("SOLO", "BUILDER", "CRITIC", "REVISER")
+
+    def _perms(self, con, aid):
+        return con.execute("SELECT permissions FROM principals WHERE id=?",
+                           (aid,)).fetchone()["permissions"]
+
+    def test_every_task_grants_both_conditions_exactly_the_same_thing(self):
+        from core import bench_tasks_v2 as V2
+        for task in list(BT.TASKS) + list(V2.TASKS_V2):
+            con = world()
+            bench_run.bench_crew(con, task)
+            perms = {r: self._perms(con, getattr(bench_run, r)) for r in self.ROLES}
+            self.assertEqual(len(set(perms.values())), 1,
+                             "%s: role grants differ: %s" % (task["id"], perms))
+            caps = {g["cap"] for g in json.loads(perms["SOLO"])}
+            self.assertEqual(caps, set(task["allowed_tools"]),
+                             "%s: granted %s, declared %s"
+                             % (task["id"], sorted(caps), sorted(task["allowed_tools"])))
+
+    def test_no_role_ever_holds_the_evaluators_capability(self):
+        from core import bench_tasks_v2 as V2
+        for task in list(BT.TASKS) + list(V2.TASKS_V2):
+            con = world()
+            bench_run.bench_crew(con, task)
+            ev = {g["cap"] for g in json.loads(self._perms(con, bench_run.EVALUATOR))}
+            self.assertEqual(ev, {"EXECUTE_SANDBOX"}, task["id"])
+            for role in self.ROLES:
+                caps = {g["cap"] for g in json.loads(
+                    self._perms(con, getattr(bench_run, role)))}
+                self.assertEqual(caps & ev, set(),
+                                 "%s: %s shares the evaluator's capability"
+                                 % (task["id"], role))
+
+    def test_a_later_task_does_not_inherit_an_earlier_tasks_grant(self):
+        t05 = [t for t in BT.TASKS if t["id"] == "T05-tool-required"][0]
+        t01 = [t for t in BT.TASKS if t["id"] == "T01-exact-output"][0]
+        con = world()
+        bench_run.bench_crew(con, t05)          # READ_REPO + WRITE_ARTIFACT
+        bench_run.bench_crew(con, t01)          # WRITE_ARTIFACT only
+        for role in self.ROLES:
+            caps = {g["cap"] for g in json.loads(
+                self._perms(con, getattr(bench_run, role)))}
+            self.assertEqual(caps, {"WRITE_ARTIFACT"}, role)
+
+    def test_the_dry_run_refreshes_grants_for_every_run(self):
+        """bench_crew rewrites permissions FROM THE TASK, so registering every
+        task up front left each run holding whatever the last task granted."""
+        body = inspect.getsource(bench_run.dry_run_into)
+        runloop = body[body.index("order = 0"):]
+        self.assertIn("bench_crew", runloop)
+
+    def test_the_one_declared_token_asymmetry_is_exactly_where_it_is_said_to_be(self):
+        """A DECLARED residual confound, pinned so it cannot spread.
+
+        The critic turn runs at 500 tokens; every other turn in either condition
+        runs at 900. That is an asymmetry the design says should not exist, and
+        it is left in place deliberately: R23 pins 900/500 as the budgets that
+        produced real answers across campaigns #1-#2, nothing measured here shows
+        the 500 ever bound, and retuning a pre-registered parameter on suspicion
+        is the defect R23 exists to prevent. What this test guarantees is that the
+        asymmetry is confined to the critic — MULTI-internal, so it can only
+        constrain the organisation, never flatter it — and that no OTHER role
+        quietly acquires a different budget."""
+        con = world()
+        B.ACTIVE.materialise_fixtures(vslice.REPO_ROOT)
+        task = [t for t in B.active_tasks() if t["id"] == "T05-tool-required"][0]
+        bench_run.bench_crew(con, task)
+        cid = B.open_campaign(con, "tok", "mock", "m", 1)
+        budgets = {}
+        for i, cond in enumerate(("SINGLE", "MULTI")):
+            prov = TokenCounting([{"final": {"answer": "print(42)"}}])
+            bench_run.run_condition(con, vslice.build_gateway(con), prov, task,
+                                    cond, cid, 0, i)
+            budgets[cond] = prov.budgets
+        self.assertEqual(budgets["SINGLE"], [900], "SINGLE is the reference budget")
+        self.assertEqual(budgets["MULTI"], [900, 500, 900],
+                         "builder and reviser must match SINGLE; only the critic "
+                         "differs, and only downward: %s" % budgets)
+        self.assertLess(budgets["MULTI"][1], budgets["SINGLE"][0],
+                        "the declared asymmetry may only ever constrain MULTI")
+
+
+class ObservationReachesBothConditions(unittest.TestCase):
+    """The whole point of the loop: a tool result has to be able to change the
+    answer, in EITHER architecture."""
+
+    ORACLE = "ANSWER-FROM-DISK-8817"
+
+    def _run(self, cond):
+        con = world()
+        B.ACTIVE.materialise_fixtures(vslice.REPO_ROOT)
+        task = [t for t in B.active_tasks() if t["id"] == "T05-tool-required"][0]
+        bench_run.bench_crew(con, task)
+        cid = B.open_campaign(con, "oracle", "mock", "m", 1)
+        path = readable_file(self.ORACLE)
+
+        def script(prompt):
+            if self.ORACLE in prompt:
+                return {"final": {"answer": "the file says %s" % self.ORACLE}}
+            if bench_run.OBS in prompt:
+                return {"final": {"answer": "I read something, but not the oracle"}}
+            return {"tool": "READ_REPO", "args": {"path": path}}
+
+        prov = ScriptedProvider([script])
+        brid, _ = bench_run.run_condition(con, vslice.build_gateway(con), prov, task,
+                                          cond, cid, 0, 0)
+        return con.execute("SELECT * FROM bench_runs WHERE id=?", (brid,)).fetchone()
+
+    def test_single_consumes_the_observation(self):
+        r = self._run("SINGLE")
+        self.assertEqual(r["status"], "COMPLETE")
+        self.assertIn(self.ORACLE, r["output"])
+        self.assertEqual(r["tool_calls"], 1)
+
+    def test_multi_consumes_the_same_observation(self):
+        r = self._run("MULTI")
+        self.assertEqual(r["status"], "COMPLETE")
+        self.assertIn(self.ORACLE, r["output"])
+        self.assertGreaterEqual(r["tool_calls"], 1)
+
+    def test_neither_condition_is_credited_with_a_read_it_did_not_make(self):
+        for cond in ("SINGLE", "MULTI"):
+            con = world()
+            B.ACTIVE.materialise_fixtures(vslice.REPO_ROOT)
+            task = [t for t in B.active_tasks() if t["id"] == "T05-tool-required"][0]
+            bench_run.bench_crew(con, task)
+            cid = B.open_campaign(con, "noread", "mock", "m", 1)
+            prov = ScriptedProvider([{"final": {"answer": "guessed it"}}])
+            brid, _ = bench_run.run_condition(con, vslice.build_gateway(con), prov,
+                                              task, cond, cid, 0, 0)
+            r = con.execute("SELECT * FROM bench_runs WHERE id=?", (brid,)).fetchone()
+            self.assertEqual(r["tool_calls"], 0, cond)
+
+
+class EveryModelCallIsBilledOnce(unittest.TestCase):
+    def setUp(self):
+        self.dead = P.Result("FAILED", "mock", "scripted", "m", text="",
+                             error="empty completion", usd=0.002)
+        self.flaky = P.Result("FAILED", "mock", "scripted", "m", text="",
+                              error="HTTP 503: overloaded_error", usd=0.0005)
+
+    def _run(self, cond, script):
+        con = world()
+        B.ACTIVE.materialise_fixtures(vslice.REPO_ROOT)
+        task = [t for t in B.active_tasks() if t["id"] == "T05-tool-required"][0]
+        bench_run.bench_crew(con, task)
+        cid = B.open_campaign(con, "cost", "mock", "m", 1)
+        prov = ScriptedProvider(script, usd=0.001)
+        brid, _ = bench_run.run_condition(con, vslice.build_gateway(con), prov, task,
+                                          cond, cid, 0, 0)
+        r = con.execute("SELECT * FROM bench_runs WHERE id=?", (brid,)).fetchone()
+        ledger = con.execute("SELECT COUNT(*) c, COALESCE(SUM(usd),0) u "
+                             "FROM runs").fetchone()
+        return prov, r, ledger
+
+    def test_no_shape_of_run_loses_or_double_counts_a_model_call(self):
+        art = os.path.join(vslice.ARTIFACT_DIR, "billed.py")
+        scenarios = {
+            "single clean": ("SINGLE", [{"final": {"answer": "print(42)"}}]),
+            "single tool steps": ("SINGLE", [
+                {"tool": "WRITE_ARTIFACT", "args": {"path": "billed.py",
+                                                    "body": "print(42)\n"}},
+                {"tool": "READ_REPO", "args": {"path": art}},
+                {"final": {"artifact": "billed.py"}}]),
+            "single incomplete": ("SINGLE", [
+                {"tool": "READ_REPO", "args": {"path": readable_file()}}]),
+            "single retried": ("SINGLE", [self.flaky, self.flaky,
+                                          {"final": {"answer": "x"}}]),
+            "single dead": ("SINGLE", [self.dead]),
+            "multi clean": ("MULTI", [{"final": {"answer": "print(42)"}}]),
+            "multi critic dies": ("MULTI", [
+                lambda p: self.dead if "SUBMITTED WORK:" in p
+                else {"final": {"answer": "print(42)"}}]),
+        }
+        for label, (cond, script) in scenarios.items():
+            prov, r, ledger = self._run(cond, script)
+            ids = json.loads(r["model_runs"])
+            self.assertEqual(len(ids), len(set(ids)), "%s: a run id was billed twice" % label)
+            self.assertEqual(len(ids), prov.calls, "%s: a model call went unbilled" % label)
+            self.assertEqual(ledger["c"], prov.calls, "%s: ledger disagrees" % label)
+            self.assertAlmostEqual(r["usd"], ledger["u"], places=9, msg=label)
+            self.assertGreater(r["usd"], 0, "%s: reported as free" % label)
+
+    def test_an_incomplete_run_is_billed_for_every_step_it_took(self):
+        prov, r, _ = self._run("SINGLE", [{"tool": "READ_REPO",
+                                           "args": {"path": readable_file()}}])
+        self.assertEqual(r["status"], "INCOMPLETE")
+        self.assertEqual(len(json.loads(r["model_runs"])), bench_run.MAX_TOOL_STEPS + 1)
+
+
+class GradingIsolation(unittest.TestCase):
+    def test_the_evaluator_reads_only_the_deliverable_and_the_verify_result(self):
+        body = inspect.getsource(B.evaluate).split('"""')[2]
+        read = set(re.findall(r'r\["(\w+)"\]', body))
+        self.assertEqual(read, {"status", "output", "artifact_id"},
+                         "evaluate() reached for %s" % sorted(read))
+        for orchestration in ("exec_graph", "agents_used", "model_runs", "tool_denials",
+                              "usd", "latency_ms", "retries"):
+            self.assertNotIn(orchestration, body)
+
+    def test_the_blind_token_carries_no_condition(self):
+        con = world()
+        cid = B.open_campaign(con, "blind", "mock", "m", 1)
+        seen = set()
+        for cond in ("SINGLE", "MULTI"):
+            brid = B.start_run(con, cid, BT.TASKS[0], cond, 0, 0, "sha")
+            B.finish_run(con, brid, status="COMPLETE", output="", agents_used=[])
+            B.evaluate(con, brid, BT.TASKS[0], {"returncode": 0, "stdout": "42"})
+            tok = con.execute("SELECT blind_token FROM bench_evaluations "
+                              "WHERE bench_run_id=?", (brid,)).fetchone()["blind_token"]
+            self.assertNotIn(cond, tok)
+            seen.add(tok)
+        self.assertEqual(len(seen), 2)
+
+
+class AuditTableMigrations(unittest.TestCase):
+    """Both CHECK widenings rebuild a table that holds history. Neither may
+    change a single row."""
+
+    def _rewind(self, path, table, marker):
+        raw = sqlite3.connect(path)
+        ddl = raw.execute("SELECT sql FROM sqlite_master WHERE name=?",
+                          (table,)).fetchone()[0]
+        narrow = ddl.replace(marker + ",", "").replace(table, table + "_old", 1)
+        self.assertNotIn(marker, narrow)
+        raw.executescript(
+            "PRAGMA foreign_keys=OFF;\nPRAGMA legacy_alter_table=ON;\nBEGIN;\n%s;\n"
+            "INSERT INTO %s_old SELECT * FROM %s;\nDROP TABLE %s;\n"
+            "ALTER TABLE %s_old RENAME TO %s;\nCOMMIT;"
+            % (narrow, table, table, table, table, table))
+        raw.close()
+
+    def test_widening_tool_calls_preserves_every_audited_decision(self):
+        path = os.path.join(tempfile.mkdtemp(), "audit.db")
+        con = store.connect(path)
+        store.found(con, mode="simulation")
+        vslice.register_crew(con)
+        gw = vslice.build_gateway(con)
+        with self.assertRaises(runtime.Denied):
+            gw.call("AGT-000001", "READ_REPO", path="/etc/passwd")
+        gw.call("AGT-000002", "WRITE_ARTIFACT", path="mig_probe.py", body="x=1\n")
+        before = [tuple(r) for r in con.execute("SELECT * FROM tool_calls ORDER BY id")]
+        self.assertEqual(len(before), 2)
+        con.close()
+
+        self._rewind(path, "tool_calls", "'ERROR'")
+        con = store.connect(path)                       # migrates on open
+        after = [tuple(r) for r in con.execute("SELECT * FROM tool_calls ORDER BY id")]
+        self.assertEqual(before, after, "the migration changed an audited decision")
+        self.assertIn("'ERROR'", con.execute(
+            "SELECT sql FROM sqlite_master WHERE name='tool_calls'").fetchone()["sql"])
+        gw = vslice.build_gateway(con)
+        with self.assertRaises(OSError):
+            gw.call("AGT-000001", "READ_REPO",
+                    path=os.path.join(vslice.REPO_ROOT, "absent_7c1.txt"))
+        self.assertEqual(con.execute("SELECT decision FROM tool_calls ORDER BY id DESC "
+                                     "LIMIT 1").fetchone()["decision"], "ERROR")
+
+    def test_both_widenings_are_idempotent_on_reopen(self):
+        path = os.path.join(tempfile.mkdtemp(), "idem.db")
+        con = store.connect(path)
+        store.found(con, mode="simulation")
+        con.close()
+        for _ in range(3):
+            con = store.connect(path)
+            self.assertFalse(store._widen_check(con, store.SCHEMA, "tool_calls", "'ERROR'"))
+            self.assertFalse(store._widen_check(con, store.BENCH_SCHEMA, "bench_runs",
+                                                "'INCOMPLETE'"))
+            con.close()
 
 
 class SuiteHygiene(unittest.TestCase):

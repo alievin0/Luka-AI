@@ -272,8 +272,14 @@ class Gateway:
                 "reason,result_sha,at) VALUES(?,?,?,?,?,?,?,?,?)",
                 (safe_lease, principal_id, str(cap).split(":")[0], str(cap), args_sha,
                  decision, reason, result_sha, now()))
-            if decision != "ALLOW":
-                store.event(con, "TOOL_DENIED", actor=principal_id, subject=cap,
+            if decision == "ERROR":
+                store.event(con, "TOOL_ERROR", actor=principal_id, subject=str(cap),
+                            payload={"reason": reason})
+            elif decision != "ALLOW":
+                # str(cap), as the row above already does: a denial whose own
+                # audit write fails loses the security record, and an unhashable
+                # or non-text capability name must not be the thing that breaks it.
+                store.event(con, "TOOL_DENIED", actor=principal_id, subject=str(cap),
                             payload={"reason": reason})
 
         if store.paused(con):
@@ -287,6 +293,13 @@ class Gateway:
             log("DENY", "unknown principal")
             raise Denied("unknown principal")
         grants = _grants(p)
+        # A capability name is a string. An unhashable one (a list, a dict) used
+        # to raise on the `in` test below, BEFORE log() — a refusal with no audit
+        # record. Deny-by-default has to include malformed requests, and it has
+        # to record them like any other denial.
+        if not isinstance(cap, str):
+            log("DENY", "capability name must be a string, got %s" % type(cap).__name__)
+            raise Denied("capability name must be a string")
         if cap not in grants:
             log("DENY", "capability not granted: %s" % cap)
             raise Denied("capability not granted: %s" % cap)
@@ -323,7 +336,16 @@ class Gateway:
             log("DENY", "no tool bound to capability")
             raise Denied("no tool bound to %s" % cap)
 
-        out = self._tools[cap](**args)
+        # The bound tool can still fail: a missing file, a directory, an argument
+        # name the tool does not take. That is a real gateway interaction and it
+        # used to leave NO ROW AT ALL — so an audited call could happen with no
+        # audit record, and any caller that identified its step as "the last
+        # tool_call" would silently claim a different step's row.
+        try:
+            out = self._tools[cap](**args)
+        except Exception as e:                                    # noqa: BLE001
+            log("ERROR", "tool raised: %s: %s" % (type(e).__name__, str(e)[:120]))
+            raise
         log("ALLOW", result_sha=sha(str(out)))
         store.event(con, "TOOL_CALL", actor=principal_id, subject=cap)
         return out

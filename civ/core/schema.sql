@@ -168,7 +168,11 @@ CREATE TABLE IF NOT EXISTS tool_calls (
   tool         TEXT    NOT NULL,
   cap          TEXT    NOT NULL,
   args_sha     TEXT    NOT NULL,
-  decision     TEXT    NOT NULL CHECK (decision IN ('ALLOW','DENY','PAUSED','NO_LEASE')),
+  -- ERROR: the gateway AUTHORISED the call and the bound tool then raised.
+  -- Without it such a call left no row at all, so a gateway interaction could
+  -- happen with no audit record — and an execution-graph step that pointed at
+  -- "the last tool_call" would silently claim a DIFFERENT step's row.
+  decision     TEXT    NOT NULL CHECK (decision IN ('ALLOW','DENY','ERROR','PAUSED','NO_LEASE')),
   reason       TEXT,
   result_sha   TEXT,
   at           TEXT    NOT NULL

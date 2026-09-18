@@ -145,6 +145,15 @@ MAX_CONSECUTIVE_DENIALS = 2     # a denial is an observation, not a free retry
 
 OBS = "TOOL RESULT"             # only the gateway's own return is rendered as this
 
+# Gateway.call's signature is `call(self, principal_id, cap, /, lease_id=None,
+# **args)`. principal_id and cap are positional-only and out of reach, but
+# lease_id is an ordinary keyword — so a model that puts "lease_id" in its args
+# binds one of the GATEWAY'S OWN parameters, not a tool argument. With a real
+# lease id that stamps someone else's lease onto this call's audit row and
+# spends their per-lease rate budget. The loop forwards untrusted args, so the
+# loop is where they are refused: named, recorded, and never silently dropped.
+RESERVED_ARGS = frozenset({"lease_id", "principal_id", "cap", "self"})
+
 
 def clip(text, budget=CLIP_BUDGET):
     """One truncation policy, used everywhere, and it reports itself.
@@ -283,7 +292,38 @@ def agent_turn(con, gw, prov, principal, system, prompt, graph, max_tokens=900,
         # ── a tool request ────────────────────────────────────────────
         cap = req.get("tool")
         if cap and step < MAX_TOOL_STEPS:
-            args = req.get("args") or {}
+            args = req.get("args")
+            args = dict(args) if isinstance(args, dict) else {}
+            stolen = sorted(RESERVED_ARGS & set(args))
+            # A capability name is a string. A list or a dict reaches `cap not in
+            # grants` and raises inside the gateway BEFORE anything is logged, so
+            # a malformed request would be refused with no audit row. Malformed
+            # input is refused here, where untrusted input arrives, rather than by
+            # loosening the gateway.
+            malformed = None if isinstance(cap, str) else "tool name must be a string"
+            # `id > before` rather than "the last row": a step must never be able
+            # to claim another step's audit record, and when the gateway wrote no
+            # row at all the graph has to say so instead of pointing somewhere.
+            before = con.execute(
+                "SELECT COALESCE(MAX(id),0) m FROM tool_calls").fetchone()["m"]
+
+            def linked():
+                r = con.execute("SELECT id FROM tool_calls WHERE id > ? "
+                                "ORDER BY id DESC LIMIT 1", (before,)).fetchone()
+                return r["id"] if r else None
+
+            if stolen or malformed:
+                why = malformed or ("reserved argument(s) refused: %s" % stolen)
+                t.denials += 1
+                consecutive_denials += 1
+                graph.append({"agent": principal, "tool": str(cap)[:60],
+                              "decision": "DENY", "tool_call_id": None,
+                              "step": step, "why": why})
+                if consecutive_denials >= MAX_CONSECUTIVE_DENIALS:
+                    graph.append({"agent": principal, "step": "denial_cap"})
+                    break
+                prompt += "\n\n%s [%s]: DENIED — %s" % (OBS, str(cap)[:60], why)
+                continue
             try:
                 out = gw.call(principal, cap, **args)
                 consecutive_denials = 0
@@ -294,10 +334,8 @@ def agent_turn(con, gw, prov, principal, system, prompt, graph, max_tokens=900,
                     writes[nm] = out
                     bodies[args["path"]] = args.get("body", "")
                     bodies[nm] = args.get("body", "")
-                tc = con.execute(
-                    "SELECT id FROM tool_calls ORDER BY id DESC LIMIT 1").fetchone()
                 graph.append({"agent": principal, "tool": cap, "decision": "ALLOW",
-                              "tool_call_id": tc["id"] if tc else None, "step": step})
+                              "tool_call_id": linked(), "step": step})
                 rendered, rec = render_observation(cap, out)
                 if rec["truncated"]:
                     graph.append(dict(rec, agent=principal, step="clip",
@@ -307,10 +345,8 @@ def agent_turn(con, gw, prov, principal, system, prompt, graph, max_tokens=900,
             except (runtime.Denied, TypeError, OSError) as e:
                 t.denials += 1
                 consecutive_denials += 1
-                tc = con.execute(
-                    "SELECT id FROM tool_calls ORDER BY id DESC LIMIT 1").fetchone()
                 graph.append({"agent": principal, "tool": cap, "decision": "DENY",
-                              "tool_call_id": tc["id"] if tc else None,
+                              "tool_call_id": linked(),
                               "why": str(e)[:80], "step": step})
                 if consecutive_denials >= MAX_CONSECUTIVE_DENIALS:
                     graph.append({"agent": principal, "step": "denial_cap"})
@@ -389,6 +425,15 @@ def run_condition(con, gw, prov, task, condition, campaign, repeat, order):
 
             crit = ""
             if spend() < budget:
+                # 500 against every other role's 900. HARNESS_VALIDITY_DESIGN
+                # lists max_tokens per turn among the quantities held identical,
+                # so this is a real asymmetry — but it is MULTI-INTERNAL (SINGLE
+                # has no critic) and it can only constrain MULTI, never flatter
+                # it. R23 pins 900/500 because those budgets produced real
+                # answers across campaigns #1-#2, and no measurement here shows
+                # the 500 ever bound: raising it would be retuning a
+                # pre-registered parameter on suspicion. It stays, declared, and
+                # is measured before Campaign #4 rather than guessed at now.
                 cr = agent_turn(con, gw, prov, CRITIC, SYS_CRITIC,
                                 "REQUIREMENTS:\n%s\n\nSUBMITTED WORK:\n%s" % (text, shown),
                                 graph, max_tokens=500, runs=runs)
@@ -503,6 +548,12 @@ def dry_run_into(con, repeats=1, tasks=None):
     for t in picked:
         for rep in range(repeats):
             for cond in ("SINGLE", "MULTI"):
+                # Per RUN, not once per campaign: bench_crew rewrites the
+                # principals' permissions from the task, so registering every
+                # task up front left each run holding whatever the LAST task
+                # granted. Both conditions were equally wrong, but a run must
+                # execute with its own task's tools. main() already does this.
+                bench_crew(con, t)
                 gw = vslice.build_gateway(con)
                 brid, path = run_condition(con, gw, prov, t, cond, cid, rep, order)
                 order += 1
