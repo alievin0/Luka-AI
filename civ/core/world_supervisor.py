@@ -45,7 +45,8 @@ class World:
 
     def __init__(self, con, gw, provider_for, requirements_for=None,
                  worker="worker-1", max_in_flight=3, instruction_for=None,
-                 review_for=None, evaluate_for=None, gate_for=None):
+                 review_for=None, evaluate_for=None, gate_for=None,
+                 plan_for=None):
         self.con, self.gw = con, gw
         self.provider_for = provider_for
         self.requirements_for = requirements_for or (lambda task: [])
@@ -72,6 +73,12 @@ class World:
         # into the row. Nothing here can write that decision.
         self.evaluate_for = evaluate_for or deterministic_evaluation
         self.gate_for = gate_for
+        # What shape of task graph an approved opportunity becomes. None is the
+        # default two-step template in `always_on.PLAN`; a caller that wants the
+        # graph to follow each opportunity's own declared requirements passes a
+        # builder here. Either way the decomposition is deterministic Python —
+        # this file does not ask a model what the work is.
+        self.plan_for = plan_for
         self.worker, self.max_in_flight = worker, max_in_flight
         self.ticks = 0
         # A worker announces itself so the world can tell a live process from
@@ -257,7 +264,8 @@ def resume_if_the_owner_decided(w):
 
 def h_opportunity_approved(w, item):
     oid = item["payload"]["opportunity_id"]
-    r = A.open_project_from(w.con, oid, by=ORCH, chain_id=item["chain_id"])
+    r = A.open_project_from(w.con, oid, by=ORCH, chain_id=item["chain_id"],
+                            plan_for=w.plan_for)
     _emit(w, item, "PROJECT_OPENED", "project:%d" % r["project_id"],
           dict(item["payload"], project_id=r["project_id"], tasks=r["tasks"]))
     return r

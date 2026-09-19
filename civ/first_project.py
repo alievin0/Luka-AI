@@ -192,8 +192,19 @@ def owner_answers(con, approval_id, verdict="APPROVE"):
 
 # ── PHASE 9 · the passport ───────────────────────────────────────────
 def passport(con, project_id, opp_id):
-    """The project's whole history, assembled from rows and nothing else."""
+    """The project's whole history, assembled from rows and nothing else.
+
+    Every query below names the project. In a world running one project that is
+    a distinction without a difference, and in a world running three it is the
+    whole difference: an unscoped passport hands each project the others'
+    approvals, corrections, lessons and verifications, and three of them then
+    agree on a history none of them had."""
     p = W.project_passport(con, project_id)
+    tids = [t["id"] for t in con.execute(
+        "SELECT id FROM tasks WHERE project_id=? ORDER BY id", (project_id,))] or [-1]
+    qmarks = ",".join("?" * len(tids))
+    arts = [a["id"] for a in con.execute(
+        "SELECT id FROM artifacts WHERE project_id=? ORDER BY id", (project_id,))]
     o = dict(con.execute("SELECT * FROM opportunities WHERE id=?", (opp_id,)).fetchone())
     ev = con.execute("SELECT * FROM evidence WHERE id=?",
                      (o["evidence_id"],)).fetchone() if o["evidence_id"] else None
@@ -214,29 +225,51 @@ def passport(con, project_id, opp_id):
     p["opportunity_evidence"] = ({"id": ev["id"], "kind": ev["kind"],
                                   "provenance": ev["external_provenance"],
                                   "sha": ev["content_sha"]} if ev else None)
-    p["approval"] = [dict(r) for r in con.execute(
-        "SELECT * FROM approvals ORDER BY id")]
+    # The gate approval is raised BEFORE the project exists, so its own
+    # `project_id` is null and always will be: there was nothing to point at.
+    # What ties it to this project is the question the world asked — the
+    # DECISION_REQUIRED row naming both the approval and the opportunity this
+    # project came from. That is a row, not an inference from the wording.
+    gated = {json.loads(r["payload"] or "{}").get("approval_id")
+             for r in con.execute("SELECT payload FROM world_queue "
+                                  "WHERE kind='DECISION_REQUIRED'")
+             if json.loads(r["payload"] or "{}").get("opportunity_id") == opp_id}
+    p["approval"] = [dict(r) for r in con.execute("SELECT * FROM approvals ORDER BY id")
+                     if r["project_id"] == project_id or r["id"] in gated]
     p["task_graph"] = [{"task": r["task_id"], "depends_on": r["depends_on"]}
-                       for r in con.execute("SELECT * FROM task_deps ORDER BY task_id")]
+                       for r in con.execute(
+        "SELECT * FROM task_deps WHERE task_id IN (%s) ORDER BY task_id" % qmarks, tids)]
     p["corrections"] = [{"id": t["id"], "corrects": t["parent_id"],
                          "status": t["status"], "objective": t["objective"][:70]}
                         for t in con.execute(
-        "SELECT * FROM tasks WHERE parent_id IS NOT NULL ORDER BY id")]
+        "SELECT * FROM tasks WHERE parent_id IS NOT NULL AND project_id=? ORDER BY id",
+        (project_id,))]
     p["lessons"] = [{"id": l["id"], "text": l["text"], "task": l["task_id"],
                      "project": l["project_id"], "failure": l["failure_id"],
                      "evidence": l["evidence_id"], "by": l["proposed_by"]}
-                    for l in con.execute("SELECT * FROM lessons ORDER BY id")]
+                    for l in con.execute("SELECT * FROM lessons WHERE project_id=? "
+                                         "ORDER BY id", (project_id,))]
     p["verifications"] = [{"id": e["id"], "provenance": e["external_provenance"],
                            "passed": all(c["passed"] for c in
                                          json.loads(e["detail"] or "{}").get("checks", []))}
                           for e in con.execute(
-        "SELECT * FROM evidence WHERE external_provenance LIKE 'artifact:%' ORDER BY id")]
-    state, why, accounted = completion_state(con)
+        "SELECT * FROM evidence WHERE external_provenance LIKE 'artifact:%' ORDER BY id")
+        if _artifact_in(e["external_provenance"]) in arts]
+    state, why, accounted = completion_state(con, project_id)
     p["completion"] = {"state": state, "why": why, "accounted": accounted}
     p["unresolved"] = ([t["objective"][:70] for t in con.execute(
-        "SELECT * FROM tasks WHERE status NOT IN ('ACCEPTED','ARCHIVED') ORDER BY id")]
+        "SELECT * FROM tasks WHERE project_id=? AND status NOT IN "
+        "('ACCEPTED','ARCHIVED') ORDER BY id", (project_id,))]
         + ([framing.get("uncertainty", "")] if state != COMPLETE else []))
     return p
+
+
+def _artifact_in(provenance):
+    """The artifact id an `artifact:<id>@<sha>` provenance names, or None."""
+    try:
+        return int((provenance or "").split("@")[0].split(":")[1])
+    except (IndexError, ValueError):
+        return None
 
 
 # ── the run ──────────────────────────────────────────────────────────

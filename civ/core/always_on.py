@@ -269,11 +269,23 @@ PLAN = [
 ]
 
 
-def open_project_from(con, opp_id, by=ORCH, chain_id=None, budget_usd=0.25):
+def open_project_from(con, opp_id, by=ORCH, chain_id=None, budget_usd=0.25,
+                      plan_for=None):
     """An APPROVED opportunity becomes a project, a team and a task graph.
 
     LAW 27 refuses the PROJECT status out of anything but APPROVED, so this
-    cannot be reached by an agent that skipped the evaluation."""
+    cannot be reached by an agent that skipped the evaluation.
+
+    `plan_for(opportunity_row) -> [step, ...]` decides the shape of the graph
+    and defaults to `PLAN`, which is what every existing caller already gets.
+    It is injected for the same reason the provider and the reviewer are: the
+    default is a two-step template, and a template is the right graph only for
+    the projects it happens to fit. A world running several projects at once
+    that gives all of them the same two tasks is not decomposing anything — it
+    is replaying a script, and the graph stops being evidence of anything. A
+    caller that wants the graph to follow what each opportunity actually
+    requires says so here; the steps it returns are read exactly as `PLAN`'s
+    are, and nothing below this line knows which it got."""
     o = con.execute("SELECT * FROM opportunities WHERE id=?", (opp_id,)).fetchone()
     if o is None or o["status"] != "APPROVED":
         raise WorldError("opportunity %s is not APPROVED" % opp_id)
@@ -291,13 +303,18 @@ def open_project_from(con, opp_id, by=ORCH, chain_id=None, budget_usd=0.25):
     plan = plan_team(con, caps or ["research"], risk="normal", budget_usd=budget_usd)
     team_id = seat_team(con, pid, plan, by=by)
 
-    ok, why = POL.chain_room(con, chain_id, tasks=len(PLAN))
+    steps = list(plan_for(o) if plan_for else PLAN)
+    if not steps:
+        raise WorldError("a project with no task is not a plan (opportunity %d)"
+                         % opp_id)
+
+    ok, why = POL.chain_room(con, chain_id, tasks=len(steps))
     if not ok:
         POL.halt_chain(con, chain_id, why)
         raise WorldError(why)
 
     made = {}
-    for step in PLAN:
+    for step in steps:
         tid = W.discover_task(
             con, step["objective"] % {"problem": o["problem"]}, by=by, project_id=pid,
             required_caps=step["caps"], evidence_required=step["evidence"],
@@ -540,27 +557,64 @@ CAUSAL_LINKS = (
 )
 
 
-def world_causality(con, objective_subject="objective:1"):
-    """Rebuild the whole chain from persisted rows. No process state is used."""
+def chain_of_project(con, project_id):
+    """The chain this project's work was emitted under, read off the queue.
+
+    Returns None for a project whose lineage carried no chain — which is every
+    project opened before chains were per objective, and which the callers here
+    treat as "no narrowing available" rather than as an error."""
+    row = con.execute("SELECT chain_id FROM world_queue WHERE subject=? "
+                      "AND chain_id IS NOT NULL ORDER BY id LIMIT 1",
+                      ("project:%d" % project_id,)).fetchone()
+    return row["chain_id"] if row else None
+
+
+def world_causality(con, objective_subject="objective:1", project_id=None):
+    """Rebuild the whole chain from persisted rows. No process state is used.
+
+    `project_id` rebuilds ONE project's chain instead of the world's. That
+    distinction does not exist while a world runs one project and matters
+    completely once it runs three: unscoped, the answer is a single chain
+    wearing three projects' links, and every project looks fully traced because
+    some project supplied each link. Scoped, the objective is the one emitted
+    on this project's own chain, and the discovery, the opportunity, the tasks
+    and the completion are this project's own rows.
+
+    A project whose lineage carries no chain cannot be narrowed to its own
+    objective — there is nothing in the rows distinguishing it — so it gets the
+    first one, exactly as the unscoped answer does. Its other links are still
+    its own."""
     out = []
 
     def link(kind, rid, at, actor, detail):
         out.append({"link": kind, "id": rid, "at": at, "actor": actor,
                     "detail": detail})
 
-    q = con.execute("SELECT * FROM world_queue WHERE kind='OWNER_OBJECTIVE' "
-                    "ORDER BY id LIMIT 1").fetchone()
+    cid = chain_of_project(con, project_id) if project_id is not None else None
+    if cid is None:
+        q = con.execute("SELECT * FROM world_queue WHERE kind='OWNER_OBJECTIVE' "
+                        "ORDER BY id LIMIT 1").fetchone()
+    else:
+        q = con.execute("SELECT * FROM world_queue WHERE kind='OWNER_OBJECTIVE' "
+                        "AND chain_id=? ORDER BY id LIMIT 1", (cid,)).fetchone()
     if q is None:
         return out
     link("objective", q["id"], q["at"], q["emitted_by"],
          json.loads(q["payload"] or "{}").get("objective", "")[:90])
 
-    for d in con.execute("SELECT * FROM discoveries ORDER BY id"):
+    only = project_id is not None
+    pp = (project_id,) if only else ()
+    for d in con.execute(
+            "SELECT * FROM discoveries" + (" WHERE id IN (SELECT discovery_id "
+            "FROM opportunities WHERE project_id=?)" if only else "")
+            + " ORDER BY id", pp):
         link("discovery", d["id"], d["created_at"],
              (json.loads(d["source_agents"] or "[]") or [None])[0],
              "evidence #%s · confidence %.2f" % (d["evidence_id"], d["confidence"]))
 
-    for o in con.execute("SELECT * FROM opportunities ORDER BY id"):
+    for o in con.execute("SELECT * FROM opportunities"
+                         + (" WHERE project_id=?" if only else "")
+                         + " ORDER BY id", pp):
         link("opportunity", o["id"], o["created_at"], o["discovered_by"],
              "%s · decided by %s · %s" % (o["status"], o["decided_by"],
                                           (o["decision_why"] or "")[:40]))
@@ -574,7 +628,9 @@ def world_causality(con, objective_subject="objective:1"):
                     "SELECT principal_id FROM team_members WHERE team_id=?", (t["id"],))]
                 link("team", t["id"], t["created_at"], ORCH, ", ".join(members))
 
-    for t in con.execute("SELECT * FROM tasks WHERE project_id IS NOT NULL ORDER BY id"):
+    for t in con.execute(
+            "SELECT * FROM tasks WHERE project_id"
+            + ("=?" if only else " IS NOT NULL") + " ORDER BY id", pp):
         deps = [r["depends_on"] for r in con.execute(
             "SELECT depends_on FROM task_deps WHERE task_id=?", (t["id"],))]
         kind = "correction" if t["objective"].startswith("Correct:") else "task"
@@ -614,18 +670,23 @@ def world_causality(con, objective_subject="objective:1"):
             link("rejection" if tr["to_state"] == "FAILED" else "acceptance",
                  tr["id"], tr["at"], tr["actor"], tr["why"][:60])
 
-    for e in con.execute("SELECT * FROM events WHERE kind='PROJECT_COMPLETED' ORDER BY id"):
+    for e in con.execute(
+            "SELECT * FROM events WHERE kind='PROJECT_COMPLETED'"
+            + (" AND subject=?" if only else "") + " ORDER BY id",
+            ("project:%d" % project_id,) if only else ()):
         link("completion", e["id"], e["at"], e["actor"], e["subject"])
     return out
 
 
-def causality_covers(con, objective_subject="objective:1"):
+def causality_covers(con, objective_subject="objective:1", project_id=None):
     """Which of the declared causal links the record actually contains."""
-    seen = {l["link"] for l in world_causality(con, objective_subject)}
+    seen = {l["link"] for l in world_causality(con, objective_subject, project_id)}
     # `next_task` is the second task becoming runnable, which the record shows as
     # a task with a dependency that is now satisfied.
+    only = project_id is not None
     if any(r for r in con.execute(
             "SELECT d.task_id FROM task_deps d JOIN tasks t ON t.id=d.depends_on "
-            "WHERE t.status='ACCEPTED'")):
+            "WHERE t.status='ACCEPTED'" + (" AND t.project_id=?" if only else ""),
+            (project_id,) if only else ())):
         seen.add("next_task")
     return sorted(seen), sorted(set(CAUSAL_LINKS) - seen)

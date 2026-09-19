@@ -367,16 +367,44 @@ def _ids(xs):
     return ", ".join("#%d" % x for x in xs[:6]) + (" …" if len(xs) > 6 else "")
 
 
-def _quota_failure(con):
-    """The first run that died because the allowance ran out, or None."""
-    for r in con.execute("SELECT id, error FROM runs WHERE status<>'OK' "
-                         "AND error IS NOT NULL ORDER BY id"):
+def _runs_where(project_id):
+    """The SQL that narrows `runs` to one project, and the parameters for it.
+
+    A run belongs to a project through the task it was made for. A run with no
+    task is world-level work — judging an opportunity happens before any
+    project exists — and belongs to no project's account, which is why it is
+    excluded rather than attributed to whichever project asked last."""
+    if project_id is None:
+        return "", ()
+    return " AND task_id IN (SELECT id FROM tasks WHERE project_id=?)", (project_id,)
+
+
+def _quota_failure(con, project_id=None):
+    """The first run that died because an allowance ran out, or None.
+
+    Two things mean the same to a project that stopped: the provider refused
+    because the account's quota is spent, which arrives as text in `runs.error`
+    and is matched against `_QUOTA_MARKS`; or the run's own cap refused before
+    the call was made, which the schema has always spelled `runs.status`
+    `BUDGET` and which needs no string matching at all. Either way the project
+    ran out rather than failed, and the reason returned says which it was.
+
+    Counting the second as an ordinary failure would have been the quieter bug:
+    a project whose per-project allowance was spent would report FAILED — true
+    of the run, and wrong about the project, which stopped because it was told
+    to stop."""
+    where, params = _runs_where(project_id)
+    for r in con.execute("SELECT id, status, error FROM runs WHERE status<>'OK'"
+                         + where + " ORDER BY id", params):
+        why = " ".join((r["error"] or "").split())[:140]
+        if r["status"] == "BUDGET":
+            return r["id"], why or "its own cap refused the call before it was made"
         if any(m in (r["error"] or "").lower() for m in _QUOTA_MARKS):
-            return r["id"], " ".join((r["error"] or "").split())[:140]
+            return r["id"], why
     return None
 
 
-def completion_state(con):
+def completion_state(con, project_id=None):
     """Did the workflow finish — and if it did not, does the record say why?
 
     THE INVARIANT: every artifact carries a terminal verification state; every
@@ -401,9 +429,24 @@ def completion_state(con):
     This function exists because a tally of passing checks is not a finished
     workflow: a task left RUNNING on a quota error sat behind twenty green
     checks with nothing saying so.
+
+    `project_id` asks the same question of ONE project, and answering it per
+    project is the whole point when several run at once: a world-wide answer
+    reports the first hole it finds and attributes it to everything, so a
+    project that ran out of allowance would drag a finished neighbour down with
+    it and a finished project would explain away a starved one. Scoped, each
+    project accounts for its own artifacts, its own tasks, its own runs and its
+    own escalations, and nothing else. Passing nothing keeps the world-wide
+    answer every existing caller already has.
     """
+    only = project_id is not None
+    pp = (project_id,) if only else ()
+    mine = " WHERE project_id=?" if only else ""
     arts = [dict(a) for a in con.execute(
-        "SELECT id, run_id FROM artifacts ORDER BY id")]
+        "SELECT id, run_id FROM artifacts" + mine + " ORDER BY id", pp)]
+    # `reviewed` and `verdict_of_code` below are read only for the artifacts in
+    # `arts`, so scoping them a second time would narrow nothing: an entry for
+    # another project's artifact is never looked up.
     reviewed = {r["artifact_id"] for r in con.execute(
         "SELECT DISTINCT artifact_id FROM reviews "
         "WHERE verdict IN ('APPROVE','REJECT')")}
@@ -420,16 +463,18 @@ def completion_state(con):
         verdict_of_code[art] = bool(checks) and all(c["passed"] for c in checks)
 
     running = [t["id"] for t in con.execute(
-        "SELECT id FROM tasks WHERE status='RUNNING' ORDER BY id")]
+        "SELECT id FROM tasks WHERE status='RUNNING'"
+        + (" AND project_id=?" if only else "") + " ORDER BY id", pp)]
     unprovenanced = [a["id"] for a in arts if not a["run_id"]]
     unverified = [a["id"] for a in arts if a["id"] not in verdict_of_code]
     # Only an artifact that PASSED verification is owed a review.
     unreviewed = [a["id"] for a in arts
                   if verdict_of_code.get(a["id"]) and a["id"] not in reviewed]
 
-    quota = _quota_failure(con)
-    broke = con.execute("SELECT id, status, error FROM runs WHERE status<>'OK' "
-                        "ORDER BY id LIMIT 1").fetchone()
+    quota = _quota_failure(con, project_id)
+    where, params = _runs_where(project_id)
+    broke = con.execute("SELECT id, status, error FROM runs WHERE status<>'OK'"
+                        + where + " ORDER BY id LIMIT 1", params).fetchone()
     # An account has to be OPEN or terminal. HIGH only — a MEDIUM signal is a
     # notification, and "Project #1 completed" explaining away every later hole
     # is exactly the failure this guards against. But priority alone is not
@@ -442,7 +487,9 @@ def completion_state(con):
     # raised AFTER the last thing a person answered.
     raised = con.execute(
         "SELECT a.id, 'HIGH' priority, a.question headline FROM approvals a "
-        "WHERE a.decision IS NULL ORDER BY a.id LIMIT 1").fetchone()
+        "WHERE a.decision IS NULL"
+        + (" AND a.project_id=?" if only else "") + " ORDER BY a.id LIMIT 1",
+        pp).fetchone()
     if raised is None:
         # Compared by TIME, not by id: signals and events number separately, and
         # comparing one table's id against another's is a coincidence waiting to
@@ -453,7 +500,8 @@ def completion_state(con):
         ).fetchone()["m"]
         raised = con.execute(
             "SELECT id, priority, headline FROM signals WHERE priority='HIGH' "
-            "AND at > ? ORDER BY id LIMIT 1", (answered_at,)).fetchone()
+            "AND at > ?" + (" AND project_id=?" if only else "")
+            + " ORDER BY id LIMIT 1", (answered_at,) + pp).fetchone()
     accounted = bool(quota or broke or raised)
 
     def explained(short):
@@ -483,8 +531,9 @@ def completion_state(con):
         # the gate exists for, and reporting it as an unexplained silence would
         # punish the system for doing exactly the right thing.
         refused = con.execute(
-            "SELECT id, decision_why FROM opportunities WHERE status='REJECTED' "
-            "ORDER BY id LIMIT 1").fetchone()
+            "SELECT id, decision_why FROM opportunities WHERE status='REJECTED'"
+            + (" AND project_id=?" if only else "") + " ORDER BY id LIMIT 1",
+            pp).fetchone()
         if refused is not None:
             return (INCOMPLETE, "nothing was produced because opportunity #%d was "
                     "refused: %s" % (refused["id"],
