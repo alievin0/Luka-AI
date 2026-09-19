@@ -27,6 +27,7 @@ import unittest
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
+from core import agent_runtime as RT         # noqa: E402
 from core import agent_world as W            # noqa: E402
 from core import always_on as A              # noqa: E402
 from core import store                       # noqa: E402
@@ -118,6 +119,89 @@ class TheOpportunityIsJudgedByWhoeverTheWorldWasBuiltWith(unittest.TestCase):
         self.assertEqual(runs, [4242])
 
 
+class TheBarIsTheShapeVerificationActuallyConsumes(unittest.TestCase):
+    """The third run reached a real model, read the right file, and wrote a
+    real artifact — then died at `ARTIFACT_CREATED` with
+
+        ValueError: too many values to unpack (expected 2)
+
+    because `_requirements_for` returned dicts of {requirement, kind, value}, a
+    shape nothing in this repository consumes, while `verify_artifact` iterates
+    `for label, pred in requirements`. The briefing rendered the dicts happily,
+    so the mismatch was invisible until an artifact existed. Nothing downstream
+    of verification ever ran.
+
+    This test drives the real verifier with the real bar, so the two cannot
+    drift apart again without something going red."""
+
+    def world_with_an_artifact(self, body):
+        con = store.connect(os.path.join(tempfile.mkdtemp(), "bar.db"))
+        store.found(con, mode="simulation")
+        W.found_agents(con)
+        POL.seed(con)
+        tid = W.discover_task(con, "Investigate the claim.", by=SUP.ORCH,
+                              required_caps=["research"])
+        run = con.execute(
+            "INSERT INTO runs(principal_id,task_id,source,provider,model,prompt_sha,"
+            "status,tokens_in,tokens_out,usd,latency_ms,started_at) VALUES"
+            "('AGT-RESEARCHER',?,'mock','p','m','sha','OK',1,1,0,1,?)",
+            (tid, store.now())).lastrowid
+        art = con.execute(
+            "INSERT INTO artifacts(task_id,run_id,principal_id,kind,name,path,body,"
+            "sha,source,created_at) VALUES(?,?,'AGT-RESEARCHER','doc','findings.md',"
+            "'artifacts/research/findings.md',?,?,'mock',?)",
+            (tid, run, body, "sha-%d" % len(body), store.now())).lastrowid
+        con.commit()
+        return con, tid, art
+
+    def test_the_real_verifier_accepts_the_real_bar(self):
+        body = "Findings on MULTI_AGENT.md.\n\n" + "detail. " * 40
+        con, tid, art = self.world_with_an_artifact(body)
+        task = dict(con.execute("SELECT * FROM tasks WHERE id=?", (tid,)).fetchone())
+        RT.verify_artifact(con, art, FP._requirements_for(task))
+        ev = con.execute("SELECT * FROM evidence WHERE external_provenance LIKE "
+                         "'artifact:%' ORDER BY id DESC LIMIT 1").fetchone()
+        self.assertIsNotNone(ev, "verification produced no evidence row")
+        detail = json.loads(ev["detail"])
+        self.assertTrue(detail["passed"], detail["checks"])
+        self.assertEqual(len(detail["checks"]), len(FP._requirements_for(task)))
+
+    def test_an_artifact_that_misses_the_bar_fails_it(self):
+        con, tid, art = self.world_with_an_artifact("too short, and names nothing")
+        task = dict(con.execute("SELECT * FROM tasks WHERE id=?", (tid,)).fetchone())
+        RT.verify_artifact(con, art, FP._requirements_for(task))
+        ev = con.execute("SELECT * FROM evidence WHERE external_provenance LIKE "
+                         "'artifact:%' ORDER BY id DESC LIMIT 1").fetchone()
+        detail = json.loads(ev["detail"])
+        self.assertFalse(detail["passed"])
+        self.assertEqual([c["passed"] for c in detail["checks"]], [False, False])
+
+    def test_every_label_says_what_its_predicate_tests(self):
+        """A label that promises more than the code checks is the same defect in
+        a quieter form."""
+        bar = dict(FP._requirements_for({"objective": "x"}))
+        names = [p for l, p in FP._requirements_for({"objective": "x"})
+                 if "names the source" in l][0]
+        self.assertTrue(names("a line about MULTI_AGENT.md"))
+        self.assertFalse(names("a line naming nothing at all"))
+        stub = [p for l, p in FP._requirements_for({"objective": "x"})
+                if "200 characters" in l][0]
+        self.assertFalse(stub("x" * 200))
+        self.assertTrue(stub("x" * 201))
+        self.assertIn("at least 200 characters", " ".join(bar))
+
+    def test_the_artifact_the_real_run_produced_would_have_passed(self):
+        """1915 bytes, naming MULTI_AGENT.md. The bar was met; the checker could
+        not run."""
+        con, tid, art = self.world_with_an_artifact(
+            "## Source\nMULTI_AGENT.md\n\n## Findings\n" + "claim. " * 120)
+        task = dict(con.execute("SELECT * FROM tasks WHERE id=?", (tid,)).fetchone())
+        RT.verify_artifact(con, art, FP._requirements_for(task))
+        ev = con.execute("SELECT * FROM evidence WHERE external_provenance LIKE "
+                         "'artifact:%' ORDER BY id DESC LIMIT 1").fetchone()
+        self.assertTrue(json.loads(ev["detail"])["passed"])
+
+
 class TheBriefingNamesTheSourceTheOwnerSupplied(unittest.TestCase):
     """A run reached a real model, formed a team, wrote a task graph, and then
     spent six model calls and two corrections on `READ_REPO MULTI_AGENT.md` —
@@ -144,8 +228,8 @@ class TheBriefingNamesTheSourceTheOwnerSupplied(unittest.TestCase):
 
     def test_it_states_the_bar_the_artifact_is_checked_against(self):
         brief = self.brief()
-        for r in FP._requirements_for({"objective": "x"}):
-            self.assertIn(r["requirement"], brief)
+        for label, _ in FP._requirements_for({"objective": "x"}):
+            self.assertIn(label, brief)
 
     def test_it_still_names_no_tool(self):
         """Telling an agent where the source is must not turn into telling it

@@ -363,12 +363,22 @@ def _steps(res):
 
 # ── what the Owner specifies: the bar, and how the work is briefed ───
 def _requirements_for(task):
-    """The acceptance bar, declared when the task is created and checked by
-    ordinary code the agent cannot reach."""
-    return [{"requirement": "names the file it read",
-             "kind": "contains", "value": "MULTI_AGENT"},
-            {"requirement": "quotes or cites at least one specific claim",
-             "kind": "min_length", "value": 200}]
+    """The acceptance bar: a list of (label, predicate over the artifact body).
+
+    That shape is not a style choice — it is the contract `verify_artifact`
+    reads, and the third run died on getting it wrong. This returned dicts of
+    `{requirement, kind, value}`, a shape nothing in this repository consumes;
+    the briefing rendered it happily and `for label, pred in requirements`
+    raised `ValueError: too many values to unpack (expected 2)` the moment an
+    artifact arrived. The artifact was fine and would have passed. The code that
+    checks it could not run, so nothing downstream existed: no verification, no
+    review, no acceptance.
+
+    The second label says exactly what its predicate tests. A label that
+    promises more than the code checks is the same defect in a quieter form."""
+    return [("names the source file it read", lambda b: "MULTI_AGENT" in b),
+            ("is not a stub: at least 200 characters",
+             lambda b: len((b or "").strip()) > 200)]
 
 
 def _instruction_for(task):
@@ -382,7 +392,7 @@ def _instruction_for(task):
     wrong file — while the runtime had the full path in its own queue payload
     the whole time. The agent still chooses every tool, every path it reads
     beyond this one, and every word it writes."""
-    bar = ", ".join(r["requirement"] for r in _requirements_for(task))
+    bar = ", ".join(label for label, _ in _requirements_for(task))
     return ("%s\n\nThe source file is at: %s\n\n"
             "Your artifact is checked by code you cannot reach, which tests for "
             "exactly this and nothing else: %s.\n\n"
