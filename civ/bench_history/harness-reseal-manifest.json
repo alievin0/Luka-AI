@@ -1,0 +1,134 @@
+{
+  "authorises": [],
+  "campaign3_sealed_commit": "83d00202f0b6dae98d87dc1e14a50bfbba265bb3",
+  "confounds": [
+    {
+      "direction": "can only CONSTRAIN multi, never flatter it",
+      "id": "C1-critic-token-budget",
+      "resolve_by": "measure whether any critique was truncated by the cap, then re-seal deliberately",
+      "scope": "MULTI-internal (SINGLE has no critic)",
+      "what": "the critic turn runs at max_tokens=500; every other turn in either condition runs at 900",
+      "why_not_fixed": "R23 pins 900/500 as the budgets that produced real answers across campaigns #1-#2, and no measurement shows the 500 ever bound. Raising it would retune a pre-registered parameter on suspicion, which is the defect R23 exists to prevent."
+    },
+    {
+      "direction": "neutral between conditions; a real containment limit",
+      "id": "C2-no-os-sandbox",
+      "resolve_by": "a real boundary, at which point test_the_sandbox_is_honestly_labelled must be replaced",
+      "scope": "both conditions equally; verification runs outside both",
+      "what": "EXECUTE_SANDBOX is a subprocess under the same user, not an OS boundary",
+      "why_not_fixed": "out of scope for a benchmark change; asserted in code so the limitation cannot be forgotten"
+    },
+    {
+      "direction": "neutral; it is what makes per-task capability parity provable",
+      "id": "C3-roles-rebuilt-per-run",
+      "resolve_by": "unchanged; this is a property, not a defect",
+      "scope": "both conditions equally",
+      "what": "principals are registered and their permissions rewritten from the task before every run",
+      "why_not_fixed": "deliberate — a role carrying state between runs would make run order a hidden variable"
+    },
+    {
+      "direction": "removes the mechanism the hypothesis calls persistent",
+      "id": "C4-no-persistence",
+      "resolve_by": "the word persistent stays untested; no result may claim it",
+      "scope": "both conditions equally",
+      "what": "no role remembers anything between runs",
+      "why_not_fixed": "the harness has no cross-run memory to give it"
+    },
+    {
+      "direction": "tests A fixed pipeline, not an organisation that forms itself",
+      "id": "C5-no-dynamic-team-formation",
+      "resolve_by": "any result must be reported as a fixed three-role pipeline",
+      "scope": "MULTI",
+      "what": "the role sequence is fixed at builder -> critic -> reviser",
+      "why_not_fixed": "out of scope for this change"
+    },
+    {
+      "direction": "removes any speed advantage multi could have; LATENCY is measured as if parallelism does not exist, which it does not",
+      "id": "C6-no-parallel-execution",
+      "resolve_by": "unchanged",
+      "scope": "MULTI",
+      "what": "role turns are strictly sequential; runs are strictly sequential",
+      "why_not_fixed": "out of scope; sequential execution is also what makes the artifact-name collision analysis hold"
+    },
+    {
+      "direction": "caps what either can attempt; the extra steps MULTI gets are already charged in COST and LATENCY",
+      "id": "C7-no-long-horizon-replanning",
+      "resolve_by": "unchanged; no result may claim long-horizon capability",
+      "scope": "both conditions, asymmetrically in MULTI's favour on step count (3 turns x the same per-turn budget)",
+      "what": "a role turn is bounded at MAX_TOOL_STEPS and the run ends after the fixed role sequence; nothing replans",
+      "why_not_fixed": "bounded execution is a safety property, not an oversight"
+    }
+  ],
+  "evaluators": {
+    "check_conflict": "6211a449c334e312888ea424574d3b92305b98c3b61ff9f6843fe0896bf7b3e4",
+    "check_do_no_harm": "b573d0caf8db66131aea72e4eae0ef9430b41a2bbc720d0a15cc25b8d2391e70",
+    "check_exact": "1f5d8be712efa92e0ab2d6c397691d68990628b89a4750b36ff863d58eb08958",
+    "check_factual": "23a7e2c76e9b28c5ce6f4785343c7d16b26da9ec792a8d0deccfffc9c8c74524",
+    "check_find_defect": "dda36c35aac97fff2e2355baa081b8da2c4ff384fa5f449a6e2731f462636c6e",
+    "check_interacting": "5b5b75acb8aa30a6d9e5606202cd4fbdf9c2d4fdee431069096e09f0de6a6fab",
+    "check_long_chain": "4c8c8d35933407427513e3939c1c8245bee049c73812e096e27decad007bfd79",
+    "check_silent_wrong": "5014ca852182d2c940d177caa79fa7b3eac579853a6bad501ca0ae968fee73c7",
+    "check_tool_required": "8a92b0aa934d9819fb8d2667be2effdd08038bcb947c3933be195c5c9ca7a256"
+  },
+  "execution_model": {
+    "multi": "builder -> critic -> reviser, three agent_turns, one per role",
+    "previous": "one model call per role, then a single tool call made AFTER the answer was already fixed; READ_REPO was granted on four tasks and reachable on none",
+    "shape": "model -> tool -> observation -> model, bounded, per role turn",
+    "single": "one agent_turn",
+    "supported": [
+      "a role may call a tool and SEE the result before it answers",
+      "an observation re-enters the prompt before the next model call",
+      "a role may act on what it read, including reading again",
+      "a denied or failing call returns an observation it can respond to",
+      "a role sequences its own tool steps within its turn",
+      "submission is explicit and resolves only against gateway-written bytes"
+    ]
+  },
+  "harness_commits": {
+    "68721df08e0ac340bb5ca96f17f8e8d81b3a89fa": "adversarial integration audit: audit-trail holes closed",
+    "8312f3cc8705a7d49fd4f3d54bf89a74580880c0": "the tool-use loop: agent_turn, explicit submission, one clip policy"
+  },
+  "harness_parts": {
+    "agent_turn": "4d1014d18bec2849c1c391b070fef99a21846ed5655bccd13790c36e3d6454e9",
+    "bench_crew": "dafa8d571b611d8efb7f5ccee823c3cf5ebb859d02902534cad5e11532fc63ad",
+    "clip": "6b41fe5562d9fc0714871011ca3d1a8d340562e6c150ed03e31ca538be08af01",
+    "gateway_call": "efb1c8cb97e9d262ac2ba4368039d89cadfda46ae87f41f9e4ad80e1ad39202f",
+    "gateway_paths": "45f766b2aec8ed7d4a6b8c2f66ff295ed8038d15d6cfef8b464e6def7016fe0b",
+    "gateway_scope": "35d413f108e5ed6264e1c0944a76b378c905e99cd3c246217f8f5577f3406b3f",
+    "invoke_with_retry": "13bc702b91e4c91fb9f83bcd5b2919913f841bef2861c36f8bddb01c59d0f077",
+    "is_transport_failure": "967c4ba8100a1dc441ca5fb250351eb3333144752d6b1ec4eb97d71a75e949d4",
+    "limits": "{\"CLIP_BUDGET\": 6000, \"MAX_CONSECUTIVE_DENIALS\": 2, \"MAX_TOOL_STEPS\": 4, \"MAX_TRANSPORT_RETRIES\": 2, \"OBS\": \"TOOL RESULT\", \"RESERVED_ARGS\": [\"cap\", \"lease_id\", \"principal_id\", \"self\"]}",
+    "max_tokens_per_role": "{\"BUILDER\": 900, \"CRITIC\": 500, \"REVISER\": 900, \"SOLO\": 900}",
+    "principals": "[\"AGT-BENCH-BUILD\", \"AGT-BENCH-BUILD\", \"AGT-BENCH-CRITIC\", \"AGT-BENCH-EVAL\", \"AGT-BENCH-SOLO\"]",
+    "prompts": "450539016e010eac7550a4a957aa2efbd35ab6c5e52606a6e4a3576ce532cefe",
+    "render_observation": "c3f5acef108e2f649c03e243865eb3408eed3a15d07c4101be68d9f8908b0be1",
+    "run_condition": "b604068a0e41433b73dff4864ab0a308cf70f6c3fb141911ab77dc3025becb28",
+    "verify": "c205931f871ab046fa65c1f4a5e42a9ca258c1f6ba5499e1ddf6e192114af220"
+  },
+  "harness_sha": "c7aa7c7d0dc95dd175a7e2749d0a5005ee235ba82ae506f17724b2b799ae8443",
+  "metrics_sha": "8553b9ce2ddd224192cdc6e4c8f84a3134372c8e30767cb5703006ded37c6407",
+  "reason": "the execution model changed; nothing scientific did",
+  "seal": "harness-reseal",
+  "sealed_on": "2026-09-18",
+  "statistical_rule": {
+    "alpha": 0.05,
+    "decided_needed_for_significance": 6,
+    "discriminating_tasks": 8,
+    "min_runs_per_cell": 5,
+    "min_tasks_with_signal": 3,
+    "test": "two-sided exact binomial sign test over per-task QUALITY directions"
+  },
+  "supersedes": "campaign3-sealed-manifest.json",
+  "task_set": "v2",
+  "tasks": {
+    "V2-T01-baseline": "829861142e143a3f2aa78e686b5b870c91f4b557ef1856bba75390561d85b945",
+    "V2-T02-interacting-constraints": "0d61ca3bbbf7dbd9f45dc437df5db382b5efac0bb8c78be4693f93e53cf24244",
+    "V2-T03-silent-wrong": "b221eb1c44579988884c6774de35ed8870c33d2f1eb05401e5c05e01ceac653a",
+    "V2-T04-conflicting-spec": "b12e47de05fd74bb1e8c8361deeeb69127a443619a89ef152e624b537b66b516",
+    "V2-T05-tool-required": "999ff5a4f1339c919189870cf7d5e7ba2b50ef37e12087e62f472d6c874be40e",
+    "V2-T06-factual-verification": "2f99ea98494e35dc13630fda7598c71128b1b2734c81f155d186b6c9f25791cf",
+    "V2-T07-long-chain": "af0459c44c207670bac393c40aa2e3d0d2d9756e82cb41bd365e9e65857bb4c5",
+    "V2-T08-do-no-harm": "e8284590584e6d3e197dfdb5cc9a041d227869e1faaf0112cd89b96b2b3259b5",
+    "V2-T09-find-defect": "f3d8287f9dc5ecd7e8fcd54215f66aa1a354ee6f87c179b17cc1bf724f0c401b"
+  }
+}

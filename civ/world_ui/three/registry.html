@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Registry</title>
+<link rel="stylesheet" href="/three/world3d.css">
+<style>
+  html, body { overflow: auto; }
+  #stage { position: fixed; inset: 0; z-index: 0; }
+  .reg { position: relative; z-index: 2; padding: 64px 26px 90px; max-width: 1180px;
+    margin: 0 auto; pointer-events: none; }
+  .reg h1 { font-size: 13px; letter-spacing: .26em; font-weight: 400; margin: 0 0 6px; }
+  .reg .lede { color: var(--dim); max-width: 62ch; margin: 0 0 30px; line-height: 1.75; }
+  .cards { display: grid; gap: 14px;
+    grid-template-columns: repeat(auto-fill, minmax(214px, 1fr)); }
+  .card { border: 1px solid var(--rule); background: rgba(8, 12, 16, .55);
+    backdrop-filter: blur(2px); padding: 0 0 12px; pointer-events: auto; }
+  .card .slot { height: 268px; position: relative; }
+  .card .meta { padding: 0 12px; }
+  .card b { display: block; font-weight: 400; letter-spacing: .14em; font-size: 11px; }
+  .card .bid { color: var(--live); font-size: 10px; letter-spacing: .12em; }
+  .card dl { display: grid; grid-template-columns: 62px 1fr; gap: 2px 8px;
+    margin: 10px 0 0; font-size: 10px; }
+  .card dt { color: var(--faint); letter-spacing: .08em; }
+  .card dd { margin: 0; color: var(--dim); }
+  .sw { display: inline-block; width: 9px; height: 9px; margin-right: 3px;
+    vertical-align: -1px; border: 1px solid rgba(255,255,255,.14); }
+  .note { margin-top: 34px; color: var(--faint); line-height: 1.8; max-width: 74ch; }
+  .note b { color: var(--dim); font-weight: 400; }
+  .tiers { margin-top: 40px; }
+  .tiers .slot { height: 240px; }
+  .row3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  .lab { color: var(--faint); letter-spacing: .16em; font-size: 10px;
+    padding: 8px 12px 0; }
+</style>
+</head>
+<body>
+<canvas id="stage"></canvas>
+
+<header class="chrome">
+  <div class="brand">
+    <svg viewBox="0 0 28 28" width="17" height="17" aria-hidden="true">
+      <circle cx="14" cy="14" r="11" fill="none" stroke="currentColor" stroke-width="1"/>
+      <circle cx="14" cy="14" r="1.8" fill="currentColor"/>
+      <path d="M14 3v4M14 21v4M3 14h4M21 14h4" stroke="currentColor" stroke-width="1"/>
+    </svg>
+    <span>AGENT&nbsp;WORLD</span><span class="rev">REGISTRY</span>
+  </div>
+  <a class="vb" href="/3d" style="text-decoration:none">← THE WORLD</a>
+</header>
+
+<div class="reg">
+  <h1>AGENT REGISTRY</h1>
+  <p class="lede">Every body below is built from one row in <code>agent_bodies</code>,
+     written once when the agent was founded and refused any change afterwards by
+     LAW&nbsp;43. Nothing on this page is generated at page load: reload it, restart
+     the world, re-found the agents — the same rows build the same bodies.</p>
+  <div class="cards" id="cards"></div>
+
+  <div class="tiers">
+    <h1>THREE READING DISTANCES</h1>
+    <p class="lede">The same body at the three detail tiers the renderer swaps
+       between as the camera pulls back. Far is a silhouette; mid keeps the role's
+       equipment; near is everything.</p>
+    <div class="row3" id="tiers"></div>
+  </div>
+
+  <p class="note" id="note"></p>
+</div>
+
+<script type="module" src="/three/registry.js"></script>
+</body>
+</html>

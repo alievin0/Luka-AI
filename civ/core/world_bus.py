@@ -1,0 +1,279 @@
+"""THE EVENT BUS — how an agent wakes.
+
+Agents are not processes. There is no loop with five threads in it waiting for
+something to do; there are five persistent IDENTITIES and a queue. An event puts
+work on the queue, a worker claims one item under a lease, the agent wakes for
+exactly that work, and then it stops existing again.
+
+    EVENT → QUEUE → LEASE → AGENT RUNTIME → WORK → EVENT
+
+That shape is what makes 1,000 agents conceivable later and what makes 5 agents
+honest now: nothing is "running" that is not doing something.
+
+Delivered twice is done once. `dedupe_key` is a UNIQUE column, not a check —
+because a duplicate-suppression rule that lives in Python is a rule that stops
+holding the moment two workers race.
+"""
+import json
+import os
+
+from . import store, world_policy as POL
+from .store import now, sha
+
+OWNER = POL.OWNER
+
+# What can wake an agent. Nothing else is a valid queue kind — an unknown kind
+# is refused at the boundary rather than dispatched to a handler that shrugs.
+KINDS = (
+    "OWNER_OBJECTIVE",        # the Owner said what they want
+    "DISCOVERY_MADE",         # something was noticed
+    "OPPORTUNITY_PROPOSED",   # an agent thinks it is worth doing
+    "OPPORTUNITY_APPROVED",   # the control plane agreed
+    "PROJECT_OPENED",         # a project exists and needs a plan
+    "TASK_READY",             # dependencies satisfied; someone can start
+    "TASK_ASSIGNED",          # an agent has been given it
+    "ARTIFACT_CREATED",       # something was produced and needs checking
+    "VERIFICATION_DONE",      # deterministic checks have run
+    "REVIEW_REQUESTED",       # an independent reviewer is needed
+    "REVIEW_DONE",            # a verdict exists
+    "TASK_ACCEPTED",          # work passed; dependents may become ready
+    "TASK_FAILED",            # work did not pass
+    "CORRECTION_NEEDED",      # a rejection produced a correction task
+    "MESSAGE_SENT",           # an agent wrote to another
+    "EVIDENCE_ADDED",         # the record grew
+    "LEASE_EXPIRED",          # a worker died holding something
+    "SKILL_GAP_FOUND",        # nobody can do what the project needs
+    "HEARTBEAT",              # periodic reconciliation
+    "WORKER_FAILED",          # a worker stopped saying anything
+    "DECISION_REQUIRED",      # the Owner has to answer before more can happen
+    "BUDGET_EXHAUSTED",       # a bounded resource ran out
+    "OWNER_AWAY",             # the Owner stopped watching
+    "OWNER_RETURNED",         # and came back
+)
+
+
+class BusError(RuntimeError):
+    pass
+
+
+def register_worker(con, worker, note=""):
+    """A worker announces itself. Disposable by design; the agent is not."""
+    import socket
+    row = con.execute("SELECT 1 FROM workers WHERE id=?", (worker,)).fetchone()
+    if row:
+        con.execute("UPDATE workers SET last_seen=?, state='ALIVE' WHERE id=?",
+                    (now(), worker))
+    else:
+        con.execute("INSERT INTO workers(id,started_at,last_seen,host,pid,note) "
+                    "VALUES(?,?,?,?,?,?)",
+                    (worker, now(), now(), socket.gethostname()[:60], os.getpid(), note))
+        store.event(con, "WORKER_STARTED", actor=OWNER, subject="worker:%s" % worker,
+                    payload={"note": note})
+    return worker
+
+
+def beat(con, worker):
+    con.execute("UPDATE workers SET last_seen=? WHERE id=?", (now(), worker))
+
+
+def stop_worker(con, worker, note="stopped"):
+    con.execute("UPDATE workers SET state='STOPPED', last_seen=?, note=? WHERE id=?",
+                (now(), note, worker))
+    store.event(con, "WORKER_STOPPED", actor=OWNER, subject="worker:%s" % worker,
+                payload={"note": note})
+
+
+def stale_workers(con, older_than_seconds=120):
+    """Workers that stopped saying anything. Their work is recoverable."""
+    import datetime
+    cutoff = (datetime.datetime.now(datetime.timezone.utc)
+              - datetime.timedelta(seconds=older_than_seconds)).isoformat()
+    out = []
+    for r in con.execute("SELECT * FROM workers WHERE state='ALIVE' AND last_seen<?",
+                         (cutoff,)).fetchall():
+        con.execute("UPDATE workers SET state='STALE' WHERE id=?", (r["id"],))
+        store.event(con, "WORKER_FAILED", actor=OWNER, subject="worker:%s" % r["id"],
+                    payload={"last_seen": r["last_seen"]})
+        out.append(r["id"])
+    return out
+
+
+def _key(kind, subject, payload, chain_id):
+    """The identity of a piece of work.
+
+    Deliberately NOT the timestamp: two emissions of "review artifact #4" are
+    the same work whenever they arrive. Chain id is included so the same event
+    inside two different cascades stays two pieces of work."""
+    return sha({"k": kind, "s": subject, "p": payload, "c": chain_id})[:40]
+
+
+def emit(con, kind, subject=None, payload=None, by=OWNER, chain_id=None,
+         depth=0, priority=5, max_attempts=3, available_at=None, caused_by=None):
+    """Put work on the queue. Returns (queue_id, created).
+
+    `created` is False when this exact work was already queued — which is not an
+    error and not a warning. It is the normal, expected outcome of a world that
+    delivers the same event twice, and the caller carries on."""
+    if kind not in KINDS:
+        raise BusError("unknown event kind %r" % kind)
+    payload = payload or {}
+    ok, why = POL.chain_room(con, chain_id, depth=depth)
+    if not ok:
+        POL.halt_chain(con, chain_id, why)
+        return None, False
+    key = _key(kind, subject, payload, chain_id)
+    row = con.execute("SELECT id FROM world_queue WHERE dedupe_key=?", (key,)).fetchone()
+    if row:
+        return row["id"], False
+    ev = store.event(con, "QUEUED_" + kind, actor=by, subject=subject, payload=payload)
+    qid = con.execute(
+        "INSERT INTO world_queue(at,kind,subject,payload,dedupe_key,priority,"
+        "available_at,max_attempts,chain_id,depth,emitted_by,event_id,caused_by) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (now(), kind, subject, json.dumps(payload, ensure_ascii=False), key, priority,
+         available_at or now(), max_attempts, chain_id, depth, by,
+         ev if isinstance(ev, int) else None, caused_by)).lastrowid
+    POL.note_chain(con, chain_id, depth=depth, events=1)
+    return qid, True
+
+
+def claim(con, worker, kinds=None, max_in_flight=3):
+    """Take the next eligible item, or None. Bounded concurrency, enforced here.
+
+    The engine decides HOW one row goes to one worker — a guarded UPDATE on
+    SQLite, `FOR UPDATE SKIP LOCKED` on Postgres — and this function does not
+    know which. What it guarantees either way is the same: N workers racing for
+    one entry produce one winner and N-1 Nones, and a None is a normal outcome."""
+    d = store.DIALECT or __import__("civ.core.dialect", fromlist=["x"]).SQLiteDialect()
+    got = d.claim_one(con, worker, kinds, now(), max_in_flight)
+    if got is None:
+        return None
+    con.execute("UPDATE workers SET claimed=claimed+1, last_seen=? WHERE id=?",
+                (now(), worker))
+    return dict(got, payload=json.loads(got["payload"] or "{}"))
+
+
+def ack(con, qid, result=None, worker=None):
+    con.execute("UPDATE world_queue SET state='DONE', finished_at=?, result=? WHERE id=?",
+                (now(), json.dumps(result or {}, ensure_ascii=False)[:4000], qid))
+    if worker:
+        con.execute("UPDATE workers SET completed=completed+1, last_seen=? WHERE id=?",
+                    (now(), worker))
+
+
+def nack(con, qid, why, retry_in_seconds=0):
+    """Hand work back. It retries until max_attempts, then FAILS and escalates.
+
+    'Retry forever' is the failure mode that turns a bad tool call into an
+    unbounded loop, so the attempt ceiling is a column on the row and the
+    escalation is a signal the Owner will see."""
+    row = con.execute("SELECT * FROM world_queue WHERE id=?", (qid,)).fetchone()
+    if row is None:
+        return
+    if row["attempts"] >= row["max_attempts"]:
+        con.execute("UPDATE world_queue SET state='FAILED', finished_at=?, result=? "
+                    "WHERE id=?", (now(), json.dumps({"why": why})[:4000], qid))
+        store.event(con, "WORK_ABANDONED", actor=OWNER, subject="queue:%d" % qid,
+                    payload={"kind": row["kind"], "attempts": row["attempts"], "why": why})
+        store.signal(con, "HIGH", "Autonomous work gave up after %d attempts"
+                     % row["attempts"], "%s: %s" % (row["kind"], why))
+        return
+    when = now() if not retry_in_seconds else _plus(retry_in_seconds)
+    con.execute("UPDATE world_queue SET state='READY', worker=NULL, claimed_at=NULL, "
+                "available_at=?, result=? WHERE id=?",
+                (when, json.dumps({"why": why})[:4000], qid))
+
+
+def wait_for_model(con, qid, why):
+    """Park work that needs inference when no engine exists.
+
+    NOT failed, NOT retried into an error, and above all NOT simulated. The
+    world stays up, the work stays queued, and the record says plainly that an
+    agent did not run because there was nothing to run it."""
+    con.execute("UPDATE world_queue SET state='WAITING_FOR_MODEL', worker=NULL, "
+                "claimed_at=NULL, result=? WHERE id=?",
+                (json.dumps({"why": why})[:4000], qid))
+    store.event(con, "MODEL_UNAVAILABLE", actor=OWNER, subject="queue:%d" % qid,
+                payload={"why": why})
+
+
+def resume_waiting(con, limit=200):
+    """Return parked work to the queue once an engine answers again."""
+    ids = [r["id"] for r in con.execute(
+        "SELECT id FROM world_queue WHERE state='WAITING_FOR_MODEL' "
+        "ORDER BY id LIMIT ?", (limit,))]
+    for qid in ids:
+        con.execute("UPDATE world_queue SET state='READY', available_at=?, result=NULL "
+                    "WHERE id=? AND state='WAITING_FOR_MODEL'", (now(), qid))
+    if ids:
+        store.event(con, "MODEL_RESUMED", actor=OWNER, subject="queue",
+                    payload={"resumed": len(ids)})
+    return ids
+
+
+def waiting_for_model(con):
+    return con.execute("SELECT COUNT(*) c FROM world_queue "
+                       "WHERE state='WAITING_FOR_MODEL'").fetchone()["c"]
+
+
+def defer(con, qid, why):
+    """Not now, and not an error: a dependency is unmet or a budget is spent."""
+    con.execute("UPDATE world_queue SET state='DEFERRED', finished_at=?, result=? "
+                "WHERE id=?", (now(), json.dumps({"why": why})[:4000], qid))
+
+
+def drop(con, qid, why):
+    """Nothing to do — the state it refers to already moved on."""
+    con.execute("UPDATE world_queue SET state='DROPPED', finished_at=?, result=? "
+                "WHERE id=?", (now(), json.dumps({"why": why})[:4000], qid))
+
+
+def _plus(seconds):
+    import datetime
+    return (datetime.datetime.now(datetime.timezone.utc)
+            + datetime.timedelta(seconds=seconds)).isoformat()
+
+
+def recover_stuck(con, older_than_seconds=300, worker=None):
+    """Return work claimed by a worker that never came back.
+
+    This is the queue's half of crash recovery: a process that dies mid-item
+    leaves a CLAIMED row with nobody behind it, and the world must be able to
+    pick it up without the Owner noticing anything happened."""
+    import datetime
+    cutoff = (datetime.datetime.now(datetime.timezone.utc)
+              - datetime.timedelta(seconds=older_than_seconds)).isoformat()
+    q = "SELECT * FROM world_queue WHERE state='CLAIMED' AND claimed_at < ?"
+    args = [cutoff]
+    if worker:
+        q += " AND worker=?"
+        args.append(worker)
+    freed = []
+    for row in con.execute(q, args).fetchall():
+        con.execute("UPDATE world_queue SET state='READY', worker=NULL, claimed_at=NULL "
+                    "WHERE id=? AND state='CLAIMED'", (row["id"],))
+        freed.append(row["id"])
+        store.event(con, "WORK_RECOVERED", actor=OWNER, subject="queue:%d" % row["id"],
+                    payload={"kind": row["kind"], "was": row["worker"]})
+    return freed
+
+
+def depth(con):
+    """How much work is outstanding, by state. The world's pulse."""
+    out = {s: 0 for s in ("READY", "CLAIMED", "DONE", "FAILED", "DEFERRED", "DROPPED")}
+    for r in con.execute("SELECT state, COUNT(*) c FROM world_queue GROUP BY state"):
+        out[r["state"]] = r["c"]
+    return out
+
+
+def quiet(con):
+    """True when nothing is READY and nothing is in flight.
+
+    Work parked as WAITING_FOR_MODEL does NOT make the world busy — nothing is
+    happening — but it is not lost either, and `waiting_for_model()` is what the
+    Owner is shown instead of a false sense of progress.
+
+    This is the only definition of 'the world is idle' the UI is allowed to use:
+    it is a COUNT over rows, not an impression."""
+    d = depth(con)
+    return d["READY"] == 0 and d["CLAIMED"] == 0

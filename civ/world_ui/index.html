@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent World</title>
+<link rel="stylesheet" href="/world.css">
+</head>
+<body>
+<div class="vignette" aria-hidden="true"></div>
+
+<header class="chrome">
+  <div class="identity">
+    <svg viewBox="0 0 28 28" width="20" height="20" aria-hidden="true" class="seal">
+      <circle cx="14" cy="14" r="11" fill="none" stroke="currentColor" stroke-width="1"/>
+      <circle cx="14" cy="14" r="4" fill="none" stroke="currentColor" stroke-width="1"/>
+      <circle cx="14" cy="14" r="1.6" fill="currentColor"/>
+      <path d="M14 3v4M14 21v4M3 14h4M21 14h4" stroke="currentColor" stroke-width="1"/>
+    </svg>
+    <span class="name">AGENT&nbsp;WORLD</span>
+    <span class="rev">v0.1</span>
+  </div>
+  <nav class="viewbar" id="viewbar">
+    <button class="vb on" data-focus="world">World</button>
+    <button class="vb" data-focus="line">The Line</button>
+    <button class="vb" data-focus="observatory">Observatory</button>
+    <span class="sep"></span>
+    <button class="vb ghost" data-zoom="-1" title="Zoom out">−</button>
+    <button class="vb ghost" data-zoom="1" title="Zoom in">+</button>
+    <span class="zoomread" id="zoomread">100%</span>
+  </nav>
+  <div class="auto" id="autostrip"></div>
+  <div class="condition" id="condition"></div>
+</header>
+
+<main class="world" id="world">
+  <div class="plate" id="plate">
+    <svg class="flow" id="flow" aria-hidden="true"></svg>
+
+    <!-- OWNER — outside the hierarchy, above the floor -->
+    <section class="observatory" id="observatory" data-zone="observatory">
+      <div class="obshead">
+        <span class="obstitle">OWNER OBSERVATORY</span>
+        <span class="obsmeta" id="obsmeta"></span>
+      </div>
+      <div class="signals" id="signals"></div>
+      <div class="obsfoot" id="obsfoot"></div>
+    </section>
+
+    <!-- THE LINE — six bays, each a real station -->
+    <section class="line" id="line" data-zone="line"></section>
+
+    <!-- INTAKE — what the world noticed on its own, before anyone agreed to it -->
+    <section class="intake" id="intake" data-zone="intake"></section>
+
+    <!-- PROJECTS — workspaces off the line -->
+    <section class="yards" id="yards" data-zone="yards"></section>
+
+    <!-- AGENTS — positioned by the server's placement, never by chance -->
+    <div class="agents" id="agents"></div>
+  </div>
+
+  <aside class="ledger" id="ledger">
+    <button class="ledgertab" id="ledgertab">FORENSIC LOG</button>
+    <div class="ledgerbody">
+      <div class="ledgerhead"><h2>RAW EVENTS</h2><span id="ledgercount"></span></div>
+      <ol class="rawlist" id="rawlist"></ol>
+    </div>
+  </aside>
+</main>
+
+<div class="inspector" id="inspector" aria-hidden="true">
+  <div class="ihead">
+    <div class="iform" id="iform"></div>
+    <div class="ititles">
+      <div class="ititle" id="ititle">—</div>
+      <div class="isub" id="isub"></div>
+    </div>
+    <button class="iclose" id="iclose" aria-label="Close">×</button>
+  </div>
+  <div class="ibody" id="ibody"></div>
+</div>
+<div class="scrim" id="scrim"></div>
+
+<script src="/world.js"></script>
+</body>
+</html>

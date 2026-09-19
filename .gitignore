@@ -29,3 +29,24 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# عالم المحاكاة — قاعدة البيانات محلية ولا تُرفع
+world/world.db
+world/world.db-*
+world/__pycache__/
+world/sim/__pycache__/
+civ/civ.db
+civ/civ.db-*
+civ/artifacts/*
+!civ/artifacts/.gitkeep
+civ/**/__pycache__/
+
+# benchmark fixtures materialised at run time (R17)
+/bench_fixtures/
+civ/bench_report.json
+civ/*.db
+civ/*.db-*
+
+# archived benchmark worlds (R20: --fresh archives instead of deleting)
+civ/*.db.archived-*
+civ/world_fixtures/
